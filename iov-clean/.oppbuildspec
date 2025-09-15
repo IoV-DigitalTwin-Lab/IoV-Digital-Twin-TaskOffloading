@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <buildspec version="4.0">
-    <dir makemake-options="--make-so --deep -o iov-clean -O out -I. --meta:recurse --meta:export-include-path --meta:use-exported-include-paths --meta:export-library --meta:feature-cflags" path="." type="makemake"/>
+    <dir makemake-options="--make-so --deep -o iov-clean -O out -I../veins-5.3.1/veins-veins-5.3.1/src -I. --meta:recurse --meta:export-include-path --meta:use-exported-include-paths --meta:export-library --meta:feature-cflags" path="." type="makemake"/>
 </buildspec>

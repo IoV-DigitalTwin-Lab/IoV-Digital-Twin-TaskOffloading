@@ -12,19 +12,20 @@ network Top
                 @display("p=100,60;i=block/network2");
         }
         edge: EdgeServer {
-            parameters:
-                numRsu = numRsu;
-                @display("p=700,60;i=device/server");
-        }
+		    parameters:
+		        numRsu = parent.numRsu;   // <-- use parent’s parameter
+		        @display("p=700,60;i=device/server");
+		}
+
         rsu[numRsu]: Rsu {
             parameters:
                 @display("p=300+200*index,200");
                 posX = 200m + 400m*index;
                 posY = 200m;
         }
-    connections:
-        for i=0..numRsu-1 {
-            rsu[i].edgeOut --> { delay = 2ms; datarate = 100Mbps; } --> edge.rsuIn[i];
-            edge.rsuOut[i] --> { delay = 2ms; datarate = 100Mbps; } --> rsu[i].edgeIn;
-        }
+    connections allowunconnected:
+	    for i=0..numRsu-1 {
+	        rsu[i].edgeOut --> { delay = 2ms; datarate = 100Mbps; } --> edge.rsuIn[i];
+	        edge.rsuOut[i] --> { delay = 2ms; datarate = 100Mbps; } --> rsu[i].edgeIn;
+	    }
 }

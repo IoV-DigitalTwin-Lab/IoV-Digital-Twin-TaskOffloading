@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for $(LIB_PREFIX)iov-clean
 #
 # This file was generated with the command:
-#  opp_makemake --make-so -f --deep -o iov-clean -O out -KVEINS_PROJ=../veins-5.3.1/veins-veins-5.3.1 -I. -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(VEINS_PROJ\)/src
+#  opp_makemake --make-so -f --deep -o iov-clean -O out -KVEINS_PROJ=../veins-5.3.1/veins-veins-5.3.1 -I$$\(VEINS_PROJ\)/src -I. -Isrc -L$$\(VEINS_PROJ\)/src
 #
 
 # Name of target to be created (-o option)
@@ -14,7 +14,7 @@ TARGET_IMPDEF = $(TARGET_NAME)$(IMPDEF_SUFFIX)
 TARGET_FILES = $(TARGET_DIR)/$(TARGET)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I. -I$(VEINS_PROJ)/src -Isrc
+INCLUDE_PATH = -I$(VEINS_PROJ)/src -I. -Isrc
 
 # Additional object and library files to link with
 EXTRA_OBJS =
