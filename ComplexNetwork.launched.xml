@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="ComplexNetwork.net.xml"/>
+    <copy file="ComplexNetwork.rou.xml"/>
+    <copy file="ComplexNetwork.sumocfg" type="config"/>
+</launch>
