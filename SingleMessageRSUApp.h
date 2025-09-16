@@ -11,6 +11,8 @@ namespace complex_network {
 class SingleMessageRSUApp : public DemoBaseApplLayer {
 public:
     void initialize(int stage) override;
+    void handleMessage(cMessage* msg) override;  // ADD THIS LINE
+    void receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) override;  // ADD THIS LINE
 
 protected:
     void onWSM(BaseFrame1609_4* wsm) override;
