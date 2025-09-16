@@ -17,6 +17,6 @@ protected:
     void handleSelfMsg(cMessage* msg) override;
 };
 
-} // namespace communication_network
+} // namespace complex_network
 
 #endif

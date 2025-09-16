@@ -1,9 +1,9 @@
-file 322344 1757961707                                          
+                                                                
 version 3
-run Default-0-20250915-22:14:07-17226
+run Default-0-20250916-07:58:51-10041
 attr configname Default
-attr datetime 20250915-22:14:07
-attr datetimef 20250915-221407
+attr datetime 20250916-07:58:51
+attr datetimef 20250916-075851
 attr experiment Default
 attr inifile omnetpp.ini
 attr iterationvars ""
@@ -11,7 +11,7 @@ attr iterationvarsd ""
 attr iterationvarsf ""
 attr measurement ""
 attr network ComplexNetwork
-attr processid 17226
+attr processid 10041
 attr repetition 0
 attr replication #0
 attr resultdir results
@@ -48,14 +48,14 @@ config *.tls[*].logicType "\"org.car2x.veins.modules.world.traci.trafficLight.lo
 config *.rsu[0].mobility.x 2000
 config *.rsu[0].mobility.y 2000
 config *.rsu[0].mobility.z 3
-config *.rsu[*].applType "\"MyVeinsApp\""
-config *.rsu[*].appl.headerLength "80 bit"
+config *.rsu[*].applType "\"MyRSUApp\""
+config *.rsu[*].appl.headerLength 80bit
 config *.rsu[*].appl.sendBeacons false
 config *.rsu[*].appl.dataOnSch false
 config *.rsu[*].appl.beaconInterval 1s
 config *.rsu[*].appl.beaconUserPriority 7
 config *.rsu[*].appl.dataUserPriority 5
-config *.rsu[*].nic.phy80211p.antennaOffsetZ "0 m"
+config *.rsu[*].nic.phy80211p.antennaOffsetZ 0m
 config *.connectionManager.sendDirect true
 config *.connectionManager.maxInterfDist 2600m
 config *.connectionManager.drawMaxIntfDist false
@@ -69,10 +69,10 @@ config *.**.nic.phy80211p.decider "xmldoc(\"config.xml\")"
 config *.**.nic.phy80211p.analogueModels "xmldoc(\"config.xml\")"
 config *.**.nic.phy80211p.usePropagationDelay true
 config *.**.nic.phy80211p.antenna "xmldoc(\"antenna.xml\", \"/root/Antenna[@id='monopole']\")"
-config *.node[*].nic.phy80211p.antennaOffsetY "0 m"
-config *.node[*].nic.phy80211p.antennaOffsetZ "1.895 m"
+config *.node[*].nic.phy80211p.antennaOffsetY 0m
+config *.node[*].nic.phy80211p.antennaOffsetZ 1.895m
 config *.node[*].applType "\"TraCIDemo11p\""
-config *.node[*].appl.headerLength "80 bit"
+config *.node[*].appl.headerLength 80bit
 config *.node[*].appl.sendBeacons false
 config *.node[*].appl.dataOnSch false
 config *.node[*].appl.beaconInterval 1s
@@ -99,243 +99,4 @@ vector 11 ComplexNetwork.manager posx ETV
 vector 12 ComplexNetwork.manager posy ETV
 vector 13 ComplexNetwork.manager speed ETV
 vector 14 ComplexNetwork.manager acceleration ETV
-vector 15 ComplexNetwork.manager co2emission ETV
-vector 16 ComplexNetwork.node[2].nic.phy80211p RadioState ETV
-vector 17 ComplexNetwork.node[2].nic.phy80211p RadioChannel ETV
-vector 18 ComplexNetwork.manager posx ETV
-vector 19 ComplexNetwork.manager posy ETV
-vector 20 ComplexNetwork.manager speed ETV
-vector 21 ComplexNetwork.manager acceleration ETV
-vector 22 ComplexNetwork.manager co2emission ETV
-vector 23 ComplexNetwork.node[3].nic.phy80211p RadioState ETV
-vector 24 ComplexNetwork.node[3].nic.phy80211p RadioChannel ETV
-vector 25 ComplexNetwork.manager posx ETV
-vector 26 ComplexNetwork.manager posy ETV
-vector 27 ComplexNetwork.manager speed ETV
-vector 28 ComplexNetwork.manager acceleration ETV
-vector 29 ComplexNetwork.manager co2emission ETV
-vector 30 ComplexNetwork.node[4].nic.phy80211p RadioState ETV
-vector 31 ComplexNetwork.node[4].nic.phy80211p RadioChannel ETV
-vector 32 ComplexNetwork.manager posx ETV
-vector 33 ComplexNetwork.manager posy ETV
-vector 34 ComplexNetwork.manager speed ETV
-vector 35 ComplexNetwork.manager acceleration ETV
-vector 36 ComplexNetwork.manager co2emission ETV
-vector 37 ComplexNetwork.node[5].nic.phy80211p RadioState ETV
-vector 38 ComplexNetwork.node[5].nic.phy80211p RadioChannel ETV
-vector 39 ComplexNetwork.manager posx ETV
-vector 40 ComplexNetwork.manager posy ETV
-vector 41 ComplexNetwork.manager speed ETV
-vector 42 ComplexNetwork.manager acceleration ETV
-vector 43 ComplexNetwork.manager co2emission ETV
-vector 44 ComplexNetwork.node[6].nic.phy80211p RadioState ETV
-vector 45 ComplexNetwork.node[6].nic.phy80211p RadioChannel ETV
-vector 46 ComplexNetwork.manager posx ETV
-vector 47 ComplexNetwork.manager posy ETV
-vector 48 ComplexNetwork.manager speed ETV
-vector 49 ComplexNetwork.manager acceleration ETV
-vector 50 ComplexNetwork.manager co2emission ETV
-vector 51 ComplexNetwork.node[7].nic.phy80211p RadioState ETV
-vector 52 ComplexNetwork.node[7].nic.phy80211p RadioChannel ETV
-vector 53 ComplexNetwork.manager posx ETV
-vector 54 ComplexNetwork.manager posy ETV
-vector 55 ComplexNetwork.manager speed ETV
-vector 56 ComplexNetwork.manager acceleration ETV
-vector 57 ComplexNetwork.manager co2emission ETV
-vector 58 ComplexNetwork.node[8].nic.phy80211p RadioState ETV
-vector 59 ComplexNetwork.node[8].nic.phy80211p RadioChannel ETV
-vector 60 ComplexNetwork.manager posx ETV
-vector 61 ComplexNetwork.manager posy ETV
-vector 62 ComplexNetwork.manager speed ETV
-vector 63 ComplexNetwork.manager acceleration ETV
-vector 64 ComplexNetwork.manager co2emission ETV
-vector 65 ComplexNetwork.node[9].nic.phy80211p RadioState ETV
-vector 66 ComplexNetwork.node[9].nic.phy80211p RadioChannel ETV
-vector 67 ComplexNetwork.manager posx ETV
-vector 68 ComplexNetwork.manager posy ETV
-vector 69 ComplexNetwork.manager speed ETV
-vector 70 ComplexNetwork.manager acceleration ETV
-vector 71 ComplexNetwork.manager co2emission ETV
-vector 72 ComplexNetwork.node[10].nic.phy80211p RadioState ETV
-vector 73 ComplexNetwork.node[10].nic.phy80211p RadioChannel ETV
-vector 74 ComplexNetwork.manager posx ETV
-vector 75 ComplexNetwork.manager posy ETV
-vector 76 ComplexNetwork.manager speed ETV
-vector 77 ComplexNetwork.manager acceleration ETV
-vector 78 ComplexNetwork.manager co2emission ETV
-vector 79 ComplexNetwork.node[11].nic.phy80211p RadioState ETV
-vector 80 ComplexNetwork.node[11].nic.phy80211p RadioChannel ETV
-vector 81 ComplexNetwork.manager posx ETV
-vector 82 ComplexNetwork.manager posy ETV
-vector 83 ComplexNetwork.manager speed ETV
-vector 84 ComplexNetwork.manager acceleration ETV
-vector 85 ComplexNetwork.manager co2emission ETV
-vector 86 ComplexNetwork.node[12].nic.phy80211p RadioState ETV
-vector 87 ComplexNetwork.node[12].nic.phy80211p RadioChannel ETV
-vector 88 ComplexNetwork.manager posx ETV
-vector 89 ComplexNetwork.manager posy ETV
-vector 90 ComplexNetwork.manager speed ETV
-vector 91 ComplexNetwork.manager acceleration ETV
-vector 92 ComplexNetwork.manager co2emission ETV
-vector 93 ComplexNetwork.node[13].nic.phy80211p RadioState ETV
-vector 94 ComplexNetwork.node[13].nic.phy80211p RadioChannel ETV
-vector 95 ComplexNetwork.manager posx ETV
-vector 96 ComplexNetwork.manager posy ETV
-vector 97 ComplexNetwork.manager speed ETV
-vector 98 ComplexNetwork.manager acceleration ETV
-vector 99 ComplexNetwork.manager co2emission ETV
-vector 100 ComplexNetwork.node[14].nic.phy80211p RadioState ETV
-vector 101 ComplexNetwork.node[14].nic.phy80211p RadioChannel ETV
-vector 102 ComplexNetwork.manager posx ETV
-vector 103 ComplexNetwork.manager posy ETV
-vector 104 ComplexNetwork.manager speed ETV
-vector 105 ComplexNetwork.manager acceleration ETV
-vector 106 ComplexNetwork.manager co2emission ETV
-vector 107 ComplexNetwork.node[15].nic.phy80211p RadioState ETV
-vector 108 ComplexNetwork.node[15].nic.phy80211p RadioChannel ETV
-vector 109 ComplexNetwork.manager posx ETV
-vector 110 ComplexNetwork.manager posy ETV
-vector 111 ComplexNetwork.manager speed ETV
-vector 112 ComplexNetwork.manager acceleration ETV
-vector 113 ComplexNetwork.manager co2emission ETV
-vector 114 ComplexNetwork.node[16].nic.phy80211p RadioState ETV
-vector 115 ComplexNetwork.node[16].nic.phy80211p RadioChannel ETV
-vector 116 ComplexNetwork.manager posx ETV
-vector 117 ComplexNetwork.manager posy ETV
-vector 118 ComplexNetwork.manager speed ETV
-vector 119 ComplexNetwork.manager acceleration ETV
-vector 120 ComplexNetwork.manager co2emission ETV
-vector 121 ComplexNetwork.node[17].nic.phy80211p RadioState ETV
-vector 122 ComplexNetwork.node[17].nic.phy80211p RadioChannel ETV
-vector 123 ComplexNetwork.manager posx ETV
-vector 124 ComplexNetwork.manager posy ETV
-vector 125 ComplexNetwork.manager speed ETV
-vector 126 ComplexNetwork.manager acceleration ETV
-vector 127 ComplexNetwork.manager co2emission ETV
-vector 128 ComplexNetwork.node[18].nic.phy80211p RadioState ETV
-vector 129 ComplexNetwork.node[18].nic.phy80211p RadioChannel ETV
-vector 130 ComplexNetwork.manager posx ETV
-vector 131 ComplexNetwork.manager posy ETV
-vector 132 ComplexNetwork.manager speed ETV
-vector 133 ComplexNetwork.manager acceleration ETV
-vector 134 ComplexNetwork.manager co2emission ETV
-vector 135 ComplexNetwork.node[19].nic.phy80211p RadioState ETV
-vector 136 ComplexNetwork.node[19].nic.phy80211p RadioChannel ETV
-vector 137 ComplexNetwork.manager posx ETV
-vector 138 ComplexNetwork.manager posy ETV
-vector 139 ComplexNetwork.manager speed ETV
-vector 140 ComplexNetwork.manager acceleration ETV
-vector 141 ComplexNetwork.manager co2emission ETV
-vector 142 ComplexNetwork.node[20].nic.phy80211p RadioState ETV
-vector 143 ComplexNetwork.node[20].nic.phy80211p RadioChannel ETV
-vector 144 ComplexNetwork.manager posx ETV
-vector 145 ComplexNetwork.manager posy ETV
-vector 146 ComplexNetwork.manager speed ETV
-vector 147 ComplexNetwork.manager acceleration ETV
-vector 148 ComplexNetwork.manager co2emission ETV
-8	10840 2074 4 104 3 103 101 0.973 10.709303828799 368.62086944395 2031.0695490281
-7	12914 2512 4 104 3 103 101 -4.4379896501079 2.5926332155941 12.239668922468 327.40930833075
-6	15426 2430 3 104 2 103 102 2.3097215975402 15.455276816448 1256.0153418704 16765.118532028
-5	17856 1815 2 104 1 103 103 26.6 323.4 17996.347541482 4553499.319752
-4	19671 2038 2 104 1 103 103 26.6 323.4 17809.619995615 4496791.8222375
-15	21709 2385 9 115 8 114 107 0.973 10.181748679049 353.20718084242 1789.4573815058
-14	24094 2755 9 115 8 114 107 -4.5 2.5744401467033 10.928298413084 314.4872839747
-13	26849 2716 8 115 7 114 108 2.5407174649648 14.547827230516 1263.7071102605 16017.577443799
-12	29565 2071 7 115 6 114 109 26.6 323.4 18851.681749783 4746043.112695
-11	31636 2301 7 115 6 114 109 26.6 323.4 19336.31980113 4923117.4093961
-22	33937 2455 14 124 13 123 111 0.973 8.7701286227507 347.23716087025 1636.0249666986
-21	36392 2902 14 124 13 123 111 -4.5 2.5651967352023 11.970183720762 290.79288855051
-20	39294 2837 13 124 12 123 112 1.4744299653452 14.264455808462 1258.345723555 15488.789481835
-19	42131 2167 12 124 11 123 113 26.6 323.4 19666.008810876 4973643.3599251
-18	44298 2416 12 124 11 123 113 26.6 323.4 19595.566618377 4947314.4827533
-29	46714 2529 19 131 18 130 113 0.973 8.2933702049314 351.36149696972 1639.157487396
-28	49243 2979 19 131 18 130 113 -4.5 2.5903387362603 12.435572540198 281.17131350692
-27	52222 2895 18 131 17 130 114 1.6605673349462 14.099441232575 1262.7653176327 15395.218947516
-26	55117 2239 17 131 16 130 115 26.6 323.4 20237.682121293 5154697.2480535
-25	57356 2472 17 131 16 130 115 26.6 323.4 20325.048162537 5195391.8198999
-36	59828 2774 24 147 23 146 124 0.973 9.1278321363521 331.30844713842 1323.8454894026
-35	62602 3309 24 147 23 146 124 -4.5 2.5535414493876 9.0858428152897 253.65361570752
-34	65911 3209 23 147 22 146 125 1.9964566827752 12.264365292984 1265.5802384704 13800.586639
-33	69120 2462 22 147 21 146 126 26.6 323.4 22208.3536686 5646703.0966689
-32	71582 2734 22 147 21 146 126 26.6 323.4 22357.805809975 5686529.62834
-43	74316 2650 29 149 28 148 121 0.973 8.9910490930689 385.17542407744 1978.6683328219
-42	76966 3189 29 149 28 148 121 -4.5 2.5438195437426 12.948886825088 326.22376523816
-41	80155 3132 28 149 27 148 122 1.863619765942 15.89927953767 1264.5649704896 14860.745152796
-40	83287 2410 27 149 26 148 123 26.6 323.4 22103.499686019 5666215.8278238
-39	85697 2674 27 149 26 148 123 26.6 323.4 21810.908544314 5599280.0036089
-50	88371 2730 34 154 33 153 121 0.973 9.4868987447801 335.59854333397 1445.1447919087
-49	91101 3264 34 154 33 153 121 -4.3308379574679 2.5625594945624 11.026077723353 259.71459321551
-48	94365 3139 33 154 32 153 122 1.8937502457993 13.130899528311 1264.7199000597 14384.112144147
-47	97504 2390 32 154 31 153 123 26.6 323.4 21824.002117885 5551368.6198615
-46	99894 2695 32 154 31 153 123 26.6 323.4 20964.773999833 5257386.4856125
-85	102589 2739 59 176 58 175 118 0.973 9.4929153011877 334.4534992922 1441.2671328446
-84	105328 3219 59 176 58 175 118 -4.5 2.5746821876615 10.988168731247 247.48003424186
-83	108547 3120 58 176 57 175 119 1.8839627243113 13.113952594398 1283.3281517853 14734.72306547
-82	111667 2406 57 176 56 175 120 23.4 326.6 21006.271958733 5310255.4804396
-81	114073 2695 57 176 56 175 120 23.4 326.6 21387.946753443 5436855.0616243
-57	116768 3114 39 179 38 178 141 0.973 6.3624128679156 321.50166627913 1025.6488771897
-56	119882 3844 39 179 38 178 141 -4.5 2.4745914256899 8.3007035267671 211.38707742844
-55	123726 3696 38 179 37 178 142 1.964976642873 10.602593384929 1262.6710506668 11941.084798247
-54	127422 2845 37 179 36 178 143 26.6 323.4 24957.864029553 6302140.5877294
-53	130267 3162 37 179 36 178 143 26.6 323.4 25477.198963741 6473157.767081
-92	133429 2746 64 180 63 179 117 0.973 9.2513328947881 329.97322560365 1424.1090695461
-91	136175 3216 64 180 63 179 117 -4.4530624829116 2.5895389665384 9.867675034224 235.01043350465
-90	139391 3099 63 180 62 179 118 1.9359241187572 12.937384105159 1280.1692672614 14684.337320862
-89	142490 2399 62 180 61 179 119 23.4 326.6 20857.391929654 5267012.5530935
-88	144889 2669 62 180 61 179 119 23.4 326.6 21258.687620206 5399491.1995074
-64	147558 3049 44 181 43 180 138 0.973 8.1801659822724 358.62373497767 1479.8136988827
-63	150607 3725 44 181 43 180 138 -4.5 2.5823736497667 10.303065488436 255.10927510488
-62	154332 3624 43 181 42 180 139 1.3190524411155 14.466585243599 1264.2452810063 12590.879267336
-61	157956 2791 42 181 41 180 140 26.6 323.4 24892.207861036 6314045.0894367
-60	160747 3081 42 181 41 180 140 26.6 323.4 25107.544909663 6439546.5178769
-71	163828 2924 49 182 48 181 134 0.973 9.8239103817143 389.9994269396 1928.3260460358
-70	166752 3603 49 182 48 181 134 -4.5 2.4824462356279 9.1116562143507 301.23136011863
-69	170355 3523 48 182 47 181 135 1.9183059079441 17.597759585495 1255.0059899884 13228.267514311
-68	173878 2730 47 182 46 181 136 26.6 323.4 24702.010342139 6321401.6837434
-67	176608 2987 47 182 46 181 136 26.6 323.4 24558.780544874 6359164.5386744
-99	179595 2628 69 182 68 181 114 0.973 8.6790882792349 343.53242752008 1544.0422104028
-98	182223 3121 69 182 68 181 114 -4.4237737860996 2.5833849457791 11.106978297613 243.20587487319
-97	185344 3028 68 182 67 181 115 2.4783830557484 13.65903714095 1282.2591012092 15242.78565936
-96	188372 2347 67 182 66 181 116 23.4 326.6 20144.142353107 5076174.2622818
-95	190719 2621 67 182 66 181 116 23.4 326.6 20943.178859429 5367549.7027806
-78	193340 2908 54 184 53 183 131 0.973 11.463975447488 403.14992573421 2159.4623773434
-77	196248 3547 54 184 53 183 131 -4.5 2.576515280921 13.287284947301 341.88265302498
-76	199795 3452 53 184 52 183 132 1.9904331570219 15.618376555524 1255.3999961963 13947.608332694
-75	203247 2689 52 184 51 183 133 26.6 323.4 24618.263012133 6344771.0126379
-74	205936 2938 52 184 51 183 133 26.6 323.4 23593.796682172 6097715.0303058
-106	208874 2659 74 184 73 183 111 0.973 9.85763145965 344.74560644025 1650.0714948841
-105	211533 3122 74 184 73 183 111 -4.5 2.5923640735913 11.85097577418 262.93995742485
-104	214655 3070 73 184 72 183 112 1.7208686255384 14.408520252489 1285.8582200955 15911.044955261
-103	217725 2412 72 184 71 183 113 23.4 326.6 19609.981198027 4918528.9950097
-102	220137 2675 72 184 71 183 113 23.4 326.6 20452.196992458 5236002.0255302
-113	222812 2646 79 187 78 186 109 0.973 9.8660831619778 343.34457203362 1708.9852148519
-112	225458 3124 79 187 78 186 109 -4.2584190958762 2.573371305503 11.552661777483 236.08086501754
-111	228582 3020 78 187 77 186 110 2.0603684450034 14.456552989185 1286.3204599785 16056.411703455
-110	231602 2373 77 187 76 186 111 23.4 326.6 19347.968317629 4906405.7032866
-109	233975 2624 77 187 76 186 111 23.4 326.6 20027.909599677 5134567.5282686
-120	236599 2598 84 189 83 188 106 0.973 10.303590614742 349.05542785598 1807.6256889473
-119	239197 2990 84 189 83 188 106 -4.5 2.5752678365214 12.201147857 278.03349355463
-118	242187 2951 83 189 82 188 107 1.6150351807708 14.673312969943 1280.5213856119 16364.881533855
-117	245138 2307 82 189 81 188 108 23.4 326.6 18926.329444111 4759175.5097168
-116	247445 2574 82 189 81 188 108 23.4 326.6 19254.155795516 4882766.9863503
-127	250019 3587 89 235 88 234 147 0.973 6.697524490864 316.00388329894 962.91939484019
-126	253606 4281 89 235 88 234 147 -4.4639320795191 2.5025668372167 6.4295542939917 174.18907988281
-125	257887 4108 88 235 87 234 148 2.5732011473738 10.044103984221 1283.9431282265 11609.542296439
-124	261995 3246 87 235 86 234 149 23.4 326.6 26263.676397891 6696019.2002559
-123	265241 3564 87 235 86 234 149 23.4 326.6 26754.449284138 6846990.4885059
-134	268805 3431 94 237 93 236 144 0.973 9.6857286179029 354.77571766323 1429.1436525333
-133	272236 4179 94 237 93 236 144 -4.5 2.4611469821073 9.2362533123577 237.81826673456
-132	276415 4035 93 237 92 236 145 2.4801178852096 14.604787467583 1285.8027720232 12027.868279173
-131	280450 3172 92 237 91 236 146 23.4 326.6 25912.623208985 6654409.535652
-130	283622 3481 92 237 91 236 146 23.4 326.6 26454.23734215 6811402.4688767
-141	287103 3400 99 238 98 237 140 0.973 8.9573947940238 362.82210752564 1479.9542031229
-140	290503 4049 99 238 98 237 140 -4.5 2.5458560426952 10.037770023762 252.583205649
-139	294552 3923 98 238 97 237 141 1.868398874742 12.931288618877 1277.0448655077 12455.703297779
-138	298475 3093 97 238 96 237 142 23.4 326.6 25170.217908544 6479671.0155952
-137	301568 3409 97 238 96 237 142 23.4 326.6 26448.999307581 6841533.1906608
-148	304977 3210 104 240 103 239 137 0.973 11.251685285823 401.05121305558 2025.1340768873
-147	308187 3940 104 240 103 239 137 -4.5 2.5442928263452 12.387114531802 320.05432671646
-146	312127 3849 103 240 102 239 138 1.7385078541934 15.585021747026 1281.7805939699 12999.319303017
-145	315976 3024 102 240 101 239 139 23.4 326.6 24727.190762393 6399630.2189827
-144	319000 3343 102 240 101 239 139 23.4 326.6 26306.633406626 6818021.4615801
-
+vector 15 Comple

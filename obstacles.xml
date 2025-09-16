@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<obstacles>
+    <!-- Buildings -->
+    <obstacle id="building1" x="500" y="1000" z="0" width="50" length="80" height="15" type="building"/>
+    <obstacle id="building2" x="1500" y="1200" z="0" width="60" length="100" height="20" type="building"/>
+    <obstacle id="building3" x="2000" y="500" z="0" width="30" length="40" height="12" type="building"/>
+    
+    <!-- Optional tree (only if tree type is defined in config.xml) -->
+    <!-- <obstacle id="tree1" x="1200" y="800" z="0" width="10" length="10" height="5" type="tree"/> -->
+</obstacles>

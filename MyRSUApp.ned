@@ -1,0 +1,34 @@
+
+import org.car2x.veins.base.modules.IBaseApplLayer;
+
+//
+// MyRSUApp - Custom RSU Application
+//
+simple MyRSUApp like IBaseApplLayer
+{
+    parameters:
+        @display("i=block/app");
+        @class(complex_network::MyRSUApp);
+        
+        // Basic parameters
+        int headerLength @unit(bit) = default(80bit);
+        bool sendBeacons = default(false);
+        bool dataOnSch = default(false);
+        double beaconInterval @unit(s) = default(1s);
+        int beaconUserPriority = default(7);
+        int dataUserPriority = default(5);
+        
+        // Additional required parameters for DemoBaseApplLayer
+        int beaconLengthBits @unit(bit) = default(256bit);
+        int dataLengthBits @unit(bit) = default(1024bit);
+        bool avoidBeaconSynchronization = default(true);
+        double maxOffset @unit(s) = default(0.005s);
+        bool sendWSA = default(false);
+        int currentOfferedServiceId = default(42);
+        
+    gates:
+        input lowerLayerIn;
+        output lowerLayerOut;
+        input lowerControlIn;
+        output lowerControlOut;
+}

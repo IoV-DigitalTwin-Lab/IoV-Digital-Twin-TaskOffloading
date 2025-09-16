@@ -1,5 +1,4 @@
 #include "MyRSUApp.h"
-
 using namespace veins;
 
 namespace complex_network {
@@ -7,37 +6,40 @@ namespace complex_network {
 Define_Module(MyRSUApp);
 
 void MyRSUApp::initialize(int stage) {
-    DemoBaseApplLayer::initialize(stage);
+    BaseApplLayer::initialize(stage);  // <-- changed here
+    if(stage == 0) {
+        double interval = par("beaconInterval").doubleValue();
 
-    if (stage == 0) {
-        // Schedule first message after 2 seconds
         cMessage* sendMsg = new cMessage("sendMessage");
         scheduleAt(simTime() + 2.0, sendMsg);
+
+        EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
     }
 }
 
 void MyRSUApp::handleSelfMsg(cMessage* msg) {
-    if (strcmp(msg->getName(), "sendMessage") == 0) {
-        // Create and send message
+    if(strcmp(msg->getName(), "sendMessage") == 0) {
+        // Create and send your message
         DemoSafetyMessage* wsm = new DemoSafetyMessage();
         populateWSM(wsm);
         wsm->setSenderPos(curPosition);
+        wsm->setUserPriority(par("beaconUserPriority").intValue());
         sendDown(wsm);
 
         EV << "RSU: Sent message at time " << simTime() << endl;
 
-        // Schedule next message in 5 seconds
-        scheduleAt(simTime() + 5.0, msg);
+        double interval = par("beaconInterval").doubleValue();
+        scheduleAt(simTime() + interval, msg);
     } else {
-        DemoBaseApplLayer::handleSelfMsg(msg);
+        BaseApplLayer::handleSelfMsg(msg);  // <-- changed here
     }
 }
 
 void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
-    if (dsm) {
+    if(dsm) {
         EV << "RSU: Received message from vehicle at time " << simTime() << endl;
     }
 }
 
-} // namespace communication_network
+} // namespace complex_network
