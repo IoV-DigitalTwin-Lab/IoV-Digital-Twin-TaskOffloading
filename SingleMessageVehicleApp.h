@@ -12,6 +12,8 @@ class SingleMessageVehicleApp : public DemoBaseApplLayer {
 protected:
     virtual void initialize(int stage) override;
     virtual void onWSM(BaseFrame1609_4* wsm) override;
+    virtual void handleMessage(cMessage* msg) override;
+    virtual void receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) override;
 };
 
 } // namespace complex_network
