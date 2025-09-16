@@ -5,7 +5,7 @@ import org.car2x.veins.nodes.TrafficLight;
 network ComplexNetwork extends Scenario
 {
     submodules:
-        rsu[1]: RSU {
+        rsu[2]: RSU {
             @display("p=150,140;i=veins/sign/yellowdiamond;is=vs");
         }
 
