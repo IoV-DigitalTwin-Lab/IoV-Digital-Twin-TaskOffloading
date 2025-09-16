@@ -13,14 +13,28 @@ void SingleMessageRSUApp::initialize(int stage) {
         EV_INFO << "RSUApp: Initialized" << endl;
         std::cout << "CONSOLE: RSUApp initialized at " << simTime() << std::endl;
 
-        // Check if we should send a message
         if(par("sendOnce").boolValue()) {
-            // Schedule a self-message to send the message once
             cMessage* msg = new cMessage("sendSingleMessage");
             double sendTime = par("sendTime").doubleValue();
             scheduleAt(simTime() + sendTime, msg);
             EV << "SingleMessageRSU: Scheduled to send message at time " << (simTime() + sendTime) << endl;
             std::cout << "CONSOLE: RSU scheduled to send message at time " << (simTime() + sendTime) << std::endl;
+        }
+    }
+    else if (stage == 1) {
+        // Get MAC address in stage 1, like DemoBaseApplLayer does
+        // At this point, the MAC layer should be fully initialized
+        DemoBaseApplLayerToMac1609_4Interface* macInterface =
+            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(getParentModule());
+
+        if (macInterface) {
+            myMacAddress = macInterface->getMACAddress();
+            std::cout << "CONSOLE: RSU MAC interface found in stage 1, address is: " << myMacAddress << std::endl;
+            EV_INFO << "RSU MAC interface found, address: " << myMacAddress << endl;
+        } else {
+            std::cout << "CONSOLE: ERROR - RSU MAC interface NOT found in stage 1!" << std::endl;
+            EV_ERROR << "RSU MAC interface NOT found!" << endl;
+            myMacAddress = 0; // Default to 0
         }
     }
 }
@@ -49,37 +63,60 @@ void SingleMessageRSUApp::handleSelfMsg(cMessage* msg) {
 void SingleMessageRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // Force console output for debugging
     std::cout << "CONSOLE: RSU onWSM() called at time " << simTime() << std::endl;
-
-    // Force EV output
     EV << "=== RSUApp: onWSM() called at time " << simTime() << " ===" << endl;
 
-    DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
-    if(dsm) {
-        std::cout << "CONSOLE: RSU successfully received DemoSafetyMessage" << std::endl;
+    // UNICAST FILTERING: Check if this message is intended for us
+    LAddress::L2Type recipientAddr = wsm->getRecipientAddress();
+    LAddress::L2Type broadcastAddr = LAddress::L2BROADCAST();
 
-        // Get sender information
-        cModule* senderModule = wsm->getSenderModule();
-        std::string senderName = senderModule ? senderModule->getFullName() : "(unknown)";
+    std::cout << "CONSOLE: RSU DEBUG - Message recipient: " << recipientAddr << std::endl;
+    std::cout << "CONSOLE: RSU DEBUG - My MAC address: " << myMacAddress << std::endl;
+    std::cout << "CONSOLE: RSU DEBUG - Is broadcast: " << (recipientAddr == broadcastAddr) << std::endl;
+    EV << "RSUApp: DEBUG - Message recipient: " << recipientAddr << endl;
+    EV << "RSUApp: DEBUG - My MAC address: " << myMacAddress << endl;
 
-        std::cout << "CONSOLE: RSU received DemoSafetyMessage from " << senderName
-                  << " at time " << simTime()
-                  << " from pos=" << dsm->getSenderPos() << std::endl;
+    // Only process the message if:
+    // 1. It's a broadcast message (recipient == -1), OR
+    // 2. It's specifically addressed to us (recipient == myMacAddress)
+    if (recipientAddr == broadcastAddr || recipientAddr == myMacAddress) {
+        std::cout << "CONSOLE: RSU - Message accepted - addressed to me or broadcast" << std::endl;
+        EV << "RSUApp: Message accepted - addressed to me or broadcast" << endl;
 
-        EV_INFO << "RSUApp: RECEIVED MESSAGE at time " << simTime()
-                << " from sender module: " << senderName
-                << " at pos=" << dsm->getSenderPos() << endl;
+        DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
+        if(dsm) {
+            std::cout << "CONSOLE: RSU successfully received DemoSafetyMessage" << std::endl;
 
-        // Also use regular EV
-        EV << "RSUApp: Message received successfully!" << endl;
+            // Get sender information
+            cModule* senderModule = wsm->getSenderModule();
+            std::string senderName = senderModule ? senderModule->getFullName() : "(unknown)";
 
-        // Optionally, process the received message further here
+            std::cout << "CONSOLE: RSU received DemoSafetyMessage from " << senderName
+                      << " at time " << simTime()
+                      << " from pos=" << dsm->getSenderPos()
+                      << " (recipient: " << recipientAddr << ")" << std::endl;
+
+            EV_INFO << "RSUApp: RECEIVED MESSAGE at time " << simTime()
+                    << " from sender module: " << senderName
+                    << " at pos=" << dsm->getSenderPos()
+                    << " (recipient: " << recipientAddr << ")" << endl;
+
+            EV << "RSUApp: Message received successfully!" << endl;
+        } else {
+            std::cout << "CONSOLE: RSU failed to cast to DemoSafetyMessage" << std::endl;
+            EV << "RSUApp: Received non-DemoSafetyMessage" << endl;
+        }
+
+        // Call parent's onWSM only for accepted messages
+        DemoBaseApplLayer::onWSM(wsm);
     } else {
-        std::cout << "CONSOLE: RSU failed to cast to DemoSafetyMessage" << std::endl;
-        EV << "RSUApp: Received non-DemoSafetyMessage" << endl;
-    }
+        std::cout << "CONSOLE: RSU - Message IGNORED - not addressed to me (recipient: "
+                  << recipientAddr << ", my address: " << myMacAddress << ")" << std::endl;
+        EV << "RSUApp: Message IGNORED - not addressed to me (recipient: "
+           << recipientAddr << ", my address: " << myMacAddress << ")" << endl;
 
-    // Always call parent
-    DemoBaseApplLayer::onWSM(wsm);
+        // Don't call parent's onWSM for ignored messages
+        // This prevents further processing of unicast messages not intended for us
+    }
 }
 
 void SingleMessageRSUApp::handleMessage(cMessage* msg) {
@@ -87,7 +124,6 @@ void SingleMessageRSUApp::handleMessage(cMessage* msg) {
               << " at time " << simTime() << std::endl;
     EV << "RSUApp: handleMessage() called with " << msg->getName() << endl;
 
-    // Check if it's a BaseFrame1609_4 message
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
         std::cout << "CONSOLE: RSU handleMessage received BaseFrame1609_4!" << std::endl;
@@ -95,7 +131,6 @@ void SingleMessageRSUApp::handleMessage(cMessage* msg) {
         return;
     }
 
-    // Call parent class method
     DemoBaseApplLayer::handleMessage(msg);
 }
 

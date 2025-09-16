@@ -10,16 +10,25 @@ namespace complex_network {
 
 class SingleMessageRSUApp : public DemoBaseApplLayer {
 public:
-    void initialize(int stage) override;
-    void handleMessage(cMessage* msg) override;  // ADD THIS LINE
-    void receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) override;  // ADD THIS LINE
+    // Standard OMNeT++ initialization
+    virtual void initialize(int stage) override;
+
+    // Handle any incoming message (self or from other modules)
+    virtual void handleMessage(cMessage* msg) override;
+
+    // Receive signals (for statistics, mobility updates, etc.)
+    virtual void receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) override;
 
 protected:
-    void onWSM(BaseFrame1609_4* wsm) override;
-    void handleSelfMsg(cMessage* msg) override;
+    // Handle incoming WSM messages
+    virtual void onWSM(BaseFrame1609_4* wsm) override;
+
+    // Handle self messages (timers, scheduled events)
+    virtual void handleSelfMsg(cMessage* msg) override;
 
 private:
-    bool messageSent = false; // Flag to ensure we only send once
+    bool messageSent = false;          // Ensure RSU sends only once
+    LAddress::L2Type myMacAddress;     // For unicast or filtering if needed
 };
 
 } // namespace complex_network

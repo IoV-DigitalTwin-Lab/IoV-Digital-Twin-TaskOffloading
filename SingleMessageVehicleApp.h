@@ -15,6 +15,10 @@ protected:
     virtual void handleMessage(cMessage* msg) override;
     virtual void handleSelfMsg(cMessage* msg) override;
     virtual void receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) override;
+
+private:
+    LAddress::L2Type myMacAddress;      // Store our own MAC address
+    LAddress::L2Type targetMacAddress;  // Store the intended recipient address
 };
 
 } // namespace complex_network
