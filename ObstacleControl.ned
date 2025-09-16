@@ -1,7 +1,7 @@
 simple ObstacleControl
 {
     parameters:
-        @class(veins.ObstacleControl); // Use dot, not ::
-        bool debug = false;
-        xml obstacles;                // The XML parameter
+        @class(veins.ObstacleControl);
+        bool debug = true;
+        xml obstacles;   // populated from .ini
 }
