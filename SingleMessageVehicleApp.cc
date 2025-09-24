@@ -1,4 +1,8 @@
+
+#include <omnetpp.h>
 #include "SingleMessageVehicleApp.h"
+
+using namespace omnetpp;
 
 using namespace veins;
 
@@ -37,12 +41,13 @@ void SingleMessageVehicleApp::handleSelfMsg(cMessage* msg) {
 
         // Try multiple methods to find RSU[1]
         cModule* networkModule = getModuleByPath("^.^");  // Get the network module
+        cModule* rsuModule = nullptr;
         if (networkModule) {
             std::cout << "CONSOLE: DEBUG - Found network module: " << networkModule->getFullName() << std::endl;
             EV << "VehicleApp: DEBUG - Found network module: " << networkModule->getFullName() << endl;
 
             // Method 1: Try direct submodule access
-            cModule* rsuModule = networkModule->getSubmodule("rsu", 1);  // Get rsu[1]
+            rsuModule = networkModule->getSubmodule("rsu", 1);  // Get rsu[1]
             if (rsuModule) {
                 std::cout << "CONSOLE: DEBUG - Found RSU[1] module: " << rsuModule->getFullPath() << std::endl;
                 EV << "VehicleApp: DEBUG - Found RSU[1] module: " << rsuModule->getFullPath() << endl;
@@ -164,25 +169,22 @@ void SingleMessageVehicleApp::onWSM(BaseFrame1609_4* wsm) {
     // Only process the message if:
     // 1. It's a broadcast message (recipient == -1), OR
     // 2. It's specifically addressed to us (recipient == myMacAddress)
-    if (recipientAddr == broadcastAddr || recipientAddr == myMacAddress) {
-        std::cout << "CONSOLE: Message accepted - addressed to me or broadcast" << std::endl;
-        EV << "VehicleApp: Message accepted - addressed to me or broadcast" << endl;
-
+    if (recipientAddr == myMacAddress) {
+        // Only visualize if this is a true unicast (not broadcast)
         DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
         if (dsm) {
-            std::cout << "CONSOLE: Successfully received DemoSafetyMessage" << std::endl;
-            EV_INFO << "VehicleApp: RECEIVED MESSAGE at time "
-                    << simTime()
-                    << " from sender at pos=" << dsm->getSenderPos()
-                    << " (recipient: " << recipientAddr << ")"
-                    << endl;
-            EV << "VehicleApp: Message received successfully!" << endl;
-        } else {
-            std::cout << "CONSOLE: Failed to cast to DemoSafetyMessage" << std::endl;
-            EV << "VehicleApp: Received non-DemoSafetyMessage" << endl;
+            // Emit a custom signal for visualization
+            cModule* senderModule = wsm->getSenderModule();
+            if (senderModule) {
+                cModule* thisModule = getParentModule();
+                simsignal_t unicastSignal = registerSignal("validUnicastCommunication");
+                thisModule->emit(unicastSignal, senderModule); // Pass sender module pointer
+            }
+            std::cout << "CONSOLE: Successfully received DemoSafetyMessage (UNICAST)" << std::endl;
         }
-
-        // Call parent's onWSM only for accepted messages
+        DemoBaseApplLayer::onWSM(wsm);
+    } else if (recipientAddr == broadcastAddr) {
+        // Accept broadcast, but do not emit unicast visualization
         DemoBaseApplLayer::onWSM(wsm);
     } else {
         std::cout << "CONSOLE: Message IGNORED - not addressed to me (recipient: "

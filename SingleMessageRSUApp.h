@@ -1,3 +1,5 @@
+// It mainly declares the class and its members but does not implement the functions (that happens in the .cpp file).
+
 #ifndef SINGLEMESSAGERSUAPP_H
 #define SINGLEMESSAGERSUAPP_H
 
@@ -28,6 +30,7 @@ protected:
 
 private:
     bool messageSent = false;          // Ensure RSU sends only once
+    // Stores the RSU’s MAC address for unicast filtering.
     LAddress::L2Type myMacAddress;     // For unicast or filtering if needed
 };
 

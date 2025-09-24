@@ -7,15 +7,19 @@ namespace complex_network {
 Define_Module(SingleMessageRSUApp);
 
 void SingleMessageRSUApp::initialize(int stage) {
+    // OMNeT++ initializes modules in multiple stages. Here, we handle stage 0 and stage 1.
     DemoBaseApplLayer::initialize(stage);
     if(stage == 0) {
+        // Marks that no message has been sent yet
         messageSent = false;
         EV_INFO << "RSUApp: Initialized" << endl;
         std::cout << "CONSOLE: RSUApp initialized at " << simTime() << std::endl;
 
         if(par("sendOnce").boolValue()) {
             cMessage* msg = new cMessage("sendSingleMessage");
+            // If NED parameter sendOnce is true → creates a self-message "sendSingleMessage".
             double sendTime = par("sendTime").doubleValue();
+            // Schedules it to trigger at sendTime seconds from now.
             scheduleAt(simTime() + sendTime, msg);
             EV << "SingleMessageRSU: Scheduled to send message at time " << (simTime() + sendTime) << endl;
             std::cout << "CONSOLE: RSU scheduled to send message at time " << (simTime() + sendTime) << std::endl;
@@ -78,37 +82,30 @@ void SingleMessageRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // Only process the message if:
     // 1. It's a broadcast message (recipient == -1), OR
     // 2. It's specifically addressed to us (recipient == myMacAddress)
-    if (recipientAddr == broadcastAddr || recipientAddr == myMacAddress) {
-        std::cout << "CONSOLE: RSU - Message accepted - addressed to me or broadcast" << std::endl;
-        EV << "RSUApp: Message accepted - addressed to me or broadcast" << endl;
-
+    if (recipientAddr == myMacAddress) {
+        // Only visualize if this is a true unicast (not broadcast)
         DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
         if(dsm) {
-            std::cout << "CONSOLE: RSU successfully received DemoSafetyMessage" << std::endl;
-
-            // Get sender information
+            // Emit a custom signal for visualization
             cModule* senderModule = wsm->getSenderModule();
-            std::string senderName = senderModule ? senderModule->getFullName() : "(unknown)";
-
-            std::cout << "CONSOLE: RSU received DemoSafetyMessage from " << senderName
-                      << " at time " << simTime()
-                      << " from pos=" << dsm->getSenderPos()
-                      << " (recipient: " << recipientAddr << ")" << std::endl;
-
-            EV_INFO << "RSUApp: RECEIVED MESSAGE at time " << simTime()
-                    << " from sender module: " << senderName
-                    << " at pos=" << dsm->getSenderPos()
-                    << " (recipient: " << recipientAddr << ")" << endl;
-
-            EV << "RSUApp: Message received successfully!" << endl;
-        } else {
-            std::cout << "CONSOLE: RSU failed to cast to DemoSafetyMessage" << std::endl;
-            EV << "RSUApp: Received non-DemoSafetyMessage" << endl;
+            if (senderModule) {
+                cModule* thisModule = getParentModule();
+                simsignal_t unicastSignal = registerSignal("validUnicastCommunication");
+                thisModule->emit(unicastSignal, senderModule); // Pass sender module pointer
+            }
+            std::cout << "CONSOLE: RSU successfully received DemoSafetyMessage (UNICAST)" << std::endl;
+            EV << "RSU successfully received DemoSafetyMessage (UNICAST)" << endl;
         }
-
-        // Call parent's onWSM only for accepted messages
+        DemoBaseApplLayer::onWSM(wsm);
+    } else if (recipientAddr == broadcastAddr) {
+        // Accept broadcast, but do not emit unicast visualization
         DemoBaseApplLayer::onWSM(wsm);
     } else {
+
+        // The MAC layer filters packets before handing them to the upper application layer.
+        // If a frame’s recipient MAC doesn’t match the local MAC (and it’s not broadcast), the MAC drops it silently.
+        // RSU application code (onWSM()) never even sees the message if it wasn’t addressed to that RSU.
+
         std::cout << "CONSOLE: RSU - Message IGNORED - not addressed to me (recipient: "
                   << recipientAddr << ", my address: " << myMacAddress << ")" << std::endl;
         EV << "RSUApp: Message IGNORED - not addressed to me (recipient: "
