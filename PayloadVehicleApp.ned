@@ -1,29 +1,29 @@
-import org.car2x.veins.base.modules.IBaseApplLayer;
+import org.car2x.veins.modules.application.ieee80211p.DemoBaseApplLayer;
 
-simple PayloadVehicleApp like IBaseApplLayer
+simple PayloadVehicleApp extends DemoBaseApplLayer
 {
     parameters:
         @class(complex_network::PayloadVehicleApp);
         @display("i=block/app");
 
-        int headerLength @unit(bit) = default(80bit);
-        int beaconLengthBits @unit(bit) = default(256bit);
-        int dataLengthBits @unit(bit) = default(1024bit);
-        bool avoidBeaconSynchronization = default(true);
-        double maxOffset @unit(s) = default(0.005s);
-        bool sendWSA = default(false);
-        int currentOfferedServiceId = default(42);
-        bool sendBeacons = default(false);
-        bool dataOnSch = default(false);
-        
-        double beaconInterval @unit(s) = default(1s);
-        int beaconUserPriority = default(7);
-        int dataUserPriority = default(5);
-        double wsaInterval @unit(s) = default(1s);
+        // ---- Vehicle (persistent) state ----
+        double initFlocHz;                        // local CPU capacity (Hz)
+        double initTxPower_mW;                    // radio TX power budget (mW)
 
-    gates:
-        input lowerLayerIn;
-        output lowerLayerOut;
-        input lowerControlIn;
-        output lowerControlOut;
+        // ---- Heartbeat (continuous vehicle telemetry) ----
+        double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz
+
+        // ---- Task arrival (stochastic) ----
+        double taskGenIntervalS @unit(s);         // mean cadence for task arrivals
+        double paramJitterFactor = default(0.0);  // optional slow drift of Floc/TxP (0 = off)
+
+        // ---- Task distribution config (not task state) ----
+        double taskSizeB_min = default(1e5);
+        double taskSizeB_max = default(1.5e5);
+        double cpuPerByte_min = default(2e6);
+        double cpuPerByte_max = default(4e6);
+        double deadlineS_min @unit(s) = default(0.15s);
+        double deadlineS_max @unit(s) = default(0.35s);
+        int    divs_min = default(1);
+        int    divs_max = default(4);
 }
