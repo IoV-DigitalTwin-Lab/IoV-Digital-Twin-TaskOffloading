@@ -1,6 +1,7 @@
 #include <cstddef>
 #include "PayloadVehicleApp.h"
 #include <sstream>
+#include <iomanip>
 
 using namespace veins;
 
@@ -14,12 +15,22 @@ void PayloadVehicleApp::initialize(int stage) {
     if (stage == 0) {
         messageSent = false;
 
-        // Create dummy payload
-        dummyPayload = "PAYLOAD: Hello RSU! This is a dummy payload from PayloadVehicleApp. Time: " + std::to_string(simTime().dbl());
+        // Initialize vehicle parameters (similar to VehicleApp)
+        flocHz = par("initFlocHz").doubleValue();
+        txPower_mW = par("initTxPower_mW").doubleValue();
+        
+        // Setup mobility hookup
+        mobility = FindModule<TraCIMobility*>::findSubModule(getParentModule());
+        if (mobility) {
+            subscribe(mobility->mobilityStateChangedSignal, this);
+            // Initialize position and speed
+            pos = mobility->getPositionAt(simTime());
+            speed = mobility->getSpeed();
+        }
 
-        EV_INFO << "PayloadVehicleApp: Initialized" << endl;
+        EV_INFO << "PayloadVehicleApp: Initialized with vehicle data" << endl;
         std::cout << "CONSOLE: PayloadVehicleApp initialized at " << simTime() << std::endl;
-        std::cout << "CONSOLE: PayloadVehicleApp - Dummy payload: " << dummyPayload << std::endl;
+        std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data initialized" << std::endl;
 
         // Schedule message sending after 10 seconds
         cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
@@ -47,6 +58,12 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         std::cout << "CONSOLE: PayloadVehicleApp - Sending payload message..." << std::endl;
         EV << "PayloadVehicleApp: Sending payload message..." << endl;
 
+        // Update vehicle data before sending
+        updateVehicleData();
+        
+        // Create payload with current vehicle data
+        std::string vehicleDataPayload = createVehicleDataPayload();
+
         // Find RSU MAC address and ensure correct handling
         LAddress::L2Type rsuMacAddress = findRSUMacAddress();
         
@@ -62,7 +79,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         }
 
         // Set payload using setName as the payload carrier  
-        wsm->setName(dummyPayload.c_str());
+        wsm->setName(vehicleDataPayload.c_str());
         wsm->setSenderPos(curPosition);
         wsm->setUserPriority(7);
 
@@ -71,8 +88,8 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         messageSent = true;
 
         std::cout << "CONSOLE: PayloadVehicleApp - Sent payload message (Recipient: " << wsm->getRecipientAddress() << ")" << std::endl;
-        std::cout << "CONSOLE: PayloadVehicleApp - Payload sent: " << dummyPayload << std::endl;
-        EV << "PayloadVehicleApp: Sent payload message" << endl;
+        std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data payload sent: " << vehicleDataPayload << std::endl;
+        EV << "PayloadVehicleApp: Sent vehicle data payload message" << endl;
 
         delete msg;
     } else {
@@ -157,6 +174,45 @@ LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
 
     std::cout << "CONSOLE: PayloadVehicleApp ERROR - No valid RSU MAC address found!" << std::endl;
     return 0;
+}
+
+void PayloadVehicleApp::updateVehicleData() {
+    // Update live kinematics snapshot from mobility
+    if (mobility) {
+        pos = mobility->getPositionAt(simTime());
+        speed = mobility->getSpeed();
+    }
+    
+    std::cout << "CONSOLE: PayloadVehicleApp - Updated vehicle data: pos=(" << pos.x << "," << pos.y 
+              << ") speed=" << speed << " flocHz=" << flocHz << " txPower_mW=" << txPower_mW << std::endl;
+}
+
+std::string PayloadVehicleApp::createVehicleDataPayload() {
+    // Create structured payload with actual vehicle data (similar to recordHeartbeatScalars format)
+    std::ostringstream payload;
+    
+    payload << "VEHICLE_DATA|"
+            << "VehID:" << getParentModule()->getIndex() << "|"
+            << "Time:" << std::fixed << std::setprecision(3) << simTime().dbl() << "|"
+            << "FlocHz:" << std::fixed << std::setprecision(2) << flocHz << "|"
+            << "TxPower_mW:" << std::fixed << std::setprecision(2) << txPower_mW << "|"
+            << "Speed:" << std::fixed << std::setprecision(2) << speed << "|"
+            << "PosX:" << std::fixed << std::setprecision(2) << pos.x << "|"
+            << "PosY:" << std::fixed << std::setprecision(2) << pos.y << "|"
+            << "MAC:" << myMacAddress;
+    
+    return payload.str();
+}
+
+void PayloadVehicleApp::receiveSignal(cComponent* src, simsignal_t id, cObject* obj, cObject* details) {
+    // Handle mobility state changes
+    if (mobility && id == mobility->mobilityStateChangedSignal) {
+        // Update position and speed when mobility changes
+        pos = mobility->getPositionAt(simTime());
+        speed = mobility->getSpeed();
+    }
+    
+    DemoBaseApplLayer::receiveSignal(src, id, obj, details);
 }
 
 } // namespace complex_network
