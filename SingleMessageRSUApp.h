@@ -1,16 +1,12 @@
-// It mainly declares the class and its members but does not implement the functions (that happens in the .cpp file).
-
 #ifndef SINGLEMESSAGERSUAPP_H
 #define SINGLEMESSAGERSUAPP_H
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
 
-using namespace veins;
-
 namespace complex_network {
 
-class SingleMessageRSUApp : public DemoBaseApplLayer {
+class SingleMessageRSUApp : public veins::DemoBaseApplLayer {
 public:
     // Standard OMNeT++ initialization
     virtual void initialize(int stage) override;
@@ -23,15 +19,17 @@ public:
 
 protected:
     // Handle incoming WSM messages
-    virtual void onWSM(BaseFrame1609_4* wsm) override;
+    virtual void onWSM(veins::BaseFrame1609_4* wsm) override;
 
     // Handle self messages (timers, scheduled events)
     virtual void handleSelfMsg(cMessage* msg) override;
 
 private:
-    bool messageSent = false;          // Ensure RSU sends only once
-    // Stores the RSU’s MAC address for unicast filtering.
-    LAddress::L2Type myMacAddress;     // For unicast or filtering if needed
+    bool messageSent = false;                 // Ensure RSU sends only once
+    veins::LAddress::L2Type myMacAddress;     // For unicast or filtering if needed
+
+    // Helper method to send response to vehicle
+    void sendResponseToVehicle(cModule* senderModule, const std::string& originalPayload);
 };
 
 } // namespace complex_network
