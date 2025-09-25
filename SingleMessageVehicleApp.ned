@@ -22,6 +22,11 @@ simple SingleMessageVehicleApp like IBaseApplLayer
         int beaconUserPriority = default(7);
         int dataUserPriority = default(5);
         double wsaInterval @unit(s) = default(1s);  // WSA interval parameter
+        
+        string targetKind = default("vehicle"); // "vehicle" or "rsu"
+        int    targetVehicleIndex = default(-1); // node[k] to unicast to (when targetKind="vehicle")
+        int    targetRsuIndex     = default(-1); // rsu[k] to unicast to (when targetKind="rsu")
+        double sendTime @unit(s)  = default(7s); // when to send the one-shot message
 
 
     gates:
