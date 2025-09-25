@@ -6,11 +6,15 @@ namespace complex_network {
 Define_Module(MyRSUApp);
 
 void MyRSUApp::initialize(int stage) {
+    // Calls the parent class initialization to set up the basic functionality of the application layer.
     BaseApplLayer::initialize(stage);  // <-- changed here
+    // Most initialization like setting timers is done in stage 0.
     if(stage == 0) {
+        // Reads the RSU beacon interval from NED parameters.
         double interval = par("beaconInterval").doubleValue();
-
+        // Creates a cMessage named "sendMessage" to trigger sending later.
         cMessage* sendMsg = new cMessage("sendMessage");
+        // Schedules the self-message at current simulation time + 2 seconds.
         scheduleAt(simTime() + 2.0, sendMsg);
 
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
