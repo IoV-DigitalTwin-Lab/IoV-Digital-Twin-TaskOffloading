@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 #include <omnetpp.h>
 #include "SingleMessageVehicleApp.h"
@@ -219,3 +220,219 @@ void SingleMessageVehicleApp::receiveSignal(cComponent* source, simsignal_t sign
 }
 
 } // namespace complex_network
+=======
+#include "SingleMessageVehicleApp.h"
+
+using namespace veins;
+
+namespace complex_network {
+
+Define_Module(SingleMessageVehicleApp);
+
+void SingleMessageVehicleApp::initialize(int stage) {
+    DemoBaseApplLayer::initialize(stage);
+    if (stage == 0) {
+        EV_INFO << "VehicleApp: Initialized" << endl;
+        std::cout << "CONSOLE: VehicleApp initialized at " << simTime() << std::endl;
+
+        // Get total number of vehicles and build vehicle registry
+        totalVehicles = countVehiclesInSimulation();
+
+        int myId = getParentModule()->getIndex();
+
+        // Random chance this vehicle becomes a sender (e.g., 30%)
+        if (uniform(0, 1) < 0.3) {
+            // Choose random target vehicle (different from myself)
+            do {
+                targetVehicleId = intuniform(0, totalVehicles - 1);
+            } while (targetVehicleId == myId); // Ensure not targeting myself
+
+            // Schedule first message at random time
+            cMessage* sendMsg = new cMessage("sendVehicleMsg");
+            double firstSendTime = uniform(5, 20); // Between 5-20 seconds
+            scheduleAt(simTime() + firstSendTime, sendMsg);
+
+            std::cout << "CONSOLE: Vehicle[" << myId << "] will send TRUE UNICAST to Vehicle["
+                      << targetVehicleId << "] starting at " << (simTime() + firstSendTime) << std::endl;
+            EV_INFO << "VehicleApp: Vehicle[" << myId << "] targeting Vehicle["
+                    << targetVehicleId << "] for TRUE UNICAST" << endl;
+        }
+    }
+}
+
+void SingleMessageVehicleApp::handleSelfMsg(cMessage* msg) {
+    if (strcmp(msg->getName(), "sendVehicleMsg") == 0) {
+        int myId = getParentModule()->getIndex();
+
+        // Optionally pick a new random target for each message (10% chance)
+        if (uniform(0, 1) < 0.1) {  // 10% chance to change target
+            int oldTarget = targetVehicleId;
+            do {
+                targetVehicleId = intuniform(0, totalVehicles - 1);
+            } while (targetVehicleId == myId);
+
+            std::cout << "CONSOLE: Vehicle[" << myId << "] changed target from Vehicle["
+                      << oldTarget << "] to Vehicle[" << targetVehicleId << "]" << std::endl;
+        }
+
+        // Send true unicast message
+        sendUnicastMessage(targetVehicleId);
+
+        std::cout << "CONSOLE: Vehicle[" << myId << "] sent TRUE UNICAST to Vehicle["
+                  << targetVehicleId << "] at " << simTime() << std::endl;
+        EV_INFO << "VehicleApp: Vehicle[" << myId << "] sent true unicast to Vehicle["
+                << targetVehicleId << "] at " << simTime() << endl;
+
+        // Schedule next message at random interval (10-30 seconds)
+        double nextSendTime = uniform(10, 30);
+        scheduleAt(simTime() + nextSendTime, msg);
+
+    } else {
+        DemoBaseApplLayer::handleSelfMsg(msg);
+    }
+}
+
+void SingleMessageVehicleApp::sendUnicastMessage(int targetVehicleId) {
+    // Get target vehicle's MAC address
+    LAddress::L2Type targetMac = getMacAddressOfVehicle(targetVehicleId);
+
+    if (targetMac == LAddress::L2NULL()) {
+        std::cout << "CONSOLE: Could not find MAC address for Vehicle[" << targetVehicleId << "]" << std::endl;
+        return;
+    }
+
+    // Create and populate message
+    DemoSafetyMessage* wsm = new DemoSafetyMessage();
+    populateWSM(wsm);
+    wsm->setSenderPos(mobility->getPositionAt(simTime()));
+
+    // Set for TRUE UNICAST transmission
+    wsm->setRecipientAddress(targetMac);
+    wsm->setBitLength(dataLengthBits);
+
+    // Set message name for identification
+    char msgName[50];
+    sprintf(msgName, "TrueUnicastTo_%d", targetVehicleId);
+    wsm->setName(msgName);
+
+    // Send unicast message
+    sendDown(wsm);
+}
+
+LAddress::L2Type SingleMessageVehicleApp::getMacAddressOfVehicle(int vehicleId) {
+    // Check if we already have the MAC address cached
+    if (vehicleMacMap.find(vehicleId) != vehicleMacMap.end()) {
+        return vehicleMacMap[vehicleId];
+    }
+
+    // Simple approach: Generate MAC address based on vehicle ID
+    // This is commonly used in VEINS simulations
+    LAddress::L2Type macAddr = LAddress::L2Type(vehicleId + 1); // +1 to avoid 0 address
+
+    // Cache the MAC address for future use
+    vehicleMacMap[vehicleId] = macAddr;
+    std::cout << "CONSOLE: Generated MAC address for Vehicle[" << vehicleId
+              << "]: " << macAddr << std::endl;
+    return macAddr;
+}
+
+cModule* SingleMessageVehicleApp::findVehicleModule(int vehicleId) {
+    // Check cache first
+    if (vehicleModuleMap.find(vehicleId) != vehicleModuleMap.end()) {
+        return vehicleModuleMap[vehicleId];
+    }
+
+    cModule* sim = getSystemModule();
+    int currentIndex = 0;
+
+    for (cModule::SubmoduleIterator it(sim); !it.end(); it++) {
+        cModule* mod = *it;
+        // Check if this module is a vehicle (has mobility)
+        if (mod->getSubmodule("mobility") != nullptr) {
+            if (currentIndex == vehicleId) {
+                // Cache the module for future use
+                vehicleModuleMap[vehicleId] = mod;
+                return mod;
+            }
+            currentIndex++;
+        }
+    }
+
+    return nullptr;
+}
+
+int SingleMessageVehicleApp::countVehiclesInSimulation() {
+    int count = 0;
+    cModule* sim = getSystemModule();
+
+    for (cModule::SubmoduleIterator it(sim); !it.end(); it++) {
+        cModule* mod = *it;
+        // Check if this module is a vehicle (has mobility)
+        if (mod->getSubmodule("mobility") != nullptr) {
+            count++;
+        }
+    }
+
+    std::cout << "CONSOLE: Counted " << count << " vehicles in simulation" << std::endl;
+    return count;
+}
+
+void SingleMessageVehicleApp::onWSM(BaseFrame1609_4* wsm) {
+    std::cout << "CONSOLE: onWSM() called at time " << simTime() << std::endl;
+
+    DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
+    if (dsm) {
+        int myId = getParentModule()->getIndex();
+        std::string msgName = dsm->getName();
+
+        // Check if this is a true unicast message for me
+        if (msgName.find("TrueUnicastTo_") == 0) {
+            int targetId = std::stoi(msgName.substr(14)); // "TrueUnicastTo_" = 14 chars
+
+            if (targetId == myId) {
+                Coord senderPos = dsm->getSenderPos();
+                Coord myPos = mobility->getPositionAt(simTime());
+                double distance = senderPos.distance(myPos);
+
+                // Get my MAC address for verification
+                LAddress::L2Type myMac = getMacAddressOfVehicle(myId);
+
+                std::cout << "CONSOLE: Vehicle[" << myId
+                          << "] received TRUE UNICAST message (distance: "
+                          << distance << "m) at " << simTime()
+                          << " - MAC verified: " << (wsm->getRecipientAddress() == myMac ? "YES" : "NO") << std::endl;
+                EV_INFO << "VehicleApp: Vehicle[" << myId
+                        << "] received TRUE UNICAST message" << endl;
+            }
+        }
+    }
+
+    DemoBaseApplLayer::onWSM(wsm);
+}
+
+void SingleMessageVehicleApp::handleMessage(cMessage* msg) {
+    std::cout << "CONSOLE: handleMessage() called with message: " << msg->getName()
+              << " at time " << simTime() << std::endl;
+    EV << "VehicleApp: handleMessage() called with " << msg->getName() << endl;
+
+    // Check if it's a BaseFrame1609_4 message
+    BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
+    if (wsm) {
+        std::cout << "CONSOLE: handleMessage received BaseFrame1609_4 - Recipient: "
+                  << wsm->getRecipientAddress() << std::endl;
+        onWSM(wsm);
+        return;
+    }
+
+    // Call parent class method
+    DemoBaseApplLayer::handleMessage(msg);
+}
+
+void SingleMessageVehicleApp::receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) {
+    std::cout << "CONSOLE: receiveSignal() called at time " << simTime() << std::endl;
+    EV << "VehicleApp: receiveSignal() called" << endl;
+    DemoBaseApplLayer::receiveSignal(source, signalID, obj, details);
+}
+
+} // namespace complex_network
+>>>>>>> e5db28b (Added Vehicle Parameters)
