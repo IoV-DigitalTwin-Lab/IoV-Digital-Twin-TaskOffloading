@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for complex-network
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KVEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1 -DVEINS_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(VEINS_PROJ\)/src -lveins$$\(D\)
+#  opp_makemake -f --deep -O out -KVEINS_PROJ=../veins -DVEINS_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(VEINS_PROJ\)/src -lveins$$\(D\)
 #
 
 # Name of target to be created (-o option)
@@ -34,10 +34,13 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
 OBJS = \
+    $O/ComputeRSUApp.o \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
+    $O/ServiceVehicleApp.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
+    $O/TaskVehicleApp.o \
     $O/UnicastVisualizer.o \
     $O/VehicleApp.o
 
@@ -48,7 +51,7 @@ MSGFILES =
 SMFILES =
 
 # Other makefile variables (-K)
-VEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1
+VEINS_PROJ=../veins
 
 #------------------------------------------------------------------------------
 
