@@ -3,6 +3,7 @@
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
+#include "rsu_http_poster.h"
 
 using namespace veins;
 
@@ -11,10 +12,14 @@ namespace complex_network {
 class MyRSUApp : public DemoBaseApplLayer {
 public:
     void initialize(int stage) override;
+    void finish() override;
 
 protected:
     void onWSM(BaseFrame1609_4* wsm) override;
     void handleSelfMsg(cMessage* msg) override;
+
+private:
+    RSUHttpPoster poster{ "http://127.0.0.1:8000/ingest" };
 };
 
 } // namespace complex_network

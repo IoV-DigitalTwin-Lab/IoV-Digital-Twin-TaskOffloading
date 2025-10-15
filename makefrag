@@ -1,0 +1,3 @@
+## Project make fragment to ensure extra linker flags are included for all build systems
+# Ensure libcurl is linked (needed by rsu_http_poster)
+LIBS += -lcurl

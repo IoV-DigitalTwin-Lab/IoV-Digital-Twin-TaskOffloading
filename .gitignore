@@ -45,3 +45,5 @@ simulations/**/valgrind.out
 simulations/**/log.txt
 
 results/
+
+.venv/

@@ -36,6 +36,7 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 OBJS = \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
+    $O/rsu_http_poster.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
     $O/UnicastVisualizer.o \
