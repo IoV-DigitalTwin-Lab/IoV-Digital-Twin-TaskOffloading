@@ -1,0 +1,5 @@
+# User-supplied makefile fragment
+# This file is included by the auto-generated Makefile and won't be overwritten
+
+# Add curl library for HTTP requests
+LIBS += -lcurl

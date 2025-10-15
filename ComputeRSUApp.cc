@@ -8,6 +8,13 @@ namespace complex_network {
 
 Define_Module(ComputeRSUApp);
 
+// Constructor - Initialize HTTP posters with correct endpoints
+ComputeRSUApp::ComputeRSUApp() 
+    : tvPoster("http://127.0.0.1:8000/dt_update/tv"),
+      svPoster("http://127.0.0.1:8000/dt_update/sv"),
+      rsuPoster("http://127.0.0.1:8000/dt_update/rsu") {
+}
+
 void ComputeRSUApp::initialize(int stage) {
     DemoBaseApplLayer::initialize(stage);
     
@@ -82,10 +89,28 @@ void ComputeRSUApp::initialize(int stage) {
         if (getParentModule()->getIndex() == 1) {
             std::cout << "CONSOLE: RSU[1] will send periodic DT updates to RSU[0]" << std::endl;
         }
+        
+        // Start HTTP posters for sending DT updates to database (only RSU[0] needs this)
+        if (getParentModule()->getIndex() == 0) {
+            std::cout << "CONSOLE: RSU[0] starting HTTP posters for DT database updates..." << std::endl;
+            tvPoster.start();
+            svPoster.start();
+            rsuPoster.start();
+            std::cout << "CONSOLE: RSU[0] HTTP posters started successfully" << std::endl;
+        }
     }
 }
 
 void ComputeRSUApp::finish() {
+    // Stop HTTP posters (only RSU[0])
+    if (getParentModule()->getIndex() == 0) {
+        std::cout << "CONSOLE: RSU[0] stopping HTTP posters..." << std::endl;
+        tvPoster.stop();
+        svPoster.stop();
+        rsuPoster.stop();
+        std::cout << "CONSOLE: RSU[0] HTTP posters stopped" << std::endl;
+    }
+    
     DemoBaseApplLayer::finish();
     
     // Record final statistics
@@ -162,8 +187,11 @@ void ComputeRSUApp::sendHeartbeat() {
         sendRSUStateToRSU0();
     }
     
-    // ==================== RSU[0] logs DT inventory ====================
+    // ==================== RSU[0] logs DT inventory and sends own telemetry ====================
     if (getParentModule()->getIndex() == 0) {
+        // Send RSU[0]'s own telemetry to database
+        sendOwnTelemetryToDatabase();
+        
         std::cout << "CONSOLE: ==================== RSU[0] Digital Twin Inventory ====================" << std::endl;
         std::cout << "CONSOLE: Total Digital Twins: " << digitalTwins.size() << std::endl;
         for (const auto& pair : digitalTwins) {
@@ -431,6 +459,11 @@ void ComputeRSUApp::processDTUpdate(BaseFrame1609_4* wsm) {
     
     EV_INFO << "RSU[" << getParentModule()->getIndex() << "] Updated DT for " 
             << dt.nodeType << "[" << dt.nodeId << "] @ (" << dt.posX << "," << dt.posY << ")" << endl;
+    
+    // Send DT update to database (only RSU[0] sends to DB)
+    if (getParentModule()->getIndex() == 0) {
+        sendDTUpdateToDatabase(dt.nodeType, dt);
+    }
 }
 
 std::string ComputeRSUApp::createRSUDTUpdatePayload() {
@@ -513,6 +546,81 @@ void ComputeRSUApp::sendRSUStateToRSU0() {
     
     EV_INFO << "RSU[" << getParentModule()->getIndex() << "] Sent DT update to RSU[0] (MAC: " << rsu0Mac << ")" << endl;
     std::cout << "CONSOLE: RSU[" << getParentModule()->getIndex() << "] -> RSU[0] DT Update: " << dtPayload << std::endl;
+}
+
+void ComputeRSUApp::sendOwnTelemetryToDatabase() {
+    // RSU[0] sends its own current state to database
+    std::ostringstream json;
+    json << "{";
+    json << "\"Type\":\"RSU\",";
+    json << "\"NodeID\":" << getParentModule()->getIndex() << ",";
+    json << "\"Time\":" << std::fixed << std::setprecision(3) << simTime().dbl() << ",";
+    json << "\"PosX\":" << std::fixed << std::setprecision(2) << position.x << ",";
+    json << "\"PosY\":" << std::fixed << std::setprecision(2) << position.y << ",";
+    json << "\"MAC\":\"" << myMacAddress << "\",";
+    
+    // Add RSU-specific attributes
+    double cpuUtilization = 1.0 - (availableCpuFreqHz / totalCpuFreqHz);
+    double bandwidthUtilization = 1.0 - (availableBandwidthHz / totalBandwidthHz);
+    
+    json << "\"TotalCpuHz\":" << std::fixed << std::setprecision(0) << totalCpuFreqHz << ",";
+    json << "\"AvailableCpuHz\":" << std::fixed << std::setprecision(0) << availableCpuFreqHz << ",";
+    json << "\"CpuUtilization\":" << std::fixed << std::setprecision(4) << cpuUtilization << ",";
+    json << "\"QueueSize\":" << currentTaskQueueSize << ",";
+    json << "\"TotalBandwidthHz\":" << std::fixed << std::setprecision(0) << totalBandwidthHz << ",";
+    json << "\"AvailableBandwidthHz\":" << std::fixed << std::setprecision(0) << availableBandwidthHz << ",";
+    json << "\"BandwidthUtilization\":" << std::fixed << std::setprecision(4) << bandwidthUtilization << ",";
+    json << "\"TxPowerW\":" << std::fixed << std::setprecision(2) << transmitPowerW << ",";
+    json << "\"EnergyConsumedJ\":" << std::fixed << std::setprecision(4) << totalEnergyConsumed_J << ",";
+    json << "\"VehiclesInRange\":" << vehiclesInRange.size() << ",";
+    json << "\"ExpectedDelay\":" << std::fixed << std::setprecision(4) << calculateExpectedDelay();
+    json << "}";
+    
+    std::string jsonStr = json.str();
+    rsuPoster.enqueue(jsonStr);
+    
+    std::cout << "CONSOLE: RSU[0] -> DB (RSU[0] own telemetry): " << jsonStr << std::endl;
+    EV_INFO << "RSU[0] sent own telemetry to database" << endl;
+}
+
+void ComputeRSUApp::sendDTUpdateToDatabase(const std::string& nodeType, const DigitalTwin& dt) {
+    // Build JSON payload from Digital Twin data
+    std::ostringstream json;
+    json << "{";
+    json << "\"Type\":\"" << nodeType << "\",";
+    json << "\"NodeID\":" << dt.nodeId << ",";
+    json << "\"Time\":" << std::fixed << std::setprecision(3) << dt.lastUpdateTime.dbl() << ",";
+    json << "\"PosX\":" << std::fixed << std::setprecision(2) << dt.posX << ",";
+    json << "\"PosY\":" << std::fixed << std::setprecision(2) << dt.posY << ",";
+    
+    if (nodeType == "TV" || nodeType == "SV") {
+        json << "\"Velocity\":" << std::fixed << std::setprecision(2) << dt.velocity << ",";
+    }
+    
+    json << "\"MAC\":\"" << dt.macAddress << "\"";
+    
+    // Add all other attributes
+    for (const auto& attr : dt.attributes) {
+        json << ",\"" << attr.first << "\":" << std::fixed << std::setprecision(2) << attr.second;
+    }
+    
+    json << "}";
+    
+    std::string jsonStr = json.str();
+    
+    // Send to appropriate endpoint based on node type
+    if (nodeType == "TV") {
+        tvPoster.enqueue(jsonStr);
+        std::cout << "CONSOLE: RSU[0] -> DB (TV): " << jsonStr << std::endl;
+    } else if (nodeType == "SV") {
+        svPoster.enqueue(jsonStr);
+        std::cout << "CONSOLE: RSU[0] -> DB (SV): " << jsonStr << std::endl;
+    } else if (nodeType == "RSU") {
+        rsuPoster.enqueue(jsonStr);
+        std::cout << "CONSOLE: RSU[0] -> DB (RSU): " << jsonStr << std::endl;
+    }
+    
+    EV_INFO << "RSU[0] Enqueued DT update for " << nodeType << "[" << dt.nodeId << "] to database" << endl;
 }
 
 } // namespace complex_network

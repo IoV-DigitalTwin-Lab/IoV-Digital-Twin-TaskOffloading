@@ -4,6 +4,7 @@
 #include <map>
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/base/utils/Coord.h"
+#include "rsu_http_poster.h"
 
 namespace complex_network {
 
@@ -15,6 +16,9 @@ using namespace veins;
  * Provides offloading services to Task Vehicles (TVs)
  */
 class ComputeRSUApp : public DemoBaseApplLayer {
+  public:
+    ComputeRSUApp();  // Constructor to initialize HTTP posters
+    
   protected:
     // ==================== CPU & Compute Resources ====================
     double availableCpuFreqHz = 0.0;      // Available CPU frequency (Hz)
@@ -99,11 +103,18 @@ class ComputeRSUApp : public DemoBaseApplLayer {
     };
     std::map<int, DigitalTwin> digitalTwins;  // NodeID -> DT
     
+    // HTTP Posters for sending DT updates to database
+    RSUHttpPoster tvPoster;      // For Task Vehicles
+    RSUHttpPoster svPoster;      // For Service Vehicles  
+    RSUHttpPoster rsuPoster;     // For RSUs
+    
     // DT Functions
     void processDTUpdate(BaseFrame1609_4* wsm);
     void sendRSUStateToRSU0();                  // RSU[1] sends its state to RSU[0]
+    void sendOwnTelemetryToDatabase();          // RSU[0] sends its own telemetry to database
     LAddress::L2Type findRSU0MacAddress();      // Find RSU[0] MAC
     std::string createRSUDTUpdatePayload();     // Create RSU state payload
+    void sendDTUpdateToDatabase(const std::string& nodeType, const DigitalTwin& dt);  // Send to DB
     LAddress::L2Type myMacAddress = 0;          // Own MAC address
 };
 

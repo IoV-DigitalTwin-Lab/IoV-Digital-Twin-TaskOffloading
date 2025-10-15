@@ -37,6 +37,7 @@ OBJS = \
     $O/ComputeRSUApp.o \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
+    $O/rsu_http_poster.o \
     $O/ServiceVehicleApp.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
