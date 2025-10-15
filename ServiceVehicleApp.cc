@@ -259,11 +259,20 @@ void ServiceVehicleApp::onWSM(BaseFrame1609_4* wsm) {
     
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if (dsm) {
-        EV_INFO << "SV[" << getParentModule()->getIndex() 
-                << "] Received message" << endl;
+        std::string payload = dsm->getName();
         
-        // Process received task offloading request (to be implemented)
-        currentTaskQueueSize++;
+        // Check if this is a task offload request
+        if (payload.find("TASK_OFFLOAD") != std::string::npos) {
+            EV_INFO << "SV[" << getParentModule()->getIndex() 
+                    << "] Received task offload request: " << payload << endl;
+            
+            // Process task offloading request
+            processTaskOffloadRequest(wsm);
+        } else {
+            EV_INFO << "SV[" << getParentModule()->getIndex() 
+                    << "] Received message: " << payload << endl;
+            currentTaskQueueSize++;
+        }
     }
     
     DemoBaseApplLayer::onWSM(wsm);
@@ -283,6 +292,83 @@ void ServiceVehicleApp::setEnergyState(EnergyState newState) {
         updateEnergyConsumption(); // Update before changing state
         currentEnergyState = newState;
     }
+}
+
+void ServiceVehicleApp::processTaskOffloadRequest(BaseFrame1609_4* wsm) {
+    setEnergyState(COMPUTE);
+    
+    currentTaskQueueSize++;
+    
+    // Simulate task processing
+    double processingDelay = calculateExpectedDelay();
+    
+    EV_INFO << "SV[" << getParentModule()->getIndex() 
+            << "] Processing task, expected delay: " << processingDelay << " s" << endl;
+    
+    // Get sender's MAC address for unicast response
+    LAddress::L2Type senderMac = 0;
+    
+    // Extract sender MAC from payload (sent by TaskVehicleApp)
+    DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
+    if (dsm) {
+        std::string payload = dsm->getName();
+        size_t macPos = payload.find("SenderMAC:");
+        if (macPos != std::string::npos) {
+            std::string macStr = payload.substr(macPos + 10); // Skip "SenderMAC:"
+            senderMac = std::stoi(macStr);
+            EV_INFO << "SV[" << getParentModule()->getIndex() 
+                    << "] Extracted sender MAC from payload: " << senderMac << endl;
+        }
+    }
+    
+    // Fallback: Try to get from sender module
+    if (senderMac == 0) {
+        cModule* senderModule = wsm->getSenderModule();
+        if (senderModule) {
+            // Get parent node module
+            cModule* senderNode = senderModule->getParentModule();
+            if (senderNode) {
+                DemoBaseApplLayerToMac1609_4Interface* senderMacInterface =
+                    FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(senderNode);
+                if (senderMacInterface) {
+                    senderMac = senderMacInterface->getMACAddress();
+                    EV_INFO << "SV[" << getParentModule()->getIndex() 
+                            << "] Got sender MAC from module: " << senderMac << endl;
+                }
+            }
+        }
+    }
+    
+    setEnergyState(TX);
+    
+    // Create response message
+    DemoSafetyMessage* response = new DemoSafetyMessage("TaskOffloadResponse");
+    
+    // Send UNICAST response to the sender
+    if (senderMac != 0 && senderMac != LAddress::L2BROADCAST()) {
+        populateWSM(response, senderMac);
+        EV_INFO << "SV[" << getParentModule()->getIndex() 
+                << "] Sending UNICAST response to MAC: " << senderMac << endl;
+    } else {
+        populateWSM(response);
+        EV_WARN << "SV[" << getParentModule()->getIndex() 
+                << "] Sender MAC not found, using BROADCAST" << endl;
+    }
+    
+    std::ostringstream payload;
+    payload << "TASK_RESULT|SV:" << getParentModule()->getIndex()
+            << "|ProcessingTime:" << processingDelay;
+    response->setName(payload.str().c_str());
+    response->setSenderPos(position);
+    response->setUserPriority(7);
+    
+    sendDown(response);
+    
+    EV_INFO << "SV[" << getParentModule()->getIndex() 
+            << "] Sent task result response" << endl;
+    
+    currentTaskQueueSize--;
+    setEnergyState(IDLE);
 }
 
 void ServiceVehicleApp::recordMetrics() {

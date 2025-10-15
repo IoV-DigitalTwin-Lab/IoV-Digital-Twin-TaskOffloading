@@ -90,6 +90,7 @@ class ServiceVehicleApp : public DemoBaseApplLayer {
     double calculateExpectedDelay();
     double getDistanceToNode(int nodeIndex);
     void setEnergyState(EnergyState newState);
+    void processTaskOffloadRequest(BaseFrame1609_4* wsm);
     
     // ==================== Helper Methods ====================
     void recordMetrics();

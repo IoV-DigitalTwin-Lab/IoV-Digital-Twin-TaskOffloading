@@ -70,6 +70,7 @@ class ComputeRSUApp : public DemoBaseApplLayer {
     virtual void initialize(int stage) override;
     virtual void finish() override;
     virtual void handleSelfMsg(cMessage* msg) override;
+    virtual void handleMessage(cMessage* msg) override;
     virtual void onWSM(BaseFrame1609_4* wsm) override;
     
     // ==================== Core Functions ====================
@@ -82,6 +83,28 @@ class ComputeRSUApp : public DemoBaseApplLayer {
     
     // ==================== Helper Methods ====================
     void recordMetrics();
+
+    virtual int numInitStages() const override { return 2; }
+    
+    // ==================== Digital Twin Storage ====================
+    struct DigitalTwin {
+        std::string nodeType;              // "SV", "TV", or "RSU"
+        int nodeId;
+        simtime_t lastUpdateTime;
+        double posX, posY;
+        double velocity;
+        LAddress::L2Type macAddress;
+        // Type-specific fields (use as needed)
+        std::map<std::string, double> attributes;  // Flexible storage for any metric
+    };
+    std::map<int, DigitalTwin> digitalTwins;  // NodeID -> DT
+    
+    // DT Functions
+    void processDTUpdate(BaseFrame1609_4* wsm);
+    void sendRSUStateToRSU0();                  // RSU[1] sends its state to RSU[0]
+    LAddress::L2Type findRSU0MacAddress();      // Find RSU[0] MAC
+    std::string createRSUDTUpdatePayload();     // Create RSU state payload
+    LAddress::L2Type myMacAddress = 0;          // Own MAC address
 };
 
 } // namespace complex_network

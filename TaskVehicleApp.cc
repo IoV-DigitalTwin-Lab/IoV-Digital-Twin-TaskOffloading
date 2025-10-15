@@ -70,6 +70,21 @@ void TaskVehicleApp::initialize(int stage) {
                 << "] initialized with LocalCPU=" << (localCpuFreqHz/1e9) << " GHz, "
                 << "TxPower=" << transmitPowerW << " W" << endl;
     }
+    else if (stage == 1) {
+        // Get MAC address in stage 1
+        DemoBaseApplLayerToMac1609_4Interface* macInterface =
+            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(getParentModule());
+
+        if (macInterface) {
+            myMac = macInterface->getMACAddress();
+            EV_INFO << "TV[" << getParentModule()->getIndex() 
+                    << "] MAC address: " << myMac << endl;
+        } else {
+            EV_WARN << "TV[" << getParentModule()->getIndex() 
+                    << "] MAC interface NOT found!" << endl;
+            myMac = 0;
+        }
+    }
 }
 
 void TaskVehicleApp::finish() {
@@ -335,15 +350,29 @@ void TaskVehicleApp::offloadTask(const TaskInfo& task) {
         totalTasksOffloaded++;
         emit(sigTaskOffloaded, task.taskId);
         
+        // Find target MAC address for unicast
+        LAddress::L2Type targetMacAddress = findTargetMacAddress(targetIsRSU, bestTargetIndex);
+        
         // Create and send offloading message
         DemoSafetyMessage* wsm = new DemoSafetyMessage("TaskOffloadRequest");
-        populateWSM(wsm);
+        
+        // Use unicast if MAC address found, otherwise broadcast
+        if (targetMacAddress != 0) {
+            populateWSM(wsm, targetMacAddress);
+            EV_INFO << "TV[" << getParentModule()->getIndex() 
+                    << "] Using UNICAST to MAC: " << targetMacAddress << endl;
+        } else {
+            populateWSM(wsm);
+            EV_WARN << "TV[" << getParentModule()->getIndex() 
+                    << "] MAC not found, using BROADCAST" << endl;
+        }
         
         std::ostringstream payload;
         payload << "TASK_OFFLOAD|TaskID:" << task.taskId
                 << "|Cycles:" << task.cpuCyclesRequired
                 << "|Size:" << task.dataSizeBytes
-                << "|Deadline:" << task.maxTolerableDelay;
+                << "|Deadline:" << task.maxTolerableDelay
+                << "|SenderMAC:" << myMac;  // Include sender MAC for response
         wsm->setName(payload.str().c_str());
         wsm->setSenderPos(position);
         wsm->setUserPriority(7);
@@ -402,9 +431,27 @@ void TaskVehicleApp::onWSM(BaseFrame1609_4* wsm) {
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if (dsm) {
         std::string payload = dsm->getName();
+        
+        EV_DEBUG << "TV[" << getParentModule()->getIndex() 
+                 << "] Received message: " << payload << endl;
+        
         if (payload.find("TASK_RESULT") != std::string::npos) {
+            EV_INFO << "=========================================" << endl;
             EV_INFO << "TV[" << getParentModule()->getIndex() 
-                    << "] Received task result: " << payload << endl;
+                    << "] ✓ RECEIVED TASK RESULT" << endl;
+            EV_INFO << "Payload: " << payload << endl;
+            EV_INFO << "Time: " << simTime() << endl;
+            EV_INFO << "Sender: " << wsm->getSenderModule()->getFullName() << endl;
+            EV_INFO << "=========================================" << endl;
+            
+            // Also print to console for visibility
+            std::cout << "=========================================" << std::endl;
+            std::cout << "TV[" << getParentModule()->getIndex() 
+                      << "] ✓ RECEIVED TASK RESULT from "
+                      << wsm->getSenderModule()->getFullName() << std::endl;
+            std::cout << "Payload: " << payload << std::endl;
+            std::cout << "Time: " << simTime() << std::endl;
+            std::cout << "=========================================" << std::endl;
         }
     }
     
@@ -448,6 +495,53 @@ void TaskVehicleApp::recordMetrics() {
 
 PhyLayer80211p* TaskVehicleApp::getPhyLayer() {
     return FindModule<PhyLayer80211p*>::findSubModule(getParentModule());
+}
+
+LAddress::L2Type TaskVehicleApp::findTargetMacAddress(bool isRSU, int targetIndex) {
+    // Get the network module
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        EV_ERROR << "TV[" << getParentModule()->getIndex() 
+                 << "] Network module not found!" << endl;
+        return 0;
+    }
+    
+    cModule* targetModule = nullptr;
+    
+    if (isRSU) {
+        // Find RSU module
+        targetModule = networkModule->getSubmodule("rsu", targetIndex);
+        if (!targetModule) {
+            EV_WARN << "TV[" << getParentModule()->getIndex() 
+                    << "] RSU[" << targetIndex << "] module not found!" << endl;
+            return 0;
+        }
+    } else {
+        // Find SV (node) module
+        targetModule = networkModule->getSubmodule("node", targetIndex);
+        if (!targetModule) {
+            EV_WARN << "TV[" << getParentModule()->getIndex() 
+                    << "] SV[" << targetIndex << "] module not found!" << endl;
+            return 0;
+        }
+    }
+    
+    // Get MAC interface from target
+    DemoBaseApplLayerToMac1609_4Interface* macInterface =
+        FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(targetModule);
+    
+    if (macInterface) {
+        LAddress::L2Type targetMac = macInterface->getMACAddress();
+        EV_INFO << "TV[" << getParentModule()->getIndex() 
+                << "] Found target MAC: " << targetMac 
+                << " for " << (isRSU ? "RSU" : "SV") << "[" << targetIndex << "]" << endl;
+        return targetMac;
+    } else {
+        EV_WARN << "TV[" << getParentModule()->getIndex() 
+                << "] MAC interface not found for " 
+                << (isRSU ? "RSU" : "SV") << "[" << targetIndex << "]" << endl;
+        return 0;
+    }
 }
 
 } // namespace complex_network

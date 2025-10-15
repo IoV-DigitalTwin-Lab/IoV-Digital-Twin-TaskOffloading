@@ -97,6 +97,21 @@ void ComputeRSUApp::handleSelfMsg(cMessage* msg) {
     DemoBaseApplLayer::handleSelfMsg(msg);
 }
 
+void ComputeRSUApp::handleMessage(cMessage* msg) {
+    EV_INFO << "RSU[" << getParentModule()->getIndex() 
+            << "] handleMessage() called with: " << msg->getName() << endl;
+    
+    BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
+    if (wsm) {
+        EV_INFO << "RSU[" << getParentModule()->getIndex() 
+                << "] Received BaseFrame1609_4, routing to onWSM()" << endl;
+        onWSM(wsm);
+        return;
+    }
+    
+    DemoBaseApplLayer::handleMessage(msg);
+}
+
 void ComputeRSUApp::sendHeartbeat() {
     // Calculate metrics
     double cpuUtilization = 1.0 - (availableCpuFreqHz / totalCpuFreqHz);
@@ -237,12 +252,55 @@ void ComputeRSUApp::processTaskOffloadRequest(BaseFrame1609_4* wsm) {
     EV_INFO << "RSU[" << getParentModule()->getIndex() 
             << "] Processing task, expected delay: " << processingDelay << " s" << endl;
     
-    // TODO: Send response back to vehicle
+    // Get sender's MAC address for unicast response
+    LAddress::L2Type senderMac = 0;
+    
+    // Extract sender MAC from payload (sent by TaskVehicleApp)
+    DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
+    if (dsm) {
+        std::string payload = dsm->getName();
+        size_t macPos = payload.find("SenderMAC:");
+        if (macPos != std::string::npos) {
+            std::string macStr = payload.substr(macPos + 10); // Skip "SenderMAC:"
+            senderMac = std::stoi(macStr);
+            EV_INFO << "RSU[" << getParentModule()->getIndex() 
+                    << "] Extracted sender MAC from payload: " << senderMac << endl;
+        }
+    }
+    
+    // Fallback: Try to get from sender module
+    if (senderMac == 0) {
+        cModule* senderModule = wsm->getSenderModule();
+        if (senderModule) {
+            // Get parent node module
+            cModule* senderNode = senderModule->getParentModule();
+            if (senderNode) {
+                DemoBaseApplLayerToMac1609_4Interface* senderMacInterface =
+                    FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(senderNode);
+                if (senderMacInterface) {
+                    senderMac = senderMacInterface->getMACAddress();
+                    EV_INFO << "RSU[" << getParentModule()->getIndex() 
+                            << "] Got sender MAC from module: " << senderMac << endl;
+                }
+            }
+        }
+    }
+    
     setEnergyState(TX);
     
     // Create response message
     DemoSafetyMessage* response = new DemoSafetyMessage("TaskOffloadResponse");
-    populateWSM(response);
+    
+    // Send UNICAST response to the sender
+    if (senderMac != 0 && senderMac != LAddress::L2BROADCAST()) {
+        populateWSM(response, senderMac);
+        EV_INFO << "RSU[" << getParentModule()->getIndex() 
+                << "] Sending UNICAST response to MAC: " << senderMac << endl;
+    } else {
+        populateWSM(response);
+        EV_WARN << "RSU[" << getParentModule()->getIndex() 
+                << "] Sender MAC not found, using BROADCAST" << endl;
+    }
     
     std::ostringstream payload;
     payload << "TASK_RESULT|RSU:" << getParentModule()->getIndex()
@@ -252,6 +310,9 @@ void ComputeRSUApp::processTaskOffloadRequest(BaseFrame1609_4* wsm) {
     response->setUserPriority(7);
     
     sendDown(response);
+    
+    EV_INFO << "RSU[" << getParentModule()->getIndex() 
+            << "] Sent task result response" << endl;
     
     currentTaskQueueSize--;
     setEnergyState(IDLE);

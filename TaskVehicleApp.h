@@ -94,6 +94,9 @@ class TaskVehicleApp : public DemoBaseApplLayer {
     double discoveryInterval = 0.5;        // Neighbor discovery interval (s)
     double energyUpdateInterval = 0.1;     // Energy update interval (s)
     
+    // ==================== MAC Address Tracking ====================
+    LAddress::L2Type myMac = 0;            // This TV's MAC address
+    
     // ==================== Statistics ====================
     simsignal_t sigTaskGenerated;
     simsignal_t sigTaskOffloaded;
@@ -122,6 +125,7 @@ class TaskVehicleApp : public DemoBaseApplLayer {
     // ==================== Helper Methods ====================
     void recordMetrics();
     PhyLayer80211p* getPhyLayer();
+    LAddress::L2Type findTargetMacAddress(bool isRSU, int targetIndex);
 };
 
 } // namespace complex_network
