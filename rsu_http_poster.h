@@ -18,6 +18,8 @@ public:
     // start/stop worker
     void start();
     void stop();
+    // send a single startup ping (synchronous) to the endpoint
+    void sendStartupPing();
 
 private:
     void worker();

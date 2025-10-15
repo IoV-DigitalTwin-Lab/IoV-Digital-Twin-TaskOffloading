@@ -14,3 +14,23 @@ Wed Oct 15 18:16:40 2025
  WORKER_STARTED endpoint=http://localhost:8000/ingest
 Wed Oct 15 18:16:40 2025
  WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:31:03 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:31:03 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:37:10 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:37:10 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:40:19 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Oct 15 18:40:20 2025
+ STARTUP_RESULT OK code=200
+Wed Oct 15 18:40:20 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:40:20 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Oct 15 18:40:20 2025
+ STARTUP_RESULT OK code=200
+Wed Oct 15 18:40:20 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest

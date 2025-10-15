@@ -14,7 +14,69 @@ RSUHttpPoster::~RSUHttpPoster() {
 void RSUHttpPoster::start() {
     if (running) return;
     running = true;
+    // send a startup ping to verify endpoint reachability
+    try {
+        sendStartupPing();
+    } catch(...) {}
     th = std::thread(&RSUHttpPoster::worker, this);
+}
+
+void RSUHttpPoster::sendStartupPing() {
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        std::cerr << "RSUHttpPoster: startup curl init failed" << std::endl;
+        return;
+    }
+
+    struct curl_slist *headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_URL, endpoint.c_str());
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+
+    std::string hello = "{\"msg\": \"hello from RSU\"}";
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, hello.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)hello.size());
+
+    std::cout << "RSUHttpPoster: sending startup ping to " << endpoint << std::endl;
+    try {
+        std::ofstream lof("rsu_poster.log", std::ios::app);
+        if (lof) {
+            auto now = std::chrono::system_clock::now();
+            std::time_t t = std::chrono::system_clock::to_time_t(now);
+            lof << std::ctime(&t) << " STARTUP_SEND payload=" << hello << "\n";
+        }
+    } catch(...) {}
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        std::string err = curl_easy_strerror(res);
+        std::cerr << "RSUHttpPoster: startup POST failed: " << err << std::endl;
+        try {
+            std::ofstream lof("rsu_poster.log", std::ios::app);
+            if (lof) {
+                auto now = std::chrono::system_clock::now();
+                std::time_t t = std::chrono::system_clock::to_time_t(now);
+                lof << std::ctime(&t) << " STARTUP_RESULT ERROR=" << err << "\n";
+            }
+        } catch(...) {}
+    } else {
+        long response_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+        std::cout << "RSUHttpPoster: startup POST succeeded, HTTP response code: " << response_code << std::endl;
+        try {
+            std::ofstream lof("rsu_poster.log", std::ios::app);
+            if (lof) {
+                auto now = std::chrono::system_clock::now();
+                std::time_t t = std::chrono::system_clock::to_time_t(now);
+                lof << std::ctime(&t) << " STARTUP_RESULT OK code=" << response_code << "\n";
+            }
+        } catch(...) {}
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
 }
 
 void RSUHttpPoster::stop() {

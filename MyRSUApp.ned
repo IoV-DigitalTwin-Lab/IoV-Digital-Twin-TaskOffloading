@@ -24,6 +24,7 @@ simple MyRSUApp like IBaseApplLayer
         bool avoidBeaconSynchronization = default(true);
         double maxOffset @unit(s) = default(0.005s);
         bool sendWSA = default(false);
+    double wsaInterval @unit(s) = default(1s);
         int currentOfferedServiceId = default(42);
         
     gates:

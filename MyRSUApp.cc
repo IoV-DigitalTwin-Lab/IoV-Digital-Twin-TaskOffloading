@@ -17,8 +17,9 @@ void MyRSUApp::initialize(int stage) {
     if(stage == 0) {
         double interval = par("beaconInterval").doubleValue();
         
-        cMessage* sendMsg = new cMessage("sendMessage");
-        scheduleAt(simTime() + 2.0, sendMsg);
+    // create and store the beacon self-message so we can cancel/delete it safely later
+    beaconMsg = new cMessage("sendMessage");
+    scheduleAt(simTime() + 2.0, beaconMsg);
 
         std::cout << "=== CONSOLE: MyRSUApp INITIALIZED ===" << std::endl;
         std::cout << "CONSOLE: MyRSUApp - Beacon interval: " << interval << "s" << std::endl;
@@ -35,7 +36,7 @@ void MyRSUApp::initialize(int stage) {
 }
 
 void MyRSUApp::handleSelfMsg(cMessage* msg) {
-    if(strcmp(msg->getName(), "sendMessage") == 0) {
+        if(msg == beaconMsg && strcmp(msg->getName(), "sendMessage") == 0) {
         DemoSafetyMessage* wsm = new DemoSafetyMessage();
         populateWSM(wsm);
         wsm->setSenderPos(curPosition);
@@ -46,9 +47,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
         double interval = par("beaconInterval").doubleValue();
         scheduleAt(simTime() + interval, msg);
-    } else {
-        DemoBaseApplLayer::handleSelfMsg(msg);
-    }
+        } else {
+            DemoBaseApplLayer::handleSelfMsg(msg);
+        }
 }
 
 void MyRSUApp::handleLowerMsg(cMessage* msg) {
@@ -104,6 +105,29 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         }
     } catch(const std::exception& e) {
         std::cout << "CONSOLE: MyRSUApp - Log file error: " << e.what() << std::endl;
+    }
+
+    // Diagnostic enqueue: always write a diagnostic log entry and enqueue a small ping JSON
+    try {
+        std::ostringstream diagss;
+        diagss << "{\"diag\":\"ping\",\"simTime\":" << simTime().dbl() << "}";
+        std::string diagJson = diagss.str();
+
+        std::ofstream dlf("rsu_poster.log", std::ios::app);
+        if (dlf) {
+            auto now2 = std::chrono::system_clock::now();
+            std::time_t t2 = std::chrono::system_clock::to_time_t(now2);
+            char tb2[100];
+            std::strftime(tb2, sizeof(tb2), "%Y-%m-%d %H:%M:%S", std::localtime(&t2));
+            dlf << tb2 << " DIAGNOSTIC_ENQUEUE payload='" << diagJson << "'\n";
+            dlf.close();
+        }
+
+        // Enqueue diagnostic payload so RSUHttpPoster should record ENQUEUE/SEND/RESULT
+        poster.enqueue(diagJson);
+        std::cout << "CONSOLE: MyRSUApp - DIAGNOSTIC poster.enqueue() called with: " << diagJson << std::endl;
+    } catch (const std::exception &e) {
+        std::cout << "CONSOLE: MyRSUApp - Diagnostic enqueue/log error: " << e.what() << std::endl;
     }
     
     EV << "RSU: Received message from vehicle at time " << simTime() << endl;
@@ -200,13 +224,19 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
 void MyRSUApp::finish() {
     std::cout << "\n=== CONSOLE: MyRSUApp - finish() called ===" << std::endl;
     EV << "MyRSUApp: stopping RSUHttpPoster...\n";
-    
+    // cancel and delete our beacon self-message if still scheduled
+    if (beaconMsg) {
+        cancelAndDelete(beaconMsg);
+        beaconMsg = nullptr;
+    }
+
+    // stop poster worker
     poster.stop();
-    
+
     std::cout << "CONSOLE: MyRSUApp - Poster stopped successfully" << std::endl;
     std::cout << "=== MyRSUApp FINISHED ===" << std::endl;
     EV << "MyRSUApp: RSUHttpPoster stopped\n";
-    
+
     DemoBaseApplLayer::finish();
 }
 

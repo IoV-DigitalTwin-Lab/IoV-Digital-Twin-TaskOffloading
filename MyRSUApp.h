@@ -21,6 +21,8 @@ protected:
 
 private:
     RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};
+    // self-message used for periodic beacons; keep as member so we can cancel/delete safely
+    omnetpp::cMessage* beaconMsg{nullptr};
 };
 
 } // namespace complex_network
