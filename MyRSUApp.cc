@@ -240,4 +240,18 @@ void MyRSUApp::finish() {
     DemoBaseApplLayer::finish();
 }
 
+void MyRSUApp::handleMessage(cMessage* msg) {
+    std::cout << "CONSOLE: MyRSUApp handleMessage() called with message: " << msg->getName()
+              << " at time " << simTime() << std::endl;
+
+    BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
+    if (wsm) {
+        std::cout << "CONSOLE: MyRSUApp handleMessage received BaseFrame1609_4! forwarding to onWSM()" << std::endl;
+        onWSM(wsm);
+        return;
+    }
+
+    DemoBaseApplLayer::handleMessage(msg);
+}
+
 } // namespace complex_network

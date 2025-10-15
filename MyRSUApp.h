@@ -18,6 +18,7 @@ protected:
     void onWSM(BaseFrame1609_4* wsm) override;
     void handleSelfMsg(cMessage* msg) override;
     void handleLowerMsg(cMessage* msg) override;  // Add this!
+    void handleMessage(cMessage* msg) override;
 
 private:
     RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};

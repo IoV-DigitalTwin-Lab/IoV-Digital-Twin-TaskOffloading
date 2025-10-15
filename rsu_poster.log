@@ -34,3 +34,43 @@ Wed Oct 15 18:40:20 2025
  STARTUP_RESULT OK code=200
 Wed Oct 15 18:40:20 2025
  WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:54:36 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Oct 15 18:54:37 2025
+ STARTUP_RESULT OK code=200
+Wed Oct 15 18:54:37 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:54:37 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Oct 15 18:54:37 2025
+ STARTUP_RESULT OK code=200
+Wed Oct 15 18:54:37 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+2025-10-15 18:54:54 ONWSM raw='VEHICLE_DATA|VehID:0|Time:11.000|FlocHz:4694619187.15|TxPower_mW:143.53|Speed:15.31|PosX:124.48|PosY:26.60|MAC:22'
+2025-10-15 18:54:54 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":11.0001}'
+Wed Oct 15 18:54:54 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":11.0001}
+Wed Oct 15 18:54:54 2025
+ ENQUEUE len=135 payload={"FlocHz": 4694619187.15, "MAC": "22", "PosX": 124.48, "PosY": 26.60, "Speed": 15.31, "Time": 11.000, "TxPower_mW": 143.53, "VehID": 0}
+Wed Oct 15 18:54:54 2025
+ SEND payload={"diag":"ping","simTime":11.0001}
+Wed Oct 15 18:54:54 2025
+ RESULT OK code=200
+Wed Oct 15 18:54:54 2025
+ SEND payload={"FlocHz": 4694619187.15, "MAC": "22", "PosX": 124.48, "PosY": 26.60, "Speed": 15.31, "Time": 11.000, "TxPower_mW": 143.53, "VehID": 0}
+Wed Oct 15 18:54:54 2025
+ RESULT OK code=200
+2025-10-15 18:55:13 ONWSM raw='VEHICLE_DATA|VehID:1|Time:16.000|FlocHz:6166900133.71|TxPower_mW:171.83|Speed:13.83|PosX:121.08|PosY:26.60|MAC:28'
+2025-10-15 18:55:13 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":16.0001}'
+Wed Oct 15 18:55:13 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":16.0001}
+Wed Oct 15 18:55:13 2025
+ SEND payload={"diag":"ping","simTime":16.0001}
+Wed Oct 15 18:55:13 2025
+ ENQUEUE len=135 payload={"FlocHz": 6166900133.71, "MAC": "28", "PosX": 121.08, "PosY": 26.60, "Speed": 13.83, "Time": 16.000, "TxPower_mW": 171.83, "VehID": 1}
+Wed Oct 15 18:55:13 2025
+ RESULT OK code=200
+Wed Oct 15 18:55:13 2025
+ SEND payload={"FlocHz": 6166900133.71, "MAC": "28", "PosX": 121.08, "PosY": 26.60, "Speed": 13.83, "Time": 16.000, "TxPower_mW": 171.83, "VehID": 1}
+Wed Oct 15 18:55:13 2025
+ RESULT OK code=200
