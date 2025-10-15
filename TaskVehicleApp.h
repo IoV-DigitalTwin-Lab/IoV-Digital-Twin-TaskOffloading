@@ -126,6 +126,11 @@ class TaskVehicleApp : public DemoBaseApplLayer {
     void recordMetrics();
     PhyLayer80211p* getPhyLayer();
     LAddress::L2Type findTargetMacAddress(bool isRSU, int targetIndex);
+    
+    // ==================== Digital Twin Functions ====================
+    std::string createDTUpdatePayload();         // Create DT update payload (from PayloadVehicleApp)
+    void sendDTUpdateToRSU0();                   // Send DT update to RSU[0]
+    LAddress::L2Type findRSU0MacAddress();       // Find RSU[0] MAC address
 };
 
 } // namespace complex_network

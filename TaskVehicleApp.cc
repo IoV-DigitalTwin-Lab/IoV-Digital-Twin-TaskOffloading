@@ -2,6 +2,7 @@
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
 #include <cmath>
 #include <sstream>
+#include <iomanip>
 
 namespace complex_network {
 
@@ -154,6 +155,9 @@ void TaskVehicleApp::sendHeartbeat() {
     
     // Emit statistics
     emit(sigEnergyConsumed, totalEnergyConsumed_J);
+    
+    // ==================== Send DT Update to RSU[0] ====================
+    sendDTUpdateToRSU0();
 }
 
 void TaskVehicleApp::discoverServiceVehicles() {
@@ -542,6 +546,86 @@ LAddress::L2Type TaskVehicleApp::findTargetMacAddress(bool isRSU, int targetInde
                 << (isRSU ? "RSU" : "SV") << "[" << targetIndex << "]" << endl;
         return 0;
     }
+}
+
+// ==================== Digital Twin Functions (Reused from PayloadVehicleApp) ====================
+
+std::string TaskVehicleApp::createDTUpdatePayload() {
+    // Create structured DT update payload with real-time TV state
+    std::ostringstream payload;
+    
+    payload << "DT_UPDATE|"
+            << "Type:TV|"
+            << "NodeID:" << getParentModule()->getIndex() << "|"
+            << "Time:" << std::fixed << std::setprecision(3) << simTime().dbl() << "|"
+            << "PosX:" << std::fixed << std::setprecision(2) << position.x << "|"
+            << "PosY:" << std::fixed << std::setprecision(2) << position.y << "|"
+            << "Velocity:" << std::fixed << std::setprecision(2) << velocity << "|"
+            << "MAC:" << myMac << "|"
+            << "LocalCPUHz:" << std::fixed << std::setprecision(0) << localCpuFreqHz << "|"
+            << "PendingTasks:" << pendingTasks.size() << "|"
+            << "EnergyJ:" << std::fixed << std::setprecision(3) << totalEnergyConsumed_J << "|"
+            << "TxPowerW:" << std::fixed << std::setprecision(2) << transmitPowerW << "|"
+            << "SVsInRange:" << servicevehiclesInRange.size() << "|"
+            << "RSUsInRange:" << rsusInRange.size();
+    
+    return payload.str();
+}
+
+LAddress::L2Type TaskVehicleApp::findRSU0MacAddress() {
+    // Get the network module
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        EV_WARN << "TV[" << getParentModule()->getIndex() << "] Network module not found!" << endl;
+        return 0;
+    }
+
+    // Find RSU[0] (Digital Twin host)
+    cModule* rsuModule = networkModule->getSubmodule("rsu", 0);
+    if (rsuModule) {
+        EV_INFO << "TV[" << getParentModule()->getIndex() << "] Found RSU[0]: " << rsuModule->getFullName() << endl;
+
+        // Get the MAC interface from RSU[0]
+        DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
+            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
+
+        if (rsuMacInterface) {
+            LAddress::L2Type rsuMacAddress = rsuMacInterface->getMACAddress();
+            if (rsuMacAddress != 0) {
+                EV_INFO << "TV[" << getParentModule()->getIndex() << "] Found RSU[0] MAC: " << rsuMacAddress << endl;
+                return rsuMacAddress;
+            }
+        }
+    }
+
+    EV_WARN << "TV[" << getParentModule()->getIndex() << "] RSU[0] MAC address not found!" << endl;
+    return 0;
+}
+
+void TaskVehicleApp::sendDTUpdateToRSU0() {
+    // Create DT update payload
+    std::string dtPayload = createDTUpdatePayload();
+    
+    // Find RSU[0] MAC address
+    LAddress::L2Type rsu0Mac = findRSU0MacAddress();
+    
+    if (rsu0Mac == 0) {
+        EV_WARN << "TV[" << getParentModule()->getIndex() << "] Cannot send DT update - RSU[0] MAC not found" << endl;
+        return;
+    }
+    
+    // Create DemoSafetyMessage with DT payload
+    DemoSafetyMessage* dtMsg = new DemoSafetyMessage();
+    populateWSM(dtMsg, rsu0Mac); // Unicast to RSU[0]
+    dtMsg->setName(dtPayload.c_str());
+    dtMsg->setSenderPos(position);
+    dtMsg->setUserPriority(6); // High priority for DT updates
+    
+    // Send to RSU[0]
+    sendDown(dtMsg);
+    
+    EV_INFO << "TV[" << getParentModule()->getIndex() << "] Sent DT update to RSU[0] (MAC: " << rsu0Mac << ")" << endl;
+    std::cout << "CONSOLE: TV[" << getParentModule()->getIndex() << "] -> RSU[0] DT Update: " << dtPayload << std::endl;
 }
 
 } // namespace complex_network

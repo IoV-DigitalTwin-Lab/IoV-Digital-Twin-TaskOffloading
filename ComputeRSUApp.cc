@@ -2,6 +2,7 @@
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
 #include <cmath>
 #include <sstream>
+#include <iomanip>
 
 namespace complex_network {
 
@@ -62,6 +63,25 @@ void ComputeRSUApp::initialize(int stage) {
                 << " with CPU=" << (totalCpuFreqHz/1e9) << " GHz, "
                 << "TxPower=" << transmitPowerW << " W, "
                 << "Bandwidth=" << (totalBandwidthHz/1e6) << " MHz" << endl;
+    }
+    else if (stage == 1) {
+        // Get MAC address in stage 1
+        DemoBaseApplLayerToMac1609_4Interface* macInterface =
+            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(getParentModule());
+
+        if (macInterface) {
+            myMacAddress = macInterface->getMACAddress();
+            EV_INFO << "RSU[" << getParentModule()->getIndex() << "] MAC address: " << myMacAddress << endl;
+            std::cout << "CONSOLE: RSU[" << getParentModule()->getIndex() << "] MAC: " << myMacAddress << std::endl;
+        } else {
+            std::cout << "CONSOLE: ERROR - RSU[" << getParentModule()->getIndex() << "] MAC interface NOT found!" << std::endl;
+            myMacAddress = 0;
+        }
+        
+        // If this is RSU[1], schedule periodic DT updates to RSU[0]
+        if (getParentModule()->getIndex() == 1) {
+            std::cout << "CONSOLE: RSU[1] will send periodic DT updates to RSU[0]" << std::endl;
+        }
     }
 }
 
@@ -136,6 +156,25 @@ void ComputeRSUApp::sendHeartbeat() {
     emit(sigEnergyConsumed, totalEnergyConsumed_J);
     emit(sigProcessingDelay, expectedDelay);
     emit(sigBandwidthUtilization, bandwidthUtilization);
+    
+    // ==================== RSU[1] sends DT update to RSU[0] ====================
+    if (getParentModule()->getIndex() == 1) {
+        sendRSUStateToRSU0();
+    }
+    
+    // ==================== RSU[0] logs DT inventory ====================
+    if (getParentModule()->getIndex() == 0) {
+        std::cout << "CONSOLE: ==================== RSU[0] Digital Twin Inventory ====================" << std::endl;
+        std::cout << "CONSOLE: Total Digital Twins: " << digitalTwins.size() << std::endl;
+        for (const auto& pair : digitalTwins) {
+            const DigitalTwin& dt = pair.second;
+            std::cout << "CONSOLE:   - " << dt.nodeType << "[" << dt.nodeId << "] "
+                      << "@ (" << dt.posX << "," << dt.posY << ") "
+                      << "vel=" << dt.velocity << " m/s "
+                      << "lastUpdate=" << dt.lastUpdateTime << std::endl;
+        }
+        std::cout << "CONSOLE: =======================================================================" << std::endl;
+    }
 }
 
 void ComputeRSUApp::updateEnergyConsumption() {
@@ -207,8 +246,17 @@ void ComputeRSUApp::onWSM(BaseFrame1609_4* wsm) {
     if (dsm) {
         std::string payload = dsm->getName();
         
+        // ==================== Check for Digital Twin Update ====================
+        if (payload.find("DT_UPDATE") != std::string::npos) {
+            EV_INFO << "RSU[" << getParentModule()->getIndex() 
+                    << "] Received DT update: " << payload << endl;
+            std::cout << "CONSOLE: RSU[" << getParentModule()->getIndex() 
+                      << "] <- DT Update: " << payload << std::endl;
+            
+            processDTUpdate(wsm);
+        }
         // Check if this is a task offload request
-        if (payload.find("TASK_OFFLOAD") != std::string::npos) {
+        else if (payload.find("TASK_OFFLOAD") != std::string::npos) {
             EV_INFO << "RSU[" << getParentModule()->getIndex() 
                     << "] Received task offload request: " << payload << endl;
             
@@ -336,6 +384,135 @@ void ComputeRSUApp::recordMetrics() {
     recordScalar("RSU.transmitPowerW", transmitPowerW);
     recordScalar("RSU.energyConsumed_J", totalEnergyConsumed_J);
     recordScalar("RSU.expectedDelay", calculateExpectedDelay());
+}
+
+// ==================== Digital Twin Functions ====================
+
+void ComputeRSUApp::processDTUpdate(BaseFrame1609_4* wsm) {
+    DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
+    if (!dsm) return;
+    
+    std::string payload = dsm->getName();
+    
+    // Parse payload: DT_UPDATE|Type:XX|NodeID:XX|...
+    DigitalTwin dt;
+    dt.lastUpdateTime = simTime();
+    
+    // Extract fields from payload
+    size_t pos = 0;
+    std::string token;
+    std::istringstream ss(payload);
+    
+    while (std::getline(ss, token, '|')) {
+        size_t colonPos = token.find(':');
+        if (colonPos != std::string::npos) {
+            std::string key = token.substr(0, colonPos);
+            std::string value = token.substr(colonPos + 1);
+            
+            if (key == "Type") dt.nodeType = value;
+            else if (key == "NodeID") dt.nodeId = std::stoi(value);
+            else if (key == "PosX") dt.posX = std::stod(value);
+            else if (key == "PosY") dt.posY = std::stod(value);
+            else if (key == "Velocity") dt.velocity = std::stod(value);
+            else if (key == "MAC") dt.macAddress = std::stoi(value);
+            else {
+                // Store other attributes flexibly
+                try {
+                    dt.attributes[key] = std::stod(value);
+                } catch (...) {
+                    // Ignore non-numeric attributes
+                }
+            }
+        }
+    }
+    
+    // Store in DT map
+    digitalTwins[dt.nodeId] = dt;
+    
+    EV_INFO << "RSU[" << getParentModule()->getIndex() << "] Updated DT for " 
+            << dt.nodeType << "[" << dt.nodeId << "] @ (" << dt.posX << "," << dt.posY << ")" << endl;
+}
+
+std::string ComputeRSUApp::createRSUDTUpdatePayload() {
+    // Create structured DT update payload for RSU state
+    std::ostringstream payload;
+    
+    double cpuUtilization = 1.0 - (availableCpuFreqHz / totalCpuFreqHz);
+    double bandwidthUtilization = 1.0 - (availableBandwidthHz / totalBandwidthHz);
+    
+    payload << "DT_UPDATE|"
+            << "Type:RSU|"
+            << "NodeID:" << getParentModule()->getIndex() << "|"
+            << "Time:" << std::fixed << std::setprecision(3) << simTime().dbl() << "|"
+            << "PosX:" << std::fixed << std::setprecision(2) << position.x << "|"
+            << "PosY:" << std::fixed << std::setprecision(2) << position.y << "|"
+            << "Velocity:0.0|"  // RSU is stationary
+            << "MAC:" << myMacAddress << "|"
+            << "CPUFreqHz:" << std::fixed << std::setprecision(0) << totalCpuFreqHz << "|"
+            << "CPUUtil:" << std::fixed << std::setprecision(2) << cpuUtilization << "|"
+            << "BWUtil:" << std::fixed << std::setprecision(2) << bandwidthUtilization << "|"
+            << "QueueSize:" << currentTaskQueueSize << "|"
+            << "EnergyJ:" << std::fixed << std::setprecision(3) << totalEnergyConsumed_J << "|"
+            << "TxPowerW:" << std::fixed << std::setprecision(2) << transmitPowerW << "|"
+            << "VehiclesInRange:" << vehiclesInRange.size();
+    
+    return payload.str();
+}
+
+LAddress::L2Type ComputeRSUApp::findRSU0MacAddress() {
+    // Get the network module
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        EV_WARN << "RSU[" << getParentModule()->getIndex() << "] Network module not found!" << endl;
+        return 0;
+    }
+
+    // Find RSU[0] (Digital Twin host)
+    cModule* rsuModule = networkModule->getSubmodule("rsu", 0);
+    if (rsuModule) {
+        EV_INFO << "RSU[" << getParentModule()->getIndex() << "] Found RSU[0]: " << rsuModule->getFullName() << endl;
+
+        // Get the MAC interface from RSU[0]
+        DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
+            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
+
+        if (rsuMacInterface) {
+            LAddress::L2Type rsuMacAddress = rsuMacInterface->getMACAddress();
+            if (rsuMacAddress != 0) {
+                EV_INFO << "RSU[" << getParentModule()->getIndex() << "] Found RSU[0] MAC: " << rsuMacAddress << endl;
+                return rsuMacAddress;
+            }
+        }
+    }
+
+    EV_WARN << "RSU[" << getParentModule()->getIndex() << "] RSU[0] MAC address not found!" << endl;
+    return 0;
+}
+
+void ComputeRSUApp::sendRSUStateToRSU0() {
+    // Create DT update payload
+    std::string dtPayload = createRSUDTUpdatePayload();
+    
+    // Find RSU[0] MAC address
+    LAddress::L2Type rsu0Mac = findRSU0MacAddress();
+    
+    if (rsu0Mac == 0) {
+        EV_WARN << "RSU[" << getParentModule()->getIndex() << "] Cannot send DT update - RSU[0] MAC not found" << endl;
+        return;
+    }
+    
+    // Create DemoSafetyMessage with DT payload
+    DemoSafetyMessage* dtMsg = new DemoSafetyMessage();
+    populateWSM(dtMsg, rsu0Mac); // Unicast to RSU[0]
+    dtMsg->setName(dtPayload.c_str());
+    dtMsg->setSenderPos(position);
+    dtMsg->setUserPriority(6); // High priority for DT updates
+    
+    // Send to RSU[0]
+    sendDown(dtMsg);
+    
+    EV_INFO << "RSU[" << getParentModule()->getIndex() << "] Sent DT update to RSU[0] (MAC: " << rsu0Mac << ")" << endl;
+    std::cout << "CONSOLE: RSU[" << getParentModule()->getIndex() << "] -> RSU[0] DT Update: " << dtPayload << std::endl;
 }
 
 } // namespace complex_network

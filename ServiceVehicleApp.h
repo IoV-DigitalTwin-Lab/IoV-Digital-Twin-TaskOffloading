@@ -95,6 +95,12 @@ class ServiceVehicleApp : public DemoBaseApplLayer {
     // ==================== Helper Methods ====================
     void recordMetrics();
     PhyLayer80211p* getPhyLayer();
+    
+    // ==================== Digital Twin Functions ====================
+    std::string createDTUpdatePayload();         // Create DT update payload (from PayloadVehicleApp)
+    void sendDTUpdateToRSU0();                   // Send DT update to RSU[0]
+    LAddress::L2Type findRSU0MacAddress();       // Find RSU[0] MAC address
+    LAddress::L2Type myMacAddress = 0;           // Own MAC address
 };
 
 } // namespace complex_network
