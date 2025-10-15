@@ -1,4 +1,16 @@
-Wed Oct 15 17:32:08 2025
- WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
-Wed Oct 15 17:38:53 2025
- WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Oct 15 18:06:03 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:06:03 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:10:30 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:10:30 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:11:32 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:11:32 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:16:40 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest
+Wed Oct 15 18:16:40 2025
+ WORKER_STARTED endpoint=http://localhost:8000/ingest

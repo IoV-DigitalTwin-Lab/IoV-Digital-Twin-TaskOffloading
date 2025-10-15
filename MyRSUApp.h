@@ -17,9 +17,10 @@ public:
 protected:
     void onWSM(BaseFrame1609_4* wsm) override;
     void handleSelfMsg(cMessage* msg) override;
+    void handleLowerMsg(cMessage* msg) override;  // Add this!
 
 private:
-    RSUHttpPoster poster{ "http://127.0.0.1:8000/ingest" };
+    RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};
 };
 
 } // namespace complex_network
