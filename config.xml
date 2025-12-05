@@ -1,49 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root>
+    <!-- Phase 3: Simplified Veins-Compatible Propagation Models -->
     <AnalogueModels>
-        <!-- Pathloss model -->
+        <!-- Enhanced Pathloss model (Veins native) -->
         <AnalogueModel type="SimplePathlossModel" thresholding="true">
-            <parameter name="alpha" type="double" value="2.0"/>
+            <parameter name="alpha" type="double" value="2.2"/>  <!-- Urban path loss exponent -->
+            <parameter name="carrierFrequency" type="double" value="5.89e9"/>
         </AnalogueModel>
-        <!-- Obstacle shadowing - DISABLED -->
-        <!-- 
+        
+        <!-- Simple Obstacle Shadowing (references external obstacles.xml) -->
         <AnalogueModel type="SimpleObstacleShadowing" thresholding="true">
-            <obstacles>
-                <type id="building" db-per-cut="9" db-per-meter="0.4"/>
-                <type id="tree" db-per-cut="2" db-per-meter="0.1"/>
-                
-                <poly id="building1" type="building">
-                    <vertex x="475" y="960" />
-                    <vertex x="525" y="960" />
-                    <vertex x="525" y="1040" />
-                    <vertex x="475" y="1040" />
-                </poly>
-                
-                <poly id="building2" type="building">
-                    <vertex x="1470" y="1150" />
-                    <vertex x="1530" y="1150" />
-                    <vertex x="1530" y="1250" />
-                    <vertex x="1470" y="1250" />
-                </poly>
-                
-                <poly id="building3" type="building">
-                    <vertex x="1985" y="480" />
-                    <vertex x="2015" y="480" />
-                    <vertex x="2015" y="520" />
-                    <vertex x="1985" y="520" />
-                </poly>
-                
-                <poly id="tree1" type="tree">
-                    <vertex x="1195" y="795" />
-                    <vertex x="1205" y="795" />
-                    <vertex x="1205" y="805" />
-                    <vertex x="1195" y="805" />
-                </poly>
-            </obstacles>
+            <!-- Obstacles are now defined in separate obstacles.xml file -->
         </AnalogueModel>
-        -->
     </AnalogueModels>
+    
+    <!-- Standard Decider for Veins compatibility -->
     <Decider type="Decider80211p">
         <parameter name="centerFrequency" type="double" value="5.890e9"/>
+        <parameter name="sensitivity" type="double" value="-85dBm"/>      
+        <parameter name="busyThreshold" type="double" value="-62dBm"/>
     </Decider>
 </root>

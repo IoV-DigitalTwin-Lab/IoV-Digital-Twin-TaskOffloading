@@ -1,0 +1,193 @@
+2025-12-04 20:28:25,725 - ingest - INFO - Connecting to DB: postgresql://iov_user:iov_pass@localhost/iov_db
+2025-12-04 20:28:25,794 - ingest - INFO - DB pool created
+2025-12-04 20:28:53,321 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 20:28:53,376 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 20:28:53,399 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 20:28:53,405 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 20:30:32,199 - ingest - INFO - DB pool closed
+2025-12-04 20:31:38,327 - ingest - INFO - Connecting to DB: postgresql://iov_user:iov_pass@localhost/iov_db
+2025-12-04 20:31:38,353 - ingest - INFO - DB pool created
+2025-12-04 20:32:01,101 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 20:32:01,107 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 20:32:01,114 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 20:32:01,117 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 20:34:56,054 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 20:34:56,058 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 20:34:56,065 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 20:34:56,070 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 22:47:06,809 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 22:47:07,149 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 22:47:07,185 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 22:47:07,190 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:08:16,131 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:08:16,273 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:08:16,287 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:08:16,293 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:12:30,182 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:12:30,195 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:12:30,204 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:12:30,208 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:31:08,647 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:31:08,901 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:32:49,197 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:32:49,212 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:35:13,453 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:35:13,460 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:35:13,494 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:35:13,498 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:36:27,028 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:36:27,065 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:36:27,074 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:36:27,079 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:37:54,160 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:37:54,172 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:37:54,177 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:37:54,182 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:39:05,702 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:39:05,709 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:39:05,726 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:39:05,733 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:41:25,212 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:41:25,233 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:41:25,245 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:41:25,249 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:43:09,873 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:43:09,891 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:52:04,225 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:52:04,511 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:54:00,518 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:54:00,575 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:55:53,668 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:55:53,685 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:55:53,706 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:55:53,713 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:56:21,581 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:56:21,588 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:56:21,601 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:56:21,606 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:58:13,501 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:58:13,543 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:58:13,564 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:58:13,567 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:59:45,173 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:59:45,175 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-04 23:59:45,182 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-04 23:59:45,185 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:08:57,782 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:08:58,179 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:08:58,228 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:08:58,231 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:11:46,806 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:11:46,831 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:11:46,845 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:11:46,850 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:26:16,223 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:26:16,387 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:26:16,403 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:26:16,407 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:33:16,309 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:33:16,500 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:35:57,772 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:35:57,797 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:35:57,814 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:35:57,818 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:37:22,229 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:37:22,234 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:37:22,240 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:37:22,243 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:41:09,196 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:41:09,265 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:41:09,282 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:41:09,285 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:49:01,745 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:49:01,913 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:49:01,928 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:49:01,931 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:49:26,066 - ingest - DEBUG - Received payload: {'diag': 'ping', 'simTime': 11.0001}
+2025-12-05 00:49:26,075 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:49:26,086 - ingest - DEBUG - Received payload: {'VehID': 0, 'Time': 11.0, 'FlocHz': 4694619187.15, 'TxPower_mW': 143.53, 'Speed': 15.31, 'PosX': 124.48, 'PosY': 26.6, 'MAC': '32'}
+2025-12-05 00:49:26,097 - ingest - INFO - Inserted telemetry for veh 0 time 11.0
+2025-12-05 00:49:56,304 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:49:56,316 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:49:56,335 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:49:56,350 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:50:17,001 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:50:17,013 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:50:17,020 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:50:17,023 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:50:59,379 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:50:59,389 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:50:59,395 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:50:59,399 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:55:21,353 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:55:21,399 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 00:55:21,408 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 00:55:21,413 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:01:50,722 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:01:50,928 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:01:50,945 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:01:50,948 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:04:48,271 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:04:48,321 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:04:48,344 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:04:48,350 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:16:52,990 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:16:53,154 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:16:53,171 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:16:53,174 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:17:29,127 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:17:29,134 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:17:29,144 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:17:29,148 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:17:50,843 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:17:50,849 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:17:50,859 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:17:50,867 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:18:21,423 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:18:21,428 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:18:21,438 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:18:21,441 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:18:43,724 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:18:43,729 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:18:43,739 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:18:43,751 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:19:56,534 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:19:56,549 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:19:56,554 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:19:56,556 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:26:28,349 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:26:28,624 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:26:28,654 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:26:28,660 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:30:54,723 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:30:54,798 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:30:54,833 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:30:54,837 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:33:22,663 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:33:22,737 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:33:22,759 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:33:22,762 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:40:02,675 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:40:02,900 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:40:02,922 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:40:02,925 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:50:36,634 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:50:36,811 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:50:36,832 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:50:36,836 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:58:15,201 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:58:15,462 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 01:58:15,494 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 01:58:15,498 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 02:06:40,012 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 02:06:40,296 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 02:06:40,325 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 02:06:40,328 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 02:07:52,750 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 02:07:52,818 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 02:07:52,857 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 02:07:52,864 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 02:09:49,397 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 02:09:49,410 - ingest - INFO - Inserted telemetry for veh None time None
+2025-12-05 02:09:49,420 - ingest - DEBUG - Received payload: {'msg': 'hello from RSU'}
+2025-12-05 02:09:49,426 - ingest - INFO - Inserted telemetry for veh None time None

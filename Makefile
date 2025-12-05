@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for complex-network
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KVEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1 -DVEINS_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(VEINS_PROJ\)/src -lveins$$\(D\)
+#  opp_makemake -f --deep -O out -KVEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1 -KINET4_5_PROJ=../inet4.5 -DVEINS_IMPORT -DINET_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -I$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -L$$\(INET4_5_PROJ\)/src -lveins$$\(D\) -lINET$$\(D\)
 #
 
 # Name of target to be created (-o option)
@@ -19,13 +19,13 @@ USERIF_LIBS = $(ALL_ENV_LIBS) # that is, $(QTENV_LIBS) $(CMDENV_LIBS)
 #USERIF_LIBS = $(QTENV_LIBS)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I. -I$(VEINS_PROJ)/src -Isrc
+INCLUDE_PATH = -I. -I$(VEINS_PROJ)/src -Isrc -I$(INET4_5_PROJ)/src
 
 # Additional object and library files to link with
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lveins$(D)
+LIBS = $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src  -lveins$(D) -lINET$(D)
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -50,6 +50,7 @@ SMFILES =
 
 # Other makefile variables (-K)
 VEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1
+INET4_5_PROJ=../inet4.5
 
 #------------------------------------------------------------------------------
 
@@ -70,10 +71,10 @@ include $(CONFIGFILE)
 # Simulation kernel and user interface libraries
 OMNETPP_LIBS = $(OPPMAIN_LIB) $(USERIF_LIBS) $(KERNEL_LIBS) $(SYS_LIBS)
 ifneq ($(PLATFORM),win32)
-LIBS += -Wl,-rpath,$(abspath $(VEINS_PROJ)/src)
+LIBS += -Wl,-rpath,$(abspath $(VEINS_PROJ)/src) -Wl,-rpath,$(abspath $(INET4_5_PROJ)/src)
 endif
 
-COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DVEINS_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
+COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DVEINS_IMPORT -DINET_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
 MSGCOPTS = $(INCLUDE_PATH)
 SMCOPTS =
 

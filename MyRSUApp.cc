@@ -123,7 +123,6 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
             dlf.close();
         }
 
-        // Enqueue diagnostic payload so RSUHttpPoster should record ENQUEUE/SEND/RESULT
         poster.enqueue(diagJson);
         std::cout << "CONSOLE: MyRSUApp - DIAGNOSTIC poster.enqueue() called with: " << diagJson << std::endl;
     } catch (const std::exception &e) {
@@ -191,7 +190,6 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         std::cout << "CONSOLE: MyRSUApp - ⚠ No VEHICLE_DATA prefix found" << std::endl;
     }
 
-    // Fallback
     if (!posted) {
         std::cout << "CONSOLE: MyRSUApp - Creating fallback JSON..." << std::endl;
         
@@ -254,4 +252,4 @@ void MyRSUApp::handleMessage(cMessage* msg) {
     DemoBaseApplLayer::handleMessage(msg);
 }
 
-} // namespace complex_network
+}

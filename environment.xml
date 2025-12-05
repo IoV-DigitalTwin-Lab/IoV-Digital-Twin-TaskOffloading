@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<environment>
+    <!-- Phase 4: Realistic Urban Environment Aligned with SUMO Road Network -->
+    <!-- SUMO Network: X(-100 to 200), Y(-200 to 100) - 300m x 300m grid -->
+    
+    <!-- Enhanced Ground definition -->
+    <ground>
+        <material id="asphalt" resistivity="0.005" relativePermittivity="12.0"/>
+        <shape type="plane">
+            <position x="0" y="0" z="0"/>
+            <normal x="0" y="0" z="1"/>
+        </shape>
+    </ground>
+    
+    <!-- Realistic Urban Buildings Aligned with Road Grid -->
+    <objects>
+        <!-- Commercial District (North-East quadrant) -->
+        <object id="office_building_1" type="commercial" material="reinforced_concrete">
+            <shape type="cuboid">
+                <position x="130" y="50" z="0"/>  <!-- Between roads, east side -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="60" y="40" z="25"/>  <!-- Realistic building size -->
+            </shape>
+        </object>
+        
+        <object id="office_building_2" type="commercial" material="reinforced_concrete">
+            <shape type="cuboid">
+                <position x="150" y="150" z="0"/>  <!-- North-east corner -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="45" y="35" z="30"/>
+            </shape>
+        </object>
+        
+        <!-- Residential Area (North-West quadrant) -->
+        <object id="house_1" type="residential" material="brick">
+            <shape type="cuboid">
+                <position x="-50" y="50" z="0"/>  <!-- West side residential -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="30" y="25" z="8"/>  <!-- Single story house -->
+            </shape>
+        </object>
+        
+        <object id="house_2" type="residential" material="brick">
+            <shape type="cuboid">
+                <position x="-70" y="150" z="0"/>  <!-- North-west area -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="35" y="20" z="10"/>
+            </shape>
+        </object>
+        
+        <!-- Industrial Zone (South areas) -->
+        <object id="warehouse_1" type="industrial" material="metal_sheet">
+            <shape type="cuboid">
+                <position x="50" y="-150" z="0"/>  <!-- South-east industrial -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="80" y="30" z="12"/>  <!-- Large warehouse -->
+            </shape>
+        </object>
+        
+        <object id="warehouse_2" type="industrial" material="metal_sheet">
+            <shape type="cuboid">
+                <position x="-50" y="-170" z="0"/>  <!-- South-west industrial -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="60" y="25" z="10"/>
+            </shape>
+        </object>
+        
+        <!-- Central Park (Near center junction) -->
+        <object id="central_park" type="dense_vegetation" material="dense_foliage">
+            <shape type="cylinder">
+                <position x="25" y="25" z="0"/>  <!-- Between central junctions -->
+                <orientation a="0" b="0" g="0"/>
+                <size r="15" h="8"/>  <!-- Small urban park -->
+            </shape>
+        </object>
+        
+        <!-- Street Trees along major roads -->
+        <object id="street_trees_1" type="street_trees" material="sparse_foliage">
+            <shape type="cylinder">
+                <position x="-25" y="75" z="0"/>  <!-- Along north-south road -->
+                <orientation a="0" b="0" g="0"/>
+                <size r="8" h="6"/>
+            </shape>
+        </object>
+        
+        <object id="street_trees_2" type="street_trees" material="sparse_foliage">
+            <shape type="cylinder">
+                <position x="75" y="-25" z="0"/>  <!-- Along east-west road -->
+                <orientation a="0" b="0" g="0"/>
+                <size r="6" h="5"/>
+            </shape>
+        </object>
+        
+        <!-- Shopping Center (Central area) -->
+        <object id="shopping_center" type="commercial" material="reinforced_concrete">
+            <shape type="cuboid">
+                <position x="25" y="-25" z="0"/>  <!-- Near central intersection -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="40" y="30" z="15"/>
+            </shape>
+        </object>
+        
+        <!-- Parking Areas -->
+        <object id="parking_lot_1" type="vehicles" material="metal">
+            <shape type="cuboid">
+                <position x="160" y="20" z="0"/>  <!-- Near commercial area -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="25" y="15" z="1.5"/>
+            </shape>
+        </object>
+        
+        <object id="parking_lot_2" type="vehicles" material="metal">
+            <shape type="cuboid">
+                <position x="-80" y="-50" z="0"/>  <!-- Near residential -->
+                <orientation a="0" b="0" g="0"/>
+                <size x="20" y="12" z="1.5"/>
+            </shape>
+        </object>
+    </objects>
+    
+    <!-- Material definitions remain the same -->
+    <materials>
+        <material id="reinforced_concrete" resistivity="0.008" relativePermittivity="8.0"/>
+        <material id="brick" resistivity="0.015" relativePermittivity="6.0"/>
+        <material id="metal_sheet" resistivity="0.001" relativePermittivity="1.0"/>
+        <material id="dense_foliage" resistivity="0.2" relativePermittivity="2.5"/>
+        <material id="sparse_foliage" resistivity="0.4" relativePermittivity="2.0"/>
+        <material id="asphalt" resistivity="0.005" relativePermittivity="12.0"/>
+        <material id="metal" resistivity="0.001" relativePermittivity="1.0"/>
+    </materials>
+</environment>

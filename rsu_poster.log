@@ -74,3 +74,629 @@ Wed Oct 15 18:55:13 2025
  SEND payload={"FlocHz": 6166900133.71, "MAC": "28", "PosX": 121.08, "PosY": 26.60, "Speed": 13.83, "Time": 16.000, "TxPower_mW": 171.83, "VehID": 1}
 Wed Oct 15 18:55:13 2025
  RESULT OK code=200
+Thu Oct 16 07:44:31 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Oct 16 07:44:31 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Thu Oct 16 07:44:31 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Oct 16 07:44:31 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Oct 16 07:44:31 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Thu Oct 16 07:44:31 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Oct 16 08:00:02 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Oct 16 08:00:04 2025
+ STARTUP_RESULT OK code=200
+Thu Oct 16 08:00:04 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Oct 16 08:00:04 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Oct 16 08:00:04 2025
+ STARTUP_RESULT OK code=200
+Thu Oct 16 08:00:04 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Oct 16 08:07:46 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Oct 16 08:07:51 2025
+ STARTUP_RESULT ERROR=Timeout was reached
+Thu Oct 16 08:07:51 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Oct 16 08:07:54 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Oct 16 08:07:58 2025
+ STARTUP_RESULT ERROR=Timeout was reached
+Thu Oct 16 08:07:59 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 20:28:53 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 20:28:53 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 20:28:53 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 20:28:53 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 20:28:53 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 20:28:53 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 20:32:01 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 20:32:01 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 20:32:01 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 20:32:01 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 20:32:01 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 20:32:01 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 20:34:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 20:34:56 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 20:34:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 20:34:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 20:34:56 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 20:34:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 22:47:06 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 22:47:07 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 22:47:07 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 22:47:07 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 22:47:07 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 22:47:07 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:08:16 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:08:16 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:08:16 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:08:16 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:08:16 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:08:16 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:12:30 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:12:30 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:12:30 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:12:30 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:12:30 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:12:30 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:31:08 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:31:08 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:31:08 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:32:49 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:32:49 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:32:49 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:35:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:35:13 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:35:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:35:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:35:13 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:35:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:36:26 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:36:27 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:36:27 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:36:27 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:36:27 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:36:27 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:37:54 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:37:54 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:37:54 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:37:54 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:37:54 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:37:54 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:39:05 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:39:05 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:39:05 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:39:05 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:39:05 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:39:05 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:41:25 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:41:25 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:41:25 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:41:25 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:41:25 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:41:25 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:43:09 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:43:09 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:43:09 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:52:04 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:52:04 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:52:04 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:54:00 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:54:00 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:54:00 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:55:53 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:55:53 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:55:53 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:55:53 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:55:53 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:55:53 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:56:21 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:56:21 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:56:21 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:56:21 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:56:21 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:56:21 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:58:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:58:13 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:58:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:58:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:58:13 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:58:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:59:45 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:59:45 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:59:45 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec  4 23:59:45 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec  4 23:59:45 2025
+ STARTUP_RESULT OK code=200
+Thu Dec  4 23:59:45 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:08:57 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:08:58 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:08:58 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:08:58 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:08:58 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:08:58 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:11:46 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:11:46 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:11:46 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:11:46 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:11:46 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:11:46 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:26:16 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:26:16 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:26:16 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:26:16 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:26:16 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:26:16 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:33:16 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:33:16 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:33:16 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:35:57 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:35:57 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:35:57 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:35:57 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:35:57 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:35:57 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:37:22 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:37:22 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:37:22 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:37:22 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:37:22 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:37:22 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:41:09 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:41:09 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:41:09 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:41:09 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:41:09 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:41:09 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:49:01 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:49:01 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:49:01 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:49:01 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:49:01 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:49:01 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+2025-12-05 00:49:26 ONWSM raw='VEHICLE_DATA|VehID:0|Time:11.000|FlocHz:4694619187.15|TxPower_mW:143.53|Speed:15.31|PosX:124.48|PosY:26.60|MAC:32'
+2025-12-05 00:49:26 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":11.0001}'
+Fri Dec  5 00:49:26 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":11.0001}
+Fri Dec  5 00:49:26 2025
+ ENQUEUE len=135 payload={"FlocHz": 4694619187.15, "MAC": "32", "PosX": 124.48, "PosY": 26.60, "Speed": 15.31, "Time": 11.000, "TxPower_mW": 143.53, "VehID": 0}
+Fri Dec  5 00:49:26 2025
+ SEND payload={"diag":"ping","simTime":11.0001}
+Fri Dec  5 00:49:26 2025
+ RESULT OK code=200
+Fri Dec  5 00:49:26 2025
+ SEND payload={"FlocHz": 4694619187.15, "MAC": "32", "PosX": 124.48, "PosY": 26.60, "Speed": 15.31, "Time": 11.000, "TxPower_mW": 143.53, "VehID": 0}
+Fri Dec  5 00:49:26 2025
+ RESULT OK code=200
+Fri Dec  5 00:49:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:49:56 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:49:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:49:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:49:56 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:49:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:50:16 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:50:17 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:50:17 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:50:17 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:50:17 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:50:17 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:50:59 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:50:59 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:50:59 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:50:59 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:50:59 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:50:59 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:55:21 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:55:21 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:55:21 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 00:55:21 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 00:55:21 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 00:55:21 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:01:50 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:01:50 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:01:50 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:01:50 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:01:50 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:01:50 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:04:48 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:04:48 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:04:48 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:04:48 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:04:48 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:04:48 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:16:52 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:16:53 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:16:53 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:16:53 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:16:53 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:16:53 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:17:29 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:17:29 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:17:29 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:17:29 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:17:29 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:17:29 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:17:50 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:17:50 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:17:50 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:17:50 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:17:50 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:17:50 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:18:21 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:18:21 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:18:21 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:18:21 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:18:21 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:18:21 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:18:43 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:18:43 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:18:43 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:18:43 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:18:43 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:18:43 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:19:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:19:56 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:19:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:19:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:19:56 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:19:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:26:28 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:26:28 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:26:28 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:26:28 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:26:28 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:26:28 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:30:54 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:30:54 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:30:54 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:30:54 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:30:54 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:30:54 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:33:22 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:33:22 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:33:22 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:33:22 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:33:22 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:33:22 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:40:02 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:40:02 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:40:02 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:40:02 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:40:02 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:40:02 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:50:36 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:50:36 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:50:36 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:50:36 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:50:36 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:50:36 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:58:15 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:58:15 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:58:15 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 01:58:15 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 01:58:15 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 01:58:15 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 02:06:39 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 02:06:40 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 02:06:40 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 02:06:40 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 02:06:40 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 02:06:40 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 02:07:52 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 02:07:52 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 02:07:52 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 02:07:52 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 02:07:52 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 02:07:52 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 02:09:49 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 02:09:49 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 02:09:49 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 02:09:49 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 02:09:49 2025
+ STARTUP_RESULT OK code=200
+Fri Dec  5 02:09:49 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 22:00:54 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 22:00:55 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Fri Dec  5 22:00:55 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 22:00:55 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 22:00:55 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Fri Dec  5 22:00:55 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 22:07:34 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 22:07:34 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Fri Dec  5 22:07:34 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Fri Dec  5 22:07:34 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Fri Dec  5 22:07:34 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Fri Dec  5 22:07:34 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest

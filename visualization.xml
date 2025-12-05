@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<visualization>
+    <!-- Enhanced Visual Configuration for Complex Network Simulation -->
+    
+    <!-- Vehicle Display Settings -->
+    <vehicleStyles>
+        <style id="default_vehicle">
+            <icon>device/car</icon>
+            <color>blue</color>
+            <size>15</size>
+            <shape>rectangle</shape>
+        </style>
+        
+        <style id="emergency_vehicle">
+            <icon>device/ambulance</icon>
+            <color>red</color>
+            <size>18</size>
+            <shape>rectangle</shape>
+        </style>
+        
+        <style id="truck_vehicle">
+            <icon>device/truck</icon>
+            <color>green</color>
+            <size>20</size>
+            <shape>rectangle</shape>
+        </style>
+    </vehicleStyles>
+    
+    <!-- Infrastructure Display Settings -->
+    <infrastructureStyles>
+        <style id="rsu_tower">
+            <icon>device/antennatower</icon>
+            <color>red</color>
+            <size>25</size>
+            <transmissionRadius>visible</transmissionRadius>
+        </style>
+        
+        <style id="traffic_light">
+            <icon>misc/node2</icon>
+            <color>orange</color>
+            <size>12</size>
+        </style>
+        
+        <style id="base_station">
+            <icon>device/antennatower2</icon>
+            <color>purple</color>
+            <size>30</size>
+        </style>
+    </infrastructureStyles>
+    
+    <!-- Building Display Enhancement -->
+    <buildingStyles>
+        <style id="commercial">
+            <color>#4682B4</color>
+            <opacity>0.7</opacity>
+            <outline>true</outline>
+            <outlineColor>black</outlineColor>
+            <pattern>grid</pattern>
+        </style>
+        
+        <style id="residential">
+            <color>#DEB887</color>
+            <opacity>0.6</opacity>
+            <outline>true</outline>
+            <outlineColor>brown</outlineColor>
+            <pattern>solid</pattern>
+        </style>
+        
+        <style id="industrial">
+            <color>#708090</color>
+            <opacity>0.5</opacity>
+            <outline>true</outline>
+            <outlineColor>gray</outlineColor>
+            <pattern>diagonal</pattern>
+        </style>
+        
+        <style id="park">
+            <color>#228B22</color>
+            <opacity>0.4</opacity>
+            <outline>false</outline>
+            <pattern>dots</pattern>
+        </style>
+    </buildingStyles>
+    
+    <!-- Communication Visualization -->
+    <communicationStyles>
+        <style id="v2v_communication">
+            <lineColor>blue</lineColor>
+            <lineWidth>2</lineWidth>
+            <lineStyle>solid</lineStyle>
+            <showDirection>true</showDirection>
+        </style>
+        
+        <style id="v2i_communication">
+            <lineColor>red</lineColor>
+            <lineWidth>3</lineWidth>
+            <lineStyle>dashed</lineStyle>
+            <showDirection>true</showDirection>
+        </style>
+        
+        <style id="task_offloading">
+            <lineColor>green</lineColor>
+            <lineWidth>4</lineWidth>
+            <lineStyle>dotted</lineStyle>
+            <showDirection>true</showDirection>
+        </style>
+    </communicationStyles>
+    
+    <!-- Environment Settings -->
+    <environment>
+        <background>
+            <color>#E6F3FF</color>
+            <gridVisible>true</gridVisible>
+            <gridColor>#CCCCCC</gridColor>
+            <gridSpacing>50</gridSpacing>
+        </background>
+        
+        <roads>
+            <color>#404040</color>
+            <width>8</width>
+            <showLanes>true</showLanes>
+            <laneMarkings>white</laneMarkings>
+        </roads>
+        
+        <annotations>
+            <showNodeNames>true</showNodeNames>
+            <showCoordinates>false</showCoordinates>
+            <showStatistics>true</showStatistics>
+        </annotations>
+    </environment>
+</visualization>
