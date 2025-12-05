@@ -17,7 +17,7 @@
     
     <!-- COMMERCIAL DISTRICT (North-East Quadrant: Between roads X=100-200, Y=0-100) -->
     <poly id="office_tower_1" type="office_building" color="blue" 
-          shape="180,20 180,80 120,80 120,20" filled="true" />
+          shape="300,30 300,70 260,70 260,30" filled="true" />
     <!-- Building in block between X=100-200, Y=0-100, clear of roads -->
     
     <poly id="office_complex" type="office_building" color="navy" 
