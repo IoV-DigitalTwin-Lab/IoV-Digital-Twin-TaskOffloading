@@ -1,16 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root>
-    <!-- Phase 3: Simplified Veins-Compatible Propagation Models -->
+    <!-- Phase 3: Complete Propagation Model Stack -->
+    <!-- Models apply in ORDER: Path Loss → Static Obstacles → Vehicle Obstacles → Fast Fading -->
     <AnalogueModels>
-        <!-- Enhanced Pathloss model (Veins native) -->
+        <!-- 1. Distance-based path loss (always first) -->
         <AnalogueModel type="SimplePathlossModel" thresholding="true">
             <parameter name="alpha" type="double" value="2.2"/>  <!-- Urban path loss exponent -->
             <parameter name="carrierFrequency" type="double" value="5.89e9"/>
         </AnalogueModel>
         
-        <!-- Simple Obstacle Shadowing (references external obstacles.xml) -->
+        <!-- 2. Static building/obstacle shadowing -->
         <AnalogueModel type="SimpleObstacleShadowing" thresholding="true">
-            <!-- Obstacles are now defined in separate obstacles.xml file -->
+            <!-- Obstacles defined in obstacles.xml: buildings, vegetation, infrastructure -->
+        </AnalogueModel>
+
+        <!-- 3. Dynamic vehicle shadowing (other vehicles blocking signal) -->
+        <AnalogueModel type="VehicleObstacleShadowing" thresholding="true">
+            <!-- Vehicles act as moving metallic obstacles with 10-30 dB attenuation -->
+        </AnalogueModel>
+
+        <!-- 4. Small-scale Nakagami-m fading (applied last, affects final signal) -->
+        <!-- thresholding must stay disabled because this model scales the entire signal -->
+        <AnalogueModel type="NakagamiFading">
+            <!--
+                constM=true  -> always use the configured m value below
+                constM=false -> use distance-based m (1.5 when d<80 m, 0.75 otherwise)
+            -->
+            <parameter name="constM" type="bool" value="true"/>
+            <parameter name="m" type="double" value="1.0"/> <!-- m=1 -> Rayleigh fading; >1 milder, <1 more severe -->
         </AnalogueModel>
     </AnalogueModels>
     

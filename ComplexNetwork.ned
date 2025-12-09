@@ -26,6 +26,12 @@ network ComplexNetwork extends Scenario
             @display("p=580,50;i=misc/sun;is=l");
         }
         
+        // Veins obstacle control (for SimpleObstacleShadowing and VehicleObstacleShadowing)
+        // Note: If Scenario already includes 'obstacles', remove this to avoid duplication
+        obstacles: ObstacleControl {
+            @display("p=50,250;i=block/control");
+        }
+        
         // Integrated Canvas Visualizer for obstacles and communication
         visualizer: IntegratedCanvasVisualizer {
             @display("p=50,350;i=block/app2;is=l");
