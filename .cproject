@@ -83,6 +83,7 @@
 							</tool>
 						</toolChain>
 					</folderInfo>
+					<fileInfo id="org.omnetpp.cdt.gnu.config.release.37116237.93864658" name="omnetpp.ini" rcbsApplicability="disable" resourcePath="omnetpp.ini" toolsToInvoke=""/>
 					<fileInfo id="org.omnetpp.cdt.gnu.config.release.37116237.1391759386" name="MyRSUApp.ned" rcbsApplicability="disable" resourcePath="MyRSUApp.ned" toolsToInvoke=""/>
 				</configuration>
 			</storageModule>

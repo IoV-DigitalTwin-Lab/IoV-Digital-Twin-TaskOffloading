@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for complex-network
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KVEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1 -KINET4_5_PROJ=../inet4.5 -DVEINS_IMPORT -DINET_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -I$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -L$$\(INET4_5_PROJ\)/src -lveins$$\(D\) -lINET$$\(D\)
+#  opp_makemake -f --deep -O out -KVEINS_PROJ=../veins -KINET4_5_PROJ=../inet4.5 -DVEINS_IMPORT -DINET_IMPORT -I. -I$$\(VEINS_PROJ\)/src -Isrc -I$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -L$$\(INET4_5_PROJ\)/src -lveins$$\(D\) -lINET$$\(D\)
 #
 
 # Name of target to be created (-o option)
@@ -37,6 +37,7 @@ OBJS = \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
     $O/rsu_http_poster.o \
+    $O/SimpleObstacleShadowing.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
     $O/UnicastVisualizer.o \
@@ -49,7 +50,7 @@ MSGFILES =
 SMFILES =
 
 # Other makefile variables (-K)
-VEINS_PROJ=/home/mihirajakuruppu/veins-5.3.1
+VEINS_PROJ=../veins
 INET4_5_PROJ=../inet4.5
 
 #------------------------------------------------------------------------------
