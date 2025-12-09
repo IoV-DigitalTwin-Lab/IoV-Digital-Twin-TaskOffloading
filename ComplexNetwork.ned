@@ -26,11 +26,8 @@ network ComplexNetwork extends Scenario
             @display("p=580,50;i=misc/sun;is=l");
         }
         
-        // Veins obstacle control (for SimpleObstacleShadowing and VehicleObstacleShadowing)
-        // Note: If Scenario already includes 'obstacles', remove this to avoid duplication
-        obstacles: ObstacleControl {
-            @display("p=50,250;i=block/control");
-        }
+        // Note: Veins Scenario already provides 'obstacles' submodule
+        // It's configured via omnetpp.ini: *.obstacles.obstacles = xmldoc("obstacles.xml")
         
         // Integrated Canvas Visualizer for obstacles and communication
         visualizer: IntegratedCanvasVisualizer {
