@@ -16,141 +16,73 @@ void SingleMessageVehicleApp::initialize(int stage) {
         EV_INFO << "VehicleApp: Initialized" << endl;
         std::cout << "CONSOLE: VehicleApp initialized at " << simTime() << std::endl;
 
-        // Get our own MAC address for comparison
-        myMacAddress = FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(getParentModule())->getMACAddress();
-        std::cout << "CONSOLE: My MAC address is: " << myMacAddress << std::endl;
-
-        // Schedule a self-message to send the message once
+                // Schedule a self-message to send the message once
         cMessage* sendMsgEvent = new cMessage("sendSingleMessage");
-        scheduleAt(simTime() + 7, sendMsgEvent); // send after 7s
+//        scheduleAt(simTime() + 7, sendMsgEvent); // send after 7s
+        scheduleAt(simTime() + par("sendTime").doubleValue(), new cMessage("sendVehicleMsg"));
+        
     }
+    else if (stage == 1) {
+        // Get MAC address in stage 1
+        DemoBaseApplLayerToMac1609_4Interface* macInterface =
+            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(getParentModule());
+
+        if (macInterface) {
+            myMacAddress = macInterface->getMACAddress();
+            std::cout << "CONSOLE: PayloadVehicleApp MAC address: " << myMacAddress << std::endl;
+            EV_INFO << "PayloadVehicleApp MAC address: " << myMacAddress << endl;
+        } else {
+            std::cout << "CONSOLE: ERROR - PayloadVehicleApp MAC interface NOT found!" << std::endl;
+            myMacAddress = 0;
+        }
+    }
+    
 }
 
 void SingleMessageVehicleApp::handleSelfMsg(cMessage* msg) {
-    if (strcmp(msg->getName(), "sendSingleMessage") == 0) {
-        std::cout << "CONSOLE: handleSelfMsg - sendSingleMessage triggered" << std::endl;
-        EV << "VehicleApp: handleSelfMsg - sendSingleMessage triggered" << endl;
-
-        // Get the MAC address of RSU[1] for unicast
-        LAddress::L2Type rsu1MacAddress = LAddress::L2Type();
-        bool foundRSU = false;
-
-        // Debug: Print all available modules first
-        std::cout << "CONSOLE: DEBUG - Looking for RSU modules..." << std::endl;
-        EV << "VehicleApp: DEBUG - Looking for RSU modules..." << endl;
-
-        // Try multiple methods to find RSU[1]
-        cModule* networkModule = getModuleByPath("^.^");  // Get the network module
-        cModule* rsuModule = nullptr;
-        if (networkModule) {
-            std::cout << "CONSOLE: DEBUG - Found network module: " << networkModule->getFullName() << std::endl;
-            EV << "VehicleApp: DEBUG - Found network module: " << networkModule->getFullName() << endl;
-
-            // Method 1: Try direct submodule access
-            rsuModule = networkModule->getSubmodule("rsu", 1);  // Get rsu[1]
-            if (rsuModule) {
-                std::cout << "CONSOLE: DEBUG - Found RSU[1] module: " << rsuModule->getFullPath() << std::endl;
-                EV << "VehicleApp: DEBUG - Found RSU[1] module: " << rsuModule->getFullPath() << endl;
-
-                // Find the MAC interface in RSU[1] - CORRECTED METHOD
-                DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
-                    FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
-                if (rsuMacInterface) {
-                    rsu1MacAddress = rsuMacInterface->getMACAddress();
-                    foundRSU = true;
-                    std::cout << "CONSOLE: DEBUG - Found RSU[1] MAC interface, address: " << rsu1MacAddress << std::endl;
-                    EV << "VehicleApp: DEBUG - Found RSU[1] MAC interface, address: " << rsu1MacAddress << endl;
-                } else {
-                    std::cout << "CONSOLE: DEBUG - Could not find MAC interface in RSU[1], trying alternative method" << std::endl;
-                    EV << "VehicleApp: DEBUG - Could not find MAC interface in RSU[1]" << endl;
-
-                    // Alternative method: Search in NIC submodule
-                    cModule* nicModule = rsuModule->getSubmodule("nic");
-                    if (nicModule) {
-                        DemoBaseApplLayerToMac1609_4Interface* altMacInterface =
-                            FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(nicModule);
-                        if (altMacInterface) {
-                            rsu1MacAddress = altMacInterface->getMACAddress();
-                            foundRSU = true;
-                            std::cout << "CONSOLE: DEBUG - Found RSU[1] MAC via alternative method: " << rsu1MacAddress << std::endl;
-                        }
-                    }
-                }
-            } else {
-                std::cout << "CONSOLE: DEBUG - Could not find RSU[1] submodule" << std::endl;
-                EV << "VehicleApp: DEBUG - Could not find RSU[1] submodule" << endl;
-
-                // Method 2: Try direct path
-                rsuModule = getModuleByPath("^.^.rsu[1]");
-                if (rsuModule) {
-                    std::cout << "CONSOLE: DEBUG - Found RSU[1] via direct path" << std::endl;
-                    DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
-                        FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
-                    if (rsuMacInterface) {
-                        rsu1MacAddress = rsuMacInterface->getMACAddress();
-                        foundRSU = true;
-                        std::cout << "CONSOLE: DEBUG - MAC address via direct path: " << rsu1MacAddress << std::endl;
-                    }
-                }
-            }
-        } else {
-            std::cout << "CONSOLE: DEBUG - Could not find network module" << std::endl;
-            EV << "VehicleApp: DEBUG - Could not find network module" << endl;
-        }
-
-        // Create the safety message
-        DemoSafetyMessage* wsm = new DemoSafetyMessage();
-
-        // Debug: Check broadcast address
-        LAddress::L2Type broadcastAddr = LAddress::L2BROADCAST();
-        std::cout << "CONSOLE: DEBUG - Broadcast address is: " << broadcastAddr << std::endl;
-        EV << "VehicleApp: DEBUG - Broadcast address is: " << broadcastAddr << endl;
-
-        if (foundRSU) {
-            std::cout << "CONSOLE: DEBUG - About to call populateWSM with recipient: " << rsu1MacAddress << std::endl;
-            EV << "VehicleApp: DEBUG - About to call populateWSM with recipient: " << rsu1MacAddress << endl;
-
-            // Check if the address is valid (not broadcast and not empty)
-            if (rsu1MacAddress != broadcastAddr && rsu1MacAddress != LAddress::L2Type()) {
-                populateWSM(wsm, rsu1MacAddress);
-                std::cout << "CONSOLE: DEBUG - populateWSM called for UNICAST to: " << rsu1MacAddress << std::endl;
-                EV << "VehicleApp: DEBUG - populateWSM called for UNICAST to: " << rsu1MacAddress << endl;
-
-                // Store the intended recipient for our own reference
-                targetMacAddress = rsu1MacAddress;
-
-                // Double-check the recipient address after populate
-                std::cout << "CONSOLE: DEBUG - Message recipient after populate: " << wsm->getRecipientAddress() << std::endl;
-                EV << "VehicleApp: DEBUG - Message recipient after populate: " << wsm->getRecipientAddress() << endl;
-
-            } else {
-                std::cout << "CONSOLE: DEBUG - Invalid MAC address, falling back to broadcast" << std::endl;
-                populateWSM(wsm);
-                targetMacAddress = broadcastAddr; // Mark as broadcast
-            }
-        } else {
-            std::cout << "CONSOLE: DEBUG - RSU not found, using broadcast" << std::endl;
-            EV << "VehicleApp: DEBUG - RSU not found, using broadcast" << endl;
-            populateWSM(wsm);
-            targetMacAddress = broadcastAddr; // Mark as broadcast
-        }
-
-        // Set additional properties
-        wsm->setSenderPos(curPosition);
-        wsm->setUserPriority(7);
-
-        // Final debug before sending
-        std::cout << "CONSOLE: DEBUG - Final message details before sending:" << std::endl;
-        std::cout << "CONSOLE: DEBUG - Recipient: " << wsm->getRecipientAddress() << std::endl;
-        std::cout << "CONSOLE: DEBUG - Is broadcast: " << (wsm->getRecipientAddress() == broadcastAddr) << std::endl;
-        EV << "VehicleApp: DEBUG - Final recipient: " << wsm->getRecipientAddress() << endl;
-
-        sendDown(wsm);
+    // Unified V2V / V2RSU unicast sender
+    if (msg->isSelfMessage() && strcmp(msg->getName(), "sendVehicleMsg") == 0) {
         delete msg;
-    } else {
-        DemoBaseApplLayer::handleSelfMsg(msg);
+
+        const std::string kind = par("targetKind").stdstringValue(); // "vehicle" or "rsu"
+        const auto bcast = LAddress::L2BROADCAST();
+        LAddress::L2Type dst;
+
+        if (kind == "vehicle") {
+            int idx = par("targetVehicleIndex");
+            dst = getVehicleMacByIndex(idx);
+        } else { // "rsu"
+            int idx = par("targetRsuIndex");
+            dst = getRsuMacByIndex(idx);
+        }
+
+        auto* wsm = new DemoSafetyMessage(kind == "vehicle" ? "TrueUnicastV2V" : "TrueUnicastV2I");
+
+        if (dst != bcast && dst != LAddress::L2Type()) {
+            // TRUE MAC unicast
+            populateWSM(wsm, dst);
+            targetMacAddress = dst;                // keep for debug/metrics
+            wsm->setSenderPos(curPosition);
+            wsm->setUserPriority(7);
+
+            EV_INFO << "Unicast (" << kind << ") to " << dst << " at " << simTime() << endl;
+            std::cout << "CONSOLE: Unicast (" << kind << ") to " << dst
+                      << " at " << simTime() << std::endl;
+
+            sendDown(wsm);
+        } else {
+            EV_WARN << "Destination MAC not resolved for kind=" << kind << "; not sending.\n";
+            std::cout << "CONSOLE: Destination MAC not resolved for kind=" << kind
+                      << "; not sending." << std::endl;
+            delete wsm;
+        }
+        return;
     }
+
+    // Fallback to base for anything else
+    DemoBaseApplLayer::handleSelfMsg(msg);
 }
+
 
 void SingleMessageVehicleApp::onWSM(BaseFrame1609_4* wsm) {
     std::cout << "CONSOLE: onWSM() called at time " << simTime() << std::endl;
@@ -219,3 +151,46 @@ void SingleMessageVehicleApp::receiveSignal(cComponent* source, simsignal_t sign
 }
 
 } // namespace complex_network
+
+// --- Helper: resolve vehicle MAC by index (member function definition) ---
+veins::LAddress::L2Type complex_network::SingleMessageVehicleApp::getVehicleMacByIndex(int index) {
+    omnetpp::cModule* net = getParentModule()->getParentModule();   // up to network (e.g., ComplexNetwork)
+    if (!net || index < 0) return veins::LAddress::L2Type();
+
+    omnetpp::cModule* veh = net->getSubmodule("node", index);       // vehicles live under node[]
+    if (!veh) return veins::LAddress::L2Type();
+
+    if (auto* macIf =
+            veins::FindModule<veins::DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(veh))
+        return macIf->getMACAddress();
+
+    if (auto* nic = veh->getSubmodule("nic")) {
+        if (auto* macIf2 =
+                veins::FindModule<veins::DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(nic))
+            return macIf2->getMACAddress();
+    }
+    return veins::LAddress::L2Type();
+}
+
+// --- Helper: resolve RSU MAC by index (member function definition) ---
+veins::LAddress::L2Type complex_network::SingleMessageVehicleApp::getRsuMacByIndex(int index) {
+    omnetpp::cModule* net = getParentModule()->getParentModule();   // up to network
+    if (!net || index < 0) return veins::LAddress::L2Type();
+
+    omnetpp::cModule* rsu = net->getSubmodule("rsu", index);        // RSUs live under rsu[]
+    if (!rsu) return veins::LAddress::L2Type();
+
+    if (auto* macIf =
+            veins::FindModule<veins::DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsu))
+        return macIf->getMACAddress();
+
+    if (auto* nic = rsu->getSubmodule("nic")) {
+        if (auto* macIf2 =
+                veins::FindModule<veins::DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(nic))
+            return macIf2->getMACAddress();
+    }
+    return veins::LAddress::L2Type();
+}
+
+
+

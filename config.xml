@@ -11,7 +11,9 @@
         
         <!-- 2. Static building/obstacle shadowing -->
         <AnalogueModel type="SimpleObstacleShadowing" thresholding="true">
-            <!-- Obstacles defined in obstacles.xml: buildings, vegetation, infrastructure -->
+            <obstacles>
+                <type id="building" db-per-cut="9" db-per-meter="0.4" />
+            </obstacles>
         </AnalogueModel>
 
         <!-- 3. Small-scale Nakagami-m fading (applied last, affects final signal) -->

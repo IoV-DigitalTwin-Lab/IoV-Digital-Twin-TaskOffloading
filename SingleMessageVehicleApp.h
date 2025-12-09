@@ -15,6 +15,8 @@ protected:
     virtual void handleMessage(cMessage* msg) override;
     virtual void handleSelfMsg(cMessage* msg) override;
     virtual void receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details) override;
+    LAddress::L2Type getVehicleMacByIndex(int index);
+    LAddress::L2Type getRsuMacByIndex(int index);
 
 private:
     LAddress::L2Type myMacAddress;      // Store our own MAC address
