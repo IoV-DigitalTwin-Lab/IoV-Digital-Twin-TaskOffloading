@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root>
     <!-- Phase 3: Complete Propagation Model Stack -->
-    <!-- Models apply in ORDER: Path Loss → Static Obstacles → Vehicle Obstacles → Fast Fading -->
+    <!-- Models apply in ORDER: Path Loss → Static Obstacles → Fast Fading -->
     <AnalogueModels>
         <!-- 1. Distance-based path loss (always first) -->
         <AnalogueModel type="SimplePathlossModel" thresholding="true">
@@ -11,15 +11,12 @@
         
         <!-- 2. Static building/obstacle shadowing -->
         <AnalogueModel type="SimpleObstacleShadowing" thresholding="true">
-            <!-- Obstacles defined in obstacles.xml: buildings, vegetation, infrastructure -->
+            <obstacles>
+                <type id="building" db-per-cut="9" db-per-meter="0.4" />
+            </obstacles>
         </AnalogueModel>
 
-        <!-- 3. Dynamic vehicle shadowing (other vehicles blocking signal) -->
-        <AnalogueModel type="VehicleObstacleShadowing" thresholding="true">
-            <!-- Vehicles act as moving metallic obstacles with 10-30 dB attenuation -->
-        </AnalogueModel>
-
-        <!-- 4. Small-scale Nakagami-m fading (applied last, affects final signal) -->
+        <!-- 3. Small-scale Nakagami-m fading (applied last, affects final signal) -->
         <!-- thresholding must stay disabled because this model scales the entire signal -->
         <AnalogueModel type="NakagamiFading">
             <!--
