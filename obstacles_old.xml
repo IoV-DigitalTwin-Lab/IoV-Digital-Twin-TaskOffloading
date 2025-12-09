@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<obstacles>
+    <!-- Phase 4: Properly Scaled Urban Environment for SUMO Road Network -->
+    <!-- Road network bounds: X(-100 to 200), Y(-200 to 100) = 300m x 300m -->
+    <!-- Road lanes: 6.4m width, buildings positioned between road blocks -->
+    
+    <!-- Enhanced obstacle type definitions with realistic attenuation -->
+    <type id="commercial_building" db-per-cut="22" db-per-meter="1.2"/>    <!-- High-rise buildings -->
+    <type id="residential_building" db-per-cut="15" db-per-meter="0.8"/>   <!-- Houses, apartments -->
+    <type id="industrial_building" db-per-cut="28" db-per-meter="1.5"/>    <!-- Metal warehouses -->
+    <type id="dense_vegetation" db-per-cut="8" db-per-meter="0.4"/>        <!-- Parks/forests -->
+    <type id="sparse_vegetation" db-per-cut="4" db-per-meter="0.2"/>       <!-- Street trees -->
+    <type id="vehicle_cluster" db-per-cut="12" db-per-meter="0.6"/>        <!-- Parking areas -->
+    <type id="urban_furniture" db-per-cut="5" db-per-meter="0.3"/>         <!-- Bus stops, kiosks -->
+    
+    <!-- COMMERCIAL DISTRICT (North-East Quadrant) -->
+    <!-- Office complex between J2(100,100) and J3(200,100) -->
+    <poly id="office_tower_1" type="commercial_building" color="#4A4A4A" 
+          shape="110,10 190,10 190,85 110,85"/>
+    
+    <!-- Business center between J14(100,0) and road grid -->  
+    <poly id="business_center" type="commercial_building" color="#555555" 
+          shape="110,10 185,10 185,85 110,85"/>
+    
+    <!-- Shopping mall near eastern boundary -->
+    <poly id="shopping_mall" type="commercial_building" color="#606060" 
+          shape="120,-85 180,-85 180,-15 120,-15"/>
+    
+    <!-- RESIDENTIAL AREA (North-West Quadrant) -->
+    <!-- Housing block between J0(-100,100) and J1(0,100) -->
+    <poly id="residential_north" type="residential_building" color="#8B4513" 
+          shape="-85,15 -15,15 -15,85 -85,85"/>
+    
+    <!-- Apartment complex between J11(-100,0) and J12(0,0) -->
+    <poly id="apartment_complex" type="residential_building" color="#A0522D" 
+          shape="-85,10 -15,10 -15,85 -85,85"/>
+    
+    <!-- Suburban houses in west area -->
+    <poly id="suburban_houses" type="residential_building" color="#CD853F" 
+          shape="-85,-85 -25,-85 -25,-25 -85,-25"/>
+    
+    <!-- INDUSTRIAL ZONE (South Areas) -->
+    <!-- Warehouse complex between J13(0,-100) and J15(100,-100) -->
+    <poly id="warehouse_district_1" type="industrial_building" color="#708090" 
+          shape="15,-185 85,-185 85,-115 15,-115"/>
+    
+    <!-- Manufacturing plant in south-west -->
+    <poly id="manufacturing_plant" type="industrial_building" color="#696969" 
+          shape="-85,-185 -15,-185 -15,-115 -85,-115"/>
+    
+    <!-- Logistics center in south-east -->
+    <poly id="logistics_center" type="industrial_building" color="#778899" 
+          shape="110,-185 185,-185 185,-115 110,-115"/>
+    
+    <!-- GREEN SPACES AND PARKS -->
+    <!-- Central park near main intersection -->
+    <poly id="central_park" type="dense_vegetation" color="#228B22" 
+          shape="15,15 45,15 45,45 15,45"/>
+    
+    <!-- Riverside park in south -->
+    <poly id="riverside_park" type="dense_vegetation" color="#32CD32" 
+          shape="45,-85 85,-85 85,-45 45,-45"/>
+    
+    <!-- Community garden in residential area -->
+    <poly id="community_garden" type="dense_vegetation" color="#90EE90" 
+          shape="-45,45 -15,45 -15,75 -45,75"/>
+    
+    <!-- STREET TREES AND LANDSCAPING -->
+    <!-- Trees along major roads -->
+    <poly id="street_trees_north" type="sparse_vegetation" color="#9ACD32" 
+          shape="-5,95 5,95 5,105 -5,105"/>
+    
+    <poly id="street_trees_east" type="sparse_vegetation" color="#9ACD32" 
+          shape="95,-5 105,-5 105,5 95,5"/>
+    
+    <poly id="street_trees_center" type="sparse_vegetation" color="#9ACD32" 
+          shape="-5,-5 5,-5 5,5 -5,5"/>
+    
+    <!-- PARKING AND VEHICLE AREAS -->
+    <!-- Commercial parking lot -->
+    <poly id="commercial_parking" type="vehicle_cluster" color="#FF6347" 
+          shape="145,15 175,15 175,25 145,25"/>
+    
+    <!-- Residential parking -->
+    <poly id="residential_parking" type="vehicle_cluster" color="#FF7F50" 
+          shape="-75,55 -45,55 -45,65 -75,65"/>
+    
+    <!-- Industrial vehicle depot -->
+    <poly id="industrial_parking" type="vehicle_cluster" color="#FF4500" 
+          shape="55,-125 75,-125 75,-115 55,-115"/>
+    
+    <!-- URBAN FURNITURE AND INFRASTRUCTURE -->
+    <!-- Bus stops at major intersections -->
+    <poly id="bus_stop_central" type="urban_furniture" color="#4169E1" 
+          shape="-2,98 2,98 2,102 -2,102"/>
+    
+    <poly id="bus_stop_east" type="urban_furniture" color="#4169E1" 
+          shape="98,-2 102,-2 102,2 98,2"/>
+    
+    <!-- Gas station -->
+    <poly id="gas_station" type="commercial_building" color="#FFD700" 
+          shape="45,55 65,55 65,75 45,75"/>
+    
+    <!-- Metro entrance -->
+    <poly id="metro_entrance" type="urban_furniture" color="#1E90FF" 
+          shape="-8,-8 8,-8 8,8 -8,8"/>
+</obstacles>

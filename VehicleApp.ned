@@ -26,5 +26,5 @@ simple VehicleApp extends DemoBaseApplLayer
         int    divs_min = default(1);
         int    divs_max = default(4);
 
-        @display("i=block/app");
+        @display("i=device/car;is=s;t=Vehicle App");
 }

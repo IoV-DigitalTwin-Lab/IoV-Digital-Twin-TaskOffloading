@@ -45,3 +45,13 @@ simulations/**/valgrind.out
 simulations/**/log.txt
 
 results/
+
+.venv/
+
+
+ENHANCED_SHADOWING_SUMMARY.md
+OBSTACLE_SHADOWING_ENHANCED.md
+PROPAGATION_MODELS_SETUP.md
+SHADOWING_ANALYSIS.md
+
+rsu_poster.log
