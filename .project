@@ -3,8 +3,8 @@
 	<name>complex-network</name>
 	<comment></comment>
 	<projects>
-		<project>veins</project>
 		<project>inet4.5</project>
+		<project>veins</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>
