@@ -2394,3 +2394,27 @@ Wed Dec 10 13:32:43 2025
  STARTUP_RESULT ERROR=Couldn't connect to server
 Wed Dec 10 13:32:43 2025
  WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Dec 10 14:31:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Dec 10 14:31:56 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Wed Dec 10 14:31:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Dec 10 14:31:56 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Dec 10 14:31:56 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Wed Dec 10 14:31:56 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Dec 10 14:46:48 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Dec 10 14:46:48 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Wed Dec 10 14:46:48 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Wed Dec 10 14:46:48 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Wed Dec 10 14:46:48 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Wed Dec 10 14:46:48 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
