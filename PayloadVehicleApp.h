@@ -22,11 +22,16 @@ private:
     bool messageSent = false;              // To send only once
     
     // Vehicle data members (similar to VehicleApp)
-    double flocHz = 0.0;         // Hz
-    double txPower_mW = 0.0;     // mW
-    double speed = 0.0;          // Vehicle speed
-    veins::Coord pos;            // Vehicle position
+    double flocHz_max = 0.0;         // Maximum CPU capacity (Hz)
+    double flocHz_available = 0.0;   // Current available CPU capacity (Hz)
+    double txPower_mW = 0.0;         // mW
+    double speed = 0.0;              // Vehicle speed
+    veins::Coord pos;                // Vehicle position
     veins::TraCIMobility* mobility = nullptr;  // Mobility module
+    
+    // CPU variation parameters
+    double cpuLoadFactor = 0.0;      // Current CPU load (0.0-1.0)
+    double lastCpuUpdateTime = 0.0;  // Last time CPU load was updated
     
     // Helper methods
     veins::LAddress::L2Type findRSUMacAddress();
