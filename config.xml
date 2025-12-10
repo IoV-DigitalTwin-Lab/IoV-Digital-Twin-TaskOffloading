@@ -13,7 +13,7 @@
         <!-- 2. Static building/obstacle shadowing -->
         <AnalogueModel type="SimpleObstacleShadowing">
             <obstacles>
-                <type id="building" db-per-cut="9" db-per-meter="0.4" />
+                <type id="building" db-per-cut="2" db-per-meter="0.1" />
                 <type id="office_building" db-per-cut="18" db-per-meter="0.9"/>
                 <type id="apartment_complex" db-per-cut="12" db-per-meter="0.6"/>  
                 <type id="single_house" db-per-cut="8" db-per-meter="0.4"/>
