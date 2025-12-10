@@ -18,8 +18,11 @@ void PayloadVehicleApp::initialize(int stage) {
         messageSent = false;
 
         // Initialize vehicle parameters (similar to VehicleApp)
-        flocHz = par("initFlocHz").doubleValue();
+        flocHz_max = par("initFlocHz").doubleValue();
+        flocHz_available = flocHz_max;  // Start with full capacity
         txPower_mW = par("initTxPower_mW").doubleValue();
+        cpuLoadFactor = uniform(0.1, 0.3);  // Initial light load
+        lastCpuUpdateTime = simTime().dbl();
         
         // Setup mobility hookup
         mobility = FindModule<TraCIMobility*>::findSubModule(getParentModule());
@@ -62,9 +65,9 @@ void PayloadVehicleApp::initialize(int stage) {
 }
 
 void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
-    if (strcmp(msg->getName(), "sendPayloadMessage") == 0 && !messageSent) {
-        std::cout << "CONSOLE: PayloadVehicleApp - Sending payload message..." << std::endl;
-        EV << "PayloadVehicleApp: Sending payload message..." << endl;
+    if (strcmp(msg->getName(), "sendPayloadMessage") == 0) {
+        std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic payload message..." << std::endl;
+        EV << "PayloadVehicleApp: Sending periodic payload message..." << endl;
 
         // Update vehicle data before sending
         updateVehicleData();
@@ -93,12 +96,15 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
 
         // Send the message
         sendDown(wsm);
-        messageSent = true;
 
         std::cout << "CONSOLE: PayloadVehicleApp - Sent payload message (Recipient: " << wsm->getRecipientAddress() << ")" << std::endl;
         std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data payload sent: " << vehicleDataPayload << std::endl;
         EV << "PayloadVehicleApp: Sent vehicle data payload message" << endl;
 
+        // Schedule next periodic update using heartbeatIntervalS parameter
+        double heartbeatInterval = par("heartbeatIntervalS").doubleValue();
+        scheduleAt(simTime() + heartbeatInterval, new cMessage("sendPayloadMessage"));
+        
         delete msg;
     } 
     else if (strcmp(msg->getName(), "monitorPosition") == 0) {
@@ -306,8 +312,27 @@ void PayloadVehicleApp::updateVehicleData() {
         speed = mobility->getSpeed();
     }
     
+    // Update CPU availability with dynamic variation model
+    double currentTime = simTime().dbl();
+    double timeDelta = currentTime - lastCpuUpdateTime;
+    
+    // Model CPU load variation (simulates background tasks, thermal throttling, etc.)
+    // Load factor varies slowly using random walk with bounds
+    double loadChange = uniform(-0.1, 0.1) * timeDelta;  // Small random changes
+    cpuLoadFactor += loadChange;
+    
+    // Keep CPU load within realistic bounds (10% - 90%)
+    if (cpuLoadFactor < 0.1) cpuLoadFactor = 0.1;
+    if (cpuLoadFactor > 0.9) cpuLoadFactor = 0.9;
+    
+    // Calculate available CPU capacity based on load
+    flocHz_available = flocHz_max * (1.0 - cpuLoadFactor);
+    lastCpuUpdateTime = currentTime;
+    
     std::cout << "CONSOLE: PayloadVehicleApp - Updated vehicle data: pos=(" << pos.x << "," << pos.y 
-              << ") speed=" << speed << " flocHz=" << flocHz << " txPower_mW=" << txPower_mW << std::endl;
+              << ") speed=" << speed << " CPU_max=" << flocHz_max/1e9 << "GHz"
+              << " CPU_avail=" << flocHz_available/1e9 << "GHz (load=" << (cpuLoadFactor*100) << "%)" 
+              << " txPower_mW=" << txPower_mW << std::endl;
 }
 
 std::string PayloadVehicleApp::createVehicleDataPayload() {
@@ -317,7 +342,9 @@ std::string PayloadVehicleApp::createVehicleDataPayload() {
     payload << "VEHICLE_DATA|"
             << "VehID:" << getParentModule()->getIndex() << "|"
             << "Time:" << std::fixed << std::setprecision(3) << simTime().dbl() << "|"
-            << "FlocHz:" << std::fixed << std::setprecision(2) << flocHz << "|"
+            << "CPU_Max_Hz:" << std::fixed << std::setprecision(2) << flocHz_max << "|"
+            << "CPU_Avail_Hz:" << std::fixed << std::setprecision(2) << flocHz_available << "|"
+            << "CPU_Load_Pct:" << std::fixed << std::setprecision(2) << (cpuLoadFactor * 100) << "|"
             << "TxPower_mW:" << std::fixed << std::setprecision(2) << txPower_mW << "|"
             << "Speed:" << std::fixed << std::setprecision(2) << speed << "|"
             << "PosX:" << std::fixed << std::setprecision(2) << pos.x << "|"

@@ -34,7 +34,7 @@ network ComplexNetwork extends Scenario
             @display("p=50,350;i=block/app2;is=l");
         }
         
-        rsu[2]: RSU {
+        rsu[3]: RSU {
             @display("p=150,140;i=device/antennatower;is=l;t=RSU");
         }
 

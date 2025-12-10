@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-12-10 11:01:14 by Eclipse SUMO duarouter Version 1.22.0
+<duarouterConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/duarouterConfiguration.xsd">
+
+    <input>
+        <net-file value="erlangen.net.xml"/>
+        <route-files value="/dev/fd/63"/>
+    </input>
+
+    <output>
+        <output-file value="temp_routes.xml"/>
+    </output>
+
+    <report>
+        <ignore-errors value="true"/>
+    </report>
+
+</duarouterConfiguration>
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <vehicle id="test1" depart="0.00">
+        <routeDistribution last="0">
+            <route cost="205.26" probability="1.00000000" edges="-10573414#1 10573414#1 3013106#0 3013106#1 3013106#2 4319352#1 44069041#0 44069041#1 4400949 31982182#0 4047241 4797872 4797871 -15259223"/>
+        </routeDistribution>
+    </vehicle>
+    <vehicle id="test2" depart="0.00">
+        <routeDistribution last="0">
+            <route cost="293.88" probability="1.00000000" edges="-113939241 113939244#0 113939244#1 113939244#2 -126606716 23339459 30405358#1 85355912 85355911#0 85355911#1 30405356 5931612 30350450#0 30350450#1 30350450#2 4006702#0 4006702#1 4006702#2 -28269598 -4006703#1 4006705#1 -25210699"/>
+        </routeDistribution>
+    </vehicle>
+    <vehicle id="test3" depart="0.00">
+        <routeDistribution last="0">
+            <route cost="232.39" probability="1.00000000" edges="-23805514#0 23805514#0 23805514#1 -4006702#2 -4006702#1 -4006702#0 4319352#1 44069041#0 44069041#1 4400949 31982182#0 4047241 4797872 4797871 4006668 126606716 -126606716"/>
+        </routeDistribution>
+    </vehicle>
+</routes>
