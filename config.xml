@@ -1,22 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root>
     <!-- Phase 3: Complete Propagation Model Stack -->
-    <!-- Models apply in ORDER: Path Loss → Static Obstacles → Fast Fading -->
+    <!-- Models apply in ORDER: Path Loss → Static Obstacles → Vehicle Obstacles → Fading -->
+    <!-- CRITICAL: Remove "thresholding" flags to ensure correct execution order -->
     <AnalogueModels>
         <!-- 1. Distance-based path loss (always first) -->
-        <AnalogueModel type="SimplePathlossModel" thresholding="true">
+        <AnalogueModel type="SimplePathlossModel">
             <parameter name="alpha" type="double" value="2.2"/>  <!-- Urban path loss exponent -->
             <parameter name="carrierFrequency" type="double" value="5.89e9"/>
         </AnalogueModel>
         
         <!-- 2. Static building/obstacle shadowing -->
-        <AnalogueModel type="SimpleObstacleShadowing" thresholding="true">
+        <AnalogueModel type="SimpleObstacleShadowing">
             <obstacles>
                 <type id="building" db-per-cut="9" db-per-meter="0.4" />
+                <type id="office_building" db-per-cut="18" db-per-meter="0.9"/>
+                <type id="apartment_complex" db-per-cut="12" db-per-meter="0.6"/>  
+                <type id="single_house" db-per-cut="8" db-per-meter="0.4"/>
+                <type id="warehouse" db-per-cut="6" db-per-meter="0.3"/>          
+                <type id="shopping_mall" db-per-cut="15" db-per-meter="0.75"/>     
+                <type id="urban_park" db-per-cut="4" db-per-meter="0.2"/>         
+                <type id="street_trees" db-per-cut="2" db-per-meter="0.1"/>       
+                <type id="parking_garage" db-per-cut="10" db-per-meter="0.5"/>    
+                <type id="road_infrastructure" db-per-cut="14" db-per-meter="0.7"/> 
             </obstacles>
         </AnalogueModel>
 
-        <!-- 3. Small-scale Nakagami-m fading (applied last, affects final signal) -->
+        <!-- 3. Dynamic vehicle obstacle shadowing -->
+        <AnalogueModel type="VehicleObstacleShadowing">
+            <!-- Vehicles blocking line-of-sight between transmitter and receiver -->
+            <!-- Uses knife-edge diffraction model for vehicle bodies -->
+        </AnalogueModel>
+
+        <!-- 4. Small-scale Nakagami-m fading (applied last, affects final signal) -->
         <!-- thresholding must stay disabled because this model scales the entire signal -->
         <AnalogueModel type="NakagamiFading">
             <!--

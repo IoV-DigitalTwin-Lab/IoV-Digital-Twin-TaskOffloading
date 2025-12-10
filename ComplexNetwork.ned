@@ -1,6 +1,7 @@
 import org.car2x.veins.nodes.RSU;
 import org.car2x.veins.nodes.Scenario;
 import org.car2x.veins.nodes.TrafficLight;
+import org.car2x.veins.modules.obstacle.VehicleObstacleControl;
 import inet.physicallayer.wireless.common.medium.RadioMedium;
 import inet.networklayer.configurator.ipv4.Ipv4NetworkConfigurator;
 import inet.physicallayer.wireless.ieee80211.packetlevel.Ieee80211ScalarRadioMedium;
@@ -28,6 +29,12 @@ network ComplexNetwork extends Scenario
         
         // Note: Veins Scenario already provides 'obstacles' submodule
         // It's configured via omnetpp.ini: *.obstacles.obstacles = xmldoc("obstacles.xml")
+        
+        // Vehicle Obstacle Control for dynamic vehicle-to-vehicle shadowing
+        // IMPORTANT: Must be named "vehicleObstacles" (not vehicleObstacleControl)
+        vehicleObstacles: VehicleObstacleControl {
+            @display("p=50,250;i=misc/town2;is=l");
+        }
         
         // Integrated Canvas Visualizer for obstacles and communication
         visualizer: IntegratedCanvasVisualizer {

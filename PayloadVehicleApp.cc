@@ -152,10 +152,13 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                 }
             }
             
-            // Schedule next monitoring
-            scheduleAt(simTime() + 2, new cMessage("monitorPosition"));
+            // Reuse the same message for next monitoring instead of creating new one
+            scheduleAt(simTime() + 2, msg);
         }
-        delete msg;
+        else {
+            // If mobility not available, delete the message
+            delete msg;
+        }
     } 
     else {
         DemoBaseApplLayer::handleSelfMsg(msg);
