@@ -24,6 +24,17 @@ void PayloadVehicleApp::initialize(int stage) {
         cpuLoadFactor = uniform(0.1, 0.3);  // Initial light load
         lastCpuUpdateTime = simTime().dbl();
         
+        // Initialize battery (typical EV battery: 40-100 kWh → 3000-8000 mAh @ 12V equivalent)
+        battery_mAh_max = par("initBattery_mAh").doubleValue();
+        battery_mAh_current = battery_mAh_max * uniform(0.5, 1.0);  // Start 50-100% charged
+        battery_voltage = 12.0;  // Standard automotive 12V system
+        lastBatteryUpdateTime = simTime().dbl();
+        
+        // Initialize memory (typical vehicle ECU: 2-8 GB RAM)
+        memory_MB_max = par("initMemory_MB").doubleValue();
+        memory_MB_available = memory_MB_max * uniform(0.4, 0.7);  // 40-70% initially available
+        memoryUsageFactor = 1.0 - (memory_MB_available / memory_MB_max);
+        
         // Setup mobility hookup
         mobility = FindModule<TraCIMobility*>::findSubModule(getParentModule());
         if (mobility) {
@@ -273,7 +284,7 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
 }
 
 LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
-    std::cout << "CONSOLE: PayloadVehicleApp - Looking for RSU MAC address..." << std::endl;
+    std::cout << "CONSOLE: PayloadVehicleApp - Looking for closest RSU MAC address..." << std::endl;
 
     // Get the network module
     cModule* networkModule = getModuleByPath("^.^");
@@ -282,26 +293,53 @@ LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
         return 0;
     }
 
-    // Try to find RSU[1] first (SingleMessageRSUApp), then RSU[0] (MyRSUApp)
-    for (int i = 1; i >= 0; i--) {  // Start with RSU[1] first
+    // Get current vehicle position
+    Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
+    
+    double minDistance = 999999.0;
+    int closestRSUIndex = -1;
+    LAddress::L2Type closestRSUMac = 0;
+
+    // Check all RSUs (0, 1, 2) and find the closest one
+    for (int i = 0; i < 3; i++) {
         cModule* rsuModule = networkModule->getSubmodule("rsu", i);
         if (rsuModule) {
-            std::cout << "CONSOLE: PayloadVehicleApp - Found RSU[" << i << "]: " << rsuModule->getFullName() << std::endl;
-
-            // Get the MAC interface from the RSU
-            DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
-                FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
-
-            if (rsuMacInterface) {
-                LAddress::L2Type rsuMacAddress = rsuMacInterface->getMACAddress();
-                if (rsuMacAddress != 0) {
-                    std::cout << "CONSOLE: PayloadVehicleApp - Found RSU[" << i << "] MAC: " << rsuMacAddress << std::endl;
-                    return rsuMacAddress;
+            // Get RSU mobility module to access position
+            cModule* rsuMobilityModule = rsuModule->getSubmodule("mobility");
+            if (rsuMobilityModule) {
+                // Get RSU position from mobility parameters
+                double rsuX = rsuMobilityModule->par("x").doubleValue();
+                double rsuY = rsuMobilityModule->par("y").doubleValue();
+                
+                // Calculate Euclidean distance
+                double dx = vehiclePos.x - rsuX;
+                double dy = vehiclePos.y - rsuY;
+                double distance = sqrt(dx * dx + dy * dy);
+                
+                std::cout << "CONSOLE: PayloadVehicleApp - RSU[" << i << "] at (" << rsuX << "," << rsuY 
+                          << ") distance: " << distance << "m" << std::endl;
+                
+                // Track closest RSU
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestRSUIndex = i;
+                    
+                    // Get the MAC address of this RSU
+                    DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
+                        FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
+                    
+                    if (rsuMacInterface) {
+                        closestRSUMac = rsuMacInterface->getMACAddress();
+                    }
                 }
-            } else {
-                std::cout << "CONSOLE: PayloadVehicleApp - RSU[" << i << "] MAC interface not found" << std::endl;
             }
         }
+    }
+
+    if (closestRSUIndex >= 0 && closestRSUMac != 0) {
+        std::cout << "CONSOLE: PayloadVehicleApp - Selected CLOSEST RSU[" << closestRSUIndex 
+                  << "] at distance " << minDistance << "m, MAC: " << closestRSUMac << std::endl;
+        return closestRSUMac;
     }
 
     std::cout << "CONSOLE: PayloadVehicleApp ERROR - No valid RSU MAC address found!" << std::endl;
@@ -332,9 +370,56 @@ void PayloadVehicleApp::updateVehicleData() {
     flocHz_available = flocHz_max * (1.0 - cpuLoadFactor);
     lastCpuUpdateTime = currentTime;
     
+    // === BATTERY DRAIN MODEL ===
+    double batteryTimeDelta = currentTime - lastBatteryUpdateTime;
+    if (batteryTimeDelta > 0) {
+        // Calculate power consumption (Watts)
+        // CPU power: Higher load = more power (typical: 10-50W for vehicle ECU)
+        double cpuPower_W = 10.0 + (cpuLoadFactor * 40.0);  // 10-50W based on load
+        
+        // Radio transmission power (convert mW to W)
+        double radioPower_W = txPower_mW / 1000.0;
+        
+        // Speed-based power (motor consumption, negative for regenerative braking)
+        // Simplified model: higher speed = more drain, deceleration = slight regen
+        double speedPower_W = speed * 0.5;  // Rough approximation
+        
+        // Total power consumption
+        double totalPower_W = cpuPower_W + radioPower_W + speedPower_W;
+        
+        // Convert to mAh drain: P(W) * t(h) / V = Ah, then * 1000 = mAh
+        // mAh_drain = (Power_W * time_hours * 1000) / voltage_V
+        double batteryDrain_mAh = (totalPower_W * batteryTimeDelta / 3600.0 * 1000.0) / battery_voltage;
+        
+        battery_mAh_current -= batteryDrain_mAh;
+        
+        // Prevent negative battery (minimum 1%)
+        if (battery_mAh_current < battery_mAh_max * 0.01) {
+            battery_mAh_current = battery_mAh_max * 0.01;
+        }
+        
+        lastBatteryUpdateTime = currentTime;
+    }
+    
+    // === MEMORY USAGE MODEL ===
+    // Memory usage varies based on active tasks and caching
+    double memoryChange = uniform(-0.05, 0.08) * timeDelta;  // Can increase or decrease
+    memoryUsageFactor += memoryChange;
+    
+    // Keep memory usage realistic (20% - 95%)
+    if (memoryUsageFactor < 0.2) memoryUsageFactor = 0.2;
+    if (memoryUsageFactor > 0.95) memoryUsageFactor = 0.95;
+    
+    memory_MB_available = memory_MB_max * (1.0 - memoryUsageFactor);
+    
+    // Calculate battery percentage
+    double battery_pct = (battery_mAh_current / battery_mAh_max) * 100.0;
+    
     std::cout << "CONSOLE: PayloadVehicleApp - Updated vehicle data: pos=(" << pos.x << "," << pos.y 
               << ") speed=" << speed << " CPU_max=" << flocHz_max/1e9 << "GHz"
               << " CPU_avail=" << flocHz_available/1e9 << "GHz (load=" << (cpuLoadFactor*100) << "%)" 
+              << " Battery=" << battery_pct << "% (" << battery_mAh_current << "/" << battery_mAh_max << "mAh)"
+              << " Memory=" << memory_MB_available << "/" << memory_MB_max << "MB"
               << " txPower_mW=" << txPower_mW << std::endl;
 }
 
@@ -342,12 +427,22 @@ std::string PayloadVehicleApp::createVehicleDataPayload() {
     // Create structured payload with actual vehicle data (similar to recordHeartbeatScalars format)
     std::ostringstream payload;
     
+    // Calculate derived metrics
+    double battery_pct = (battery_mAh_current / battery_mAh_max) * 100.0;
+    double memory_avail_pct = (memory_MB_available / memory_MB_max) * 100.0;
+    
     payload << "VEHICLE_DATA|"
             << "VehID:" << getParentModule()->getIndex() << "|"
             << "Time:" << std::fixed << std::setprecision(3) << simTime().dbl() << "|"
             << "CPU_Max_Hz:" << std::fixed << std::setprecision(2) << flocHz_max << "|"
             << "CPU_Avail_Hz:" << std::fixed << std::setprecision(2) << flocHz_available << "|"
             << "CPU_Load_Pct:" << std::fixed << std::setprecision(2) << (cpuLoadFactor * 100) << "|"
+            << "Battery_Pct:" << std::fixed << std::setprecision(2) << battery_pct << "|"
+            << "Battery_mAh:" << std::fixed << std::setprecision(2) << battery_mAh_current << "|"
+            << "Battery_Max_mAh:" << std::fixed << std::setprecision(2) << battery_mAh_max << "|"
+            << "Memory_Avail_MB:" << std::fixed << std::setprecision(2) << memory_MB_available << "|"
+            << "Memory_Avail_Pct:" << std::fixed << std::setprecision(2) << memory_avail_pct << "|"
+            << "Memory_Max_MB:" << std::fixed << std::setprecision(2) << memory_MB_max << "|"
             << "TxPower_mW:" << std::fixed << std::setprecision(2) << txPower_mW << "|"
             << "Speed:" << std::fixed << std::setprecision(2) << speed << "|"
             << "PosX:" << std::fixed << std::setprecision(2) << pos.x << "|"

@@ -33,6 +33,17 @@ private:
     double cpuLoadFactor = 0.0;      // Current CPU load (0.0-1.0)
     double lastCpuUpdateTime = 0.0;  // Last time CPU load was updated
     
+    // Battery parameters
+    double battery_mAh_max = 0.0;        // Maximum battery capacity (mAh)
+    double battery_mAh_current = 0.0;    // Current battery level (mAh)
+    double battery_voltage = 12.0;       // Battery voltage (V)
+    double lastBatteryUpdateTime = 0.0;  // Last battery update time
+    
+    // Memory parameters
+    double memory_MB_max = 0.0;          // Maximum memory capacity (MB)
+    double memory_MB_available = 0.0;    // Current available memory (MB)
+    double memoryUsageFactor = 0.0;      // Current memory usage (0.0-1.0)
+    
     // Helper methods
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
