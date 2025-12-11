@@ -9,6 +9,8 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         // ---- Vehicle (persistent) state ----
         double initFlocHz;                        // local CPU capacity (Hz)
         double initTxPower_mW;                    // radio TX power budget (mW)
+        double initBattery_mAh;                   // battery capacity (mAh)
+        double initMemory_MB;                     // memory capacity (MB)
 
         // ---- Heartbeat (continuous vehicle telemetry) ----
         double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz

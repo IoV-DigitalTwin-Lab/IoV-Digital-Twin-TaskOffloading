@@ -27,6 +27,12 @@ simple MyRSUApp like IBaseApplLayer
     double wsaInterval @unit(s) = default(1s);
         int currentOfferedServiceId = default(42);
         
+        // Edge server resource parameters
+        double edgeCPU_GHz;              // CPU capacity in GHz
+        double edgeMemory_GB;            // Memory capacity in GB  
+        int maxVehicles;                 // Max concurrent vehicles
+        double processingDelay_ms;       // Base processing delay in ms
+    
     gates:
         input lowerLayerIn;
         output lowerLayerOut;

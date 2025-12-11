@@ -15,7 +15,20 @@ Define_Module(MyRSUApp);
 void MyRSUApp::initialize(int stage) {
     DemoBaseApplLayer::initialize(stage);
     
-    if(stage == 0) {
+    if (stage == 0) {
+        // Initialize edge server resources
+        edgeCPU_GHz = par("edgeCPU_GHz").doubleValue();
+        edgeMemory_GB = par("edgeMemory_GB").doubleValue();
+        maxVehicles = par("maxVehicles").intValue();
+        processingDelay_ms = par("processingDelay_ms").doubleValue();
+        
+        std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
+                  << " initialized with edge resources:" << std::endl;
+        std::cout << "  - CPU: " << edgeCPU_GHz << " GHz" << std::endl;
+        std::cout << "  - Memory: " << edgeMemory_GB << " GB" << std::endl;
+        std::cout << "  - Max Vehicles: " << maxVehicles << std::endl;
+        std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
+        
         double interval = par("beaconInterval").doubleValue();
         
     // create and store the beacon self-message so we can cancel/delete it safely later
