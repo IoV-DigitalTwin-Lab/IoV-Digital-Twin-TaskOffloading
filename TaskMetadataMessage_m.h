@@ -23,6 +23,11 @@ class TaskMetadataMessage;
 class TaskCompletionMessage;
 class TaskFailureMessage;
 class VehicleResourceStatusMessage;
+class OffloadingRequestMessage;
+class OffloadingDecisionMessage;
+class TaskOffloadPacket;
+class TaskResultMessage;
+class TaskOffloadingEvent;
 
 }  // namespace veins
 
@@ -378,6 +383,448 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatusMessage& obj) {obj.parsimPack(b);}
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:92</tt> by opp_msgtool.
+ * <pre>
+ * //
+ * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
+ * //
+ * packet OffloadingRequestMessage extends BaseFrame1609_4
+ * {
+ *     LAddress::L2Type senderAddress = -1; // Sender's MAC address
+ *     string task_id;                      // Task identifier
+ *     string vehicle_id;                   // Originating vehicle ID
+ *     double request_time;                 // When request was sent
+ * 
+ *     // Task Characteristics
+ *     uint64_t task_size_bytes;            // Task size
+ *     uint64_t cpu_cycles;                 // Required CPU cycles
+ *     double deadline_seconds;             // Task deadline
+ *     double qos_value;                    // QoS priority
+ * 
+ *     // Vehicle State at Request Time
+ *     double local_cpu_available_ghz;      // Available CPU (GHz)
+ *     double local_cpu_utilization;        // CPU utilization (0-1)
+ *     double local_mem_available_mb;       // Available memory (MB)
+ *     uint32_t local_queue_length;         // Current queue length
+ *     uint32_t local_processing_count;     // Current processing count
+ * 
+ *     // Vehicle Location
+ *     double pos_x;
+ *     double pos_y;
+ *     double speed;
+ * 
+ *     // Local Decision Recommendation
+ *     string local_decision;               // "LOCAL", "OFFLOAD", or "REJECT"
+ * }
+ * </pre>
+ */
+class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
+{
+  protected:
+    LAddress::L2Type senderAddress = -1;
+    ::omnetpp::opp_string task_id;
+    ::omnetpp::opp_string vehicle_id;
+    double request_time = 0;
+    uint64_t task_size_bytes = 0;
+    uint64_t cpu_cycles = 0;
+    double deadline_seconds = 0;
+    double qos_value = 0;
+    double local_cpu_available_ghz = 0;
+    double local_cpu_utilization = 0;
+    double local_mem_available_mb = 0;
+    uint32_t local_queue_length = 0;
+    uint32_t local_processing_count = 0;
+    double pos_x = 0;
+    double pos_y = 0;
+    double speed = 0;
+    ::omnetpp::opp_string local_decision;
+
+  private:
+    void copy(const OffloadingRequestMessage& other);
+
+  protected:
+    bool operator==(const OffloadingRequestMessage&) = delete;
+
+  public:
+    OffloadingRequestMessage(const char *name=nullptr, short kind=0);
+    OffloadingRequestMessage(const OffloadingRequestMessage& other);
+    virtual ~OffloadingRequestMessage();
+    OffloadingRequestMessage& operator=(const OffloadingRequestMessage& other);
+    virtual OffloadingRequestMessage *dup() const override {return new OffloadingRequestMessage(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const LAddress::L2Type& getSenderAddress() const;
+    virtual LAddress::L2Type& getSenderAddressForUpdate() { return const_cast<LAddress::L2Type&>(const_cast<OffloadingRequestMessage*>(this)->getSenderAddress());}
+    virtual void setSenderAddress(const LAddress::L2Type& senderAddress);
+
+    virtual const char * getTask_id() const;
+    virtual void setTask_id(const char * task_id);
+
+    virtual const char * getVehicle_id() const;
+    virtual void setVehicle_id(const char * vehicle_id);
+
+    virtual double getRequest_time() const;
+    virtual void setRequest_time(double request_time);
+
+    virtual uint64_t getTask_size_bytes() const;
+    virtual void setTask_size_bytes(uint64_t task_size_bytes);
+
+    virtual uint64_t getCpu_cycles() const;
+    virtual void setCpu_cycles(uint64_t cpu_cycles);
+
+    virtual double getDeadline_seconds() const;
+    virtual void setDeadline_seconds(double deadline_seconds);
+
+    virtual double getQos_value() const;
+    virtual void setQos_value(double qos_value);
+
+    virtual double getLocal_cpu_available_ghz() const;
+    virtual void setLocal_cpu_available_ghz(double local_cpu_available_ghz);
+
+    virtual double getLocal_cpu_utilization() const;
+    virtual void setLocal_cpu_utilization(double local_cpu_utilization);
+
+    virtual double getLocal_mem_available_mb() const;
+    virtual void setLocal_mem_available_mb(double local_mem_available_mb);
+
+    virtual uint32_t getLocal_queue_length() const;
+    virtual void setLocal_queue_length(uint32_t local_queue_length);
+
+    virtual uint32_t getLocal_processing_count() const;
+    virtual void setLocal_processing_count(uint32_t local_processing_count);
+
+    virtual double getPos_x() const;
+    virtual void setPos_x(double pos_x);
+
+    virtual double getPos_y() const;
+    virtual void setPos_y(double pos_y);
+
+    virtual double getSpeed() const;
+    virtual void setSpeed(double speed);
+
+    virtual const char * getLocal_decision() const;
+    virtual void setLocal_decision(const char * local_decision);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMessage& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
+
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:123</tt> by opp_msgtool.
+ * <pre>
+ * //
+ * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
+ * //
+ * packet OffloadingDecisionMessage extends BaseFrame1609_4
+ * {
+ *     LAddress::L2Type senderAddress = -1; // RSU's MAC address
+ *     string task_id;                      // Task identifier
+ *     string vehicle_id;                   // Target vehicle ID
+ *     double decision_time;                // When decision was made
+ * 
+ *     // Decision
+ *     string decision_type;                // "LOCAL", "RSU", "SERVICE_VEHICLE", "REJECT"
+ * 
+ *     // If SERVICE_VEHICLE: target information
+ *     string target_service_vehicle_id;    // Service vehicle ID (if applicable)
+ *     uint64_t target_service_vehicle_mac; // Service vehicle MAC address (if applicable)
+ * 
+ *     // Decision Metadata
+ *     double confidence_score;             // ML model confidence (0-1)
+ *     double estimated_completion_time;    // Estimated time to complete
+ *     string decision_reason;              // Human-readable reasoning
+ * }
+ * </pre>
+ */
+class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
+{
+  protected:
+    LAddress::L2Type senderAddress = -1;
+    ::omnetpp::opp_string task_id;
+    ::omnetpp::opp_string vehicle_id;
+    double decision_time = 0;
+    ::omnetpp::opp_string decision_type;
+    ::omnetpp::opp_string target_service_vehicle_id;
+    uint64_t target_service_vehicle_mac = 0;
+    double confidence_score = 0;
+    double estimated_completion_time = 0;
+    ::omnetpp::opp_string decision_reason;
+
+  private:
+    void copy(const OffloadingDecisionMessage& other);
+
+  protected:
+    bool operator==(const OffloadingDecisionMessage&) = delete;
+
+  public:
+    OffloadingDecisionMessage(const char *name=nullptr, short kind=0);
+    OffloadingDecisionMessage(const OffloadingDecisionMessage& other);
+    virtual ~OffloadingDecisionMessage();
+    OffloadingDecisionMessage& operator=(const OffloadingDecisionMessage& other);
+    virtual OffloadingDecisionMessage *dup() const override {return new OffloadingDecisionMessage(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const LAddress::L2Type& getSenderAddress() const;
+    virtual LAddress::L2Type& getSenderAddressForUpdate() { return const_cast<LAddress::L2Type&>(const_cast<OffloadingDecisionMessage*>(this)->getSenderAddress());}
+    virtual void setSenderAddress(const LAddress::L2Type& senderAddress);
+
+    virtual const char * getTask_id() const;
+    virtual void setTask_id(const char * task_id);
+
+    virtual const char * getVehicle_id() const;
+    virtual void setVehicle_id(const char * vehicle_id);
+
+    virtual double getDecision_time() const;
+    virtual void setDecision_time(double decision_time);
+
+    virtual const char * getDecision_type() const;
+    virtual void setDecision_type(const char * decision_type);
+
+    virtual const char * getTarget_service_vehicle_id() const;
+    virtual void setTarget_service_vehicle_id(const char * target_service_vehicle_id);
+
+    virtual uint64_t getTarget_service_vehicle_mac() const;
+    virtual void setTarget_service_vehicle_mac(uint64_t target_service_vehicle_mac);
+
+    virtual double getConfidence_score() const;
+    virtual void setConfidence_score(double confidence_score);
+
+    virtual double getEstimated_completion_time() const;
+    virtual void setEstimated_completion_time(double estimated_completion_time);
+
+    virtual const char * getDecision_reason() const;
+    virtual void setDecision_reason(const char * decision_reason);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMessage& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
+
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:145</tt> by opp_msgtool.
+ * <pre>
+ * //
+ * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
+ * //
+ * packet TaskOffloadPacket extends BaseFrame1609_4
+ * {
+ *     string task_id;                      // Task identifier
+ *     string origin_vehicle_id;            // Originating vehicle ID
+ *     uint64_t origin_vehicle_mac;         // Return address MAC
+ *     double offload_time;                 // When task was offloaded
+ * 
+ *     // Task Characteristics
+ *     uint64_t task_size_bytes;            // Task size
+ *     uint64_t cpu_cycles;                 // Required CPU cycles
+ *     double deadline_seconds;             // Task deadline
+ *     double qos_value;                    // QoS priority
+ * 
+ *     // Task Input Data (placeholder - would contain actual task data)
+ *     string task_input_data;              // Serialized input data
+ * }
+ * </pre>
+ */
+class TaskOffloadPacket : public ::veins::BaseFrame1609_4
+{
+  protected:
+    ::omnetpp::opp_string task_id;
+    ::omnetpp::opp_string origin_vehicle_id;
+    uint64_t origin_vehicle_mac = 0;
+    double offload_time = 0;
+    uint64_t task_size_bytes = 0;
+    uint64_t cpu_cycles = 0;
+    double deadline_seconds = 0;
+    double qos_value = 0;
+    ::omnetpp::opp_string task_input_data;
+
+  private:
+    void copy(const TaskOffloadPacket& other);
+
+  protected:
+    bool operator==(const TaskOffloadPacket&) = delete;
+
+  public:
+    TaskOffloadPacket(const char *name=nullptr, short kind=0);
+    TaskOffloadPacket(const TaskOffloadPacket& other);
+    virtual ~TaskOffloadPacket();
+    TaskOffloadPacket& operator=(const TaskOffloadPacket& other);
+    virtual TaskOffloadPacket *dup() const override {return new TaskOffloadPacket(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const char * getTask_id() const;
+    virtual void setTask_id(const char * task_id);
+
+    virtual const char * getOrigin_vehicle_id() const;
+    virtual void setOrigin_vehicle_id(const char * origin_vehicle_id);
+
+    virtual uint64_t getOrigin_vehicle_mac() const;
+    virtual void setOrigin_vehicle_mac(uint64_t origin_vehicle_mac);
+
+    virtual double getOffload_time() const;
+    virtual void setOffload_time(double offload_time);
+
+    virtual uint64_t getTask_size_bytes() const;
+    virtual void setTask_size_bytes(uint64_t task_size_bytes);
+
+    virtual uint64_t getCpu_cycles() const;
+    virtual void setCpu_cycles(uint64_t cpu_cycles);
+
+    virtual double getDeadline_seconds() const;
+    virtual void setDeadline_seconds(double deadline_seconds);
+
+    virtual double getQos_value() const;
+    virtual void setQos_value(double qos_value);
+
+    virtual const char * getTask_input_data() const;
+    virtual void setTask_input_data(const char * task_input_data);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
+
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:164</tt> by opp_msgtool.
+ * <pre>
+ * //
+ * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
+ * //
+ * packet TaskResultMessage extends BaseFrame1609_4
+ * {
+ *     string task_id;                      // Task identifier
+ *     string origin_vehicle_id;            // Original task vehicle ID
+ *     string processor_id;                 // Who processed it ("RSU-X" or vehicle ID)
+ *     double completion_time;              // When processing completed
+ *     double processing_time;              // Actual processing duration
+ *     bool success;                        // True if completed successfully
+ * 
+ *     // Results
+ *     string task_output_data;             // Serialized output data
+ *     string failure_reason;               // If failed, reason why
+ * }
+ * </pre>
+ */
+class TaskResultMessage : public ::veins::BaseFrame1609_4
+{
+  protected:
+    ::omnetpp::opp_string task_id;
+    ::omnetpp::opp_string origin_vehicle_id;
+    ::omnetpp::opp_string processor_id;
+    double completion_time = 0;
+    double processing_time = 0;
+    bool success = false;
+    ::omnetpp::opp_string task_output_data;
+    ::omnetpp::opp_string failure_reason;
+
+  private:
+    void copy(const TaskResultMessage& other);
+
+  protected:
+    bool operator==(const TaskResultMessage&) = delete;
+
+  public:
+    TaskResultMessage(const char *name=nullptr, short kind=0);
+    TaskResultMessage(const TaskResultMessage& other);
+    virtual ~TaskResultMessage();
+    TaskResultMessage& operator=(const TaskResultMessage& other);
+    virtual TaskResultMessage *dup() const override {return new TaskResultMessage(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const char * getTask_id() const;
+    virtual void setTask_id(const char * task_id);
+
+    virtual const char * getOrigin_vehicle_id() const;
+    virtual void setOrigin_vehicle_id(const char * origin_vehicle_id);
+
+    virtual const char * getProcessor_id() const;
+    virtual void setProcessor_id(const char * processor_id);
+
+    virtual double getCompletion_time() const;
+    virtual void setCompletion_time(double completion_time);
+
+    virtual double getProcessing_time() const;
+    virtual void setProcessing_time(double processing_time);
+
+    virtual bool getSuccess() const;
+    virtual void setSuccess(bool success);
+
+    virtual const char * getTask_output_data() const;
+    virtual void setTask_output_data(const char * task_output_data);
+
+    virtual const char * getFailure_reason() const;
+    virtual void setFailure_reason(const char * failure_reason);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
+
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:180</tt> by opp_msgtool.
+ * <pre>
+ * //
+ * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
+ * //
+ * packet TaskOffloadingEvent extends BaseFrame1609_4
+ * {
+ *     string task_id;                      // Task identifier
+ *     string event_type;                   // "REQUEST_SENT", "DECISION_RECEIVED", "OFFLOAD_SENT", "PROCESSING_STARTED", "RESULT_RECEIVED", "TIMEOUT", etc.
+ *     string source_entity_id;             // Who generated the event
+ *     string target_entity_id;             // Target entity (if applicable)
+ *     double event_time;                   // When event occurred
+ *     string event_details;                // JSON with additional details
+ * }
+ * </pre>
+ */
+class TaskOffloadingEvent : public ::veins::BaseFrame1609_4
+{
+  protected:
+    ::omnetpp::opp_string task_id;
+    ::omnetpp::opp_string event_type;
+    ::omnetpp::opp_string source_entity_id;
+    ::omnetpp::opp_string target_entity_id;
+    double event_time = 0;
+    ::omnetpp::opp_string event_details;
+
+  private:
+    void copy(const TaskOffloadingEvent& other);
+
+  protected:
+    bool operator==(const TaskOffloadingEvent&) = delete;
+
+  public:
+    TaskOffloadingEvent(const char *name=nullptr, short kind=0);
+    TaskOffloadingEvent(const TaskOffloadingEvent& other);
+    virtual ~TaskOffloadingEvent();
+    TaskOffloadingEvent& operator=(const TaskOffloadingEvent& other);
+    virtual TaskOffloadingEvent *dup() const override {return new TaskOffloadingEvent(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const char * getTask_id() const;
+    virtual void setTask_id(const char * task_id);
+
+    virtual const char * getEvent_type() const;
+    virtual void setEvent_type(const char * event_type);
+
+    virtual const char * getSource_entity_id() const;
+    virtual void setSource_entity_id(const char * source_entity_id);
+
+    virtual const char * getTarget_entity_id() const;
+    virtual void setTarget_entity_id(const char * target_entity_id);
+
+    virtual double getEvent_time() const;
+    virtual void setEvent_time(double event_time);
+
+    virtual const char * getEvent_details() const;
+    virtual void setEvent_details(const char * event_details);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
+
 
 }  // namespace veins
 
@@ -388,6 +835,11 @@ template<> inline veins::TaskMetadataMessage *fromAnyPtr(any_ptr ptr) { return c
 template<> inline veins::TaskCompletionMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskCompletionMessage*>(ptr.get<cObject>()); }
 template<> inline veins::TaskFailureMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskFailureMessage*>(ptr.get<cObject>()); }
 template<> inline veins::VehicleResourceStatusMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::VehicleResourceStatusMessage*>(ptr.get<cObject>()); }
+template<> inline veins::OffloadingRequestMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::OffloadingRequestMessage*>(ptr.get<cObject>()); }
+template<> inline veins::OffloadingDecisionMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::OffloadingDecisionMessage*>(ptr.get<cObject>()); }
+template<> inline veins::TaskOffloadPacket *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskOffloadPacket*>(ptr.get<cObject>()); }
+template<> inline veins::TaskResultMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskResultMessage*>(ptr.get<cObject>()); }
+template<> inline veins::TaskOffloadingEvent *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskOffloadingEvent*>(ptr.get<cObject>()); }
 
 }  // namespace omnetpp
 

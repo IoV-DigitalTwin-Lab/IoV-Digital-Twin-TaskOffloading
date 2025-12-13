@@ -2330,6 +2330,2754 @@ void VehicleResourceStatusMessageDescriptor::setFieldStructValuePointer(omnetpp:
     }
 }
 
+Register_Class(OffloadingRequestMessage)
+
+OffloadingRequestMessage::OffloadingRequestMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+OffloadingRequestMessage::OffloadingRequestMessage(const OffloadingRequestMessage& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+OffloadingRequestMessage::~OffloadingRequestMessage()
+{
+}
+
+OffloadingRequestMessage& OffloadingRequestMessage::operator=(const OffloadingRequestMessage& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void OffloadingRequestMessage::copy(const OffloadingRequestMessage& other)
+{
+    this->senderAddress = other.senderAddress;
+    this->task_id = other.task_id;
+    this->vehicle_id = other.vehicle_id;
+    this->request_time = other.request_time;
+    this->task_size_bytes = other.task_size_bytes;
+    this->cpu_cycles = other.cpu_cycles;
+    this->deadline_seconds = other.deadline_seconds;
+    this->qos_value = other.qos_value;
+    this->local_cpu_available_ghz = other.local_cpu_available_ghz;
+    this->local_cpu_utilization = other.local_cpu_utilization;
+    this->local_mem_available_mb = other.local_mem_available_mb;
+    this->local_queue_length = other.local_queue_length;
+    this->local_processing_count = other.local_processing_count;
+    this->pos_x = other.pos_x;
+    this->pos_y = other.pos_y;
+    this->speed = other.speed;
+    this->local_decision = other.local_decision;
+}
+
+void OffloadingRequestMessage::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->senderAddress);
+    doParsimPacking(b,this->task_id);
+    doParsimPacking(b,this->vehicle_id);
+    doParsimPacking(b,this->request_time);
+    doParsimPacking(b,this->task_size_bytes);
+    doParsimPacking(b,this->cpu_cycles);
+    doParsimPacking(b,this->deadline_seconds);
+    doParsimPacking(b,this->qos_value);
+    doParsimPacking(b,this->local_cpu_available_ghz);
+    doParsimPacking(b,this->local_cpu_utilization);
+    doParsimPacking(b,this->local_mem_available_mb);
+    doParsimPacking(b,this->local_queue_length);
+    doParsimPacking(b,this->local_processing_count);
+    doParsimPacking(b,this->pos_x);
+    doParsimPacking(b,this->pos_y);
+    doParsimPacking(b,this->speed);
+    doParsimPacking(b,this->local_decision);
+}
+
+void OffloadingRequestMessage::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->senderAddress);
+    doParsimUnpacking(b,this->task_id);
+    doParsimUnpacking(b,this->vehicle_id);
+    doParsimUnpacking(b,this->request_time);
+    doParsimUnpacking(b,this->task_size_bytes);
+    doParsimUnpacking(b,this->cpu_cycles);
+    doParsimUnpacking(b,this->deadline_seconds);
+    doParsimUnpacking(b,this->qos_value);
+    doParsimUnpacking(b,this->local_cpu_available_ghz);
+    doParsimUnpacking(b,this->local_cpu_utilization);
+    doParsimUnpacking(b,this->local_mem_available_mb);
+    doParsimUnpacking(b,this->local_queue_length);
+    doParsimUnpacking(b,this->local_processing_count);
+    doParsimUnpacking(b,this->pos_x);
+    doParsimUnpacking(b,this->pos_y);
+    doParsimUnpacking(b,this->speed);
+    doParsimUnpacking(b,this->local_decision);
+}
+
+const LAddress::L2Type& OffloadingRequestMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void OffloadingRequestMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
+{
+    this->senderAddress = senderAddress;
+}
+
+const char * OffloadingRequestMessage::getTask_id() const
+{
+    return this->task_id.c_str();
+}
+
+void OffloadingRequestMessage::setTask_id(const char * task_id)
+{
+    this->task_id = task_id;
+}
+
+const char * OffloadingRequestMessage::getVehicle_id() const
+{
+    return this->vehicle_id.c_str();
+}
+
+void OffloadingRequestMessage::setVehicle_id(const char * vehicle_id)
+{
+    this->vehicle_id = vehicle_id;
+}
+
+double OffloadingRequestMessage::getRequest_time() const
+{
+    return this->request_time;
+}
+
+void OffloadingRequestMessage::setRequest_time(double request_time)
+{
+    this->request_time = request_time;
+}
+
+uint64_t OffloadingRequestMessage::getTask_size_bytes() const
+{
+    return this->task_size_bytes;
+}
+
+void OffloadingRequestMessage::setTask_size_bytes(uint64_t task_size_bytes)
+{
+    this->task_size_bytes = task_size_bytes;
+}
+
+uint64_t OffloadingRequestMessage::getCpu_cycles() const
+{
+    return this->cpu_cycles;
+}
+
+void OffloadingRequestMessage::setCpu_cycles(uint64_t cpu_cycles)
+{
+    this->cpu_cycles = cpu_cycles;
+}
+
+double OffloadingRequestMessage::getDeadline_seconds() const
+{
+    return this->deadline_seconds;
+}
+
+void OffloadingRequestMessage::setDeadline_seconds(double deadline_seconds)
+{
+    this->deadline_seconds = deadline_seconds;
+}
+
+double OffloadingRequestMessage::getQos_value() const
+{
+    return this->qos_value;
+}
+
+void OffloadingRequestMessage::setQos_value(double qos_value)
+{
+    this->qos_value = qos_value;
+}
+
+double OffloadingRequestMessage::getLocal_cpu_available_ghz() const
+{
+    return this->local_cpu_available_ghz;
+}
+
+void OffloadingRequestMessage::setLocal_cpu_available_ghz(double local_cpu_available_ghz)
+{
+    this->local_cpu_available_ghz = local_cpu_available_ghz;
+}
+
+double OffloadingRequestMessage::getLocal_cpu_utilization() const
+{
+    return this->local_cpu_utilization;
+}
+
+void OffloadingRequestMessage::setLocal_cpu_utilization(double local_cpu_utilization)
+{
+    this->local_cpu_utilization = local_cpu_utilization;
+}
+
+double OffloadingRequestMessage::getLocal_mem_available_mb() const
+{
+    return this->local_mem_available_mb;
+}
+
+void OffloadingRequestMessage::setLocal_mem_available_mb(double local_mem_available_mb)
+{
+    this->local_mem_available_mb = local_mem_available_mb;
+}
+
+uint32_t OffloadingRequestMessage::getLocal_queue_length() const
+{
+    return this->local_queue_length;
+}
+
+void OffloadingRequestMessage::setLocal_queue_length(uint32_t local_queue_length)
+{
+    this->local_queue_length = local_queue_length;
+}
+
+uint32_t OffloadingRequestMessage::getLocal_processing_count() const
+{
+    return this->local_processing_count;
+}
+
+void OffloadingRequestMessage::setLocal_processing_count(uint32_t local_processing_count)
+{
+    this->local_processing_count = local_processing_count;
+}
+
+double OffloadingRequestMessage::getPos_x() const
+{
+    return this->pos_x;
+}
+
+void OffloadingRequestMessage::setPos_x(double pos_x)
+{
+    this->pos_x = pos_x;
+}
+
+double OffloadingRequestMessage::getPos_y() const
+{
+    return this->pos_y;
+}
+
+void OffloadingRequestMessage::setPos_y(double pos_y)
+{
+    this->pos_y = pos_y;
+}
+
+double OffloadingRequestMessage::getSpeed() const
+{
+    return this->speed;
+}
+
+void OffloadingRequestMessage::setSpeed(double speed)
+{
+    this->speed = speed;
+}
+
+const char * OffloadingRequestMessage::getLocal_decision() const
+{
+    return this->local_decision.c_str();
+}
+
+void OffloadingRequestMessage::setLocal_decision(const char * local_decision)
+{
+    this->local_decision = local_decision;
+}
+
+class OffloadingRequestMessageDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_senderAddress,
+        FIELD_task_id,
+        FIELD_vehicle_id,
+        FIELD_request_time,
+        FIELD_task_size_bytes,
+        FIELD_cpu_cycles,
+        FIELD_deadline_seconds,
+        FIELD_qos_value,
+        FIELD_local_cpu_available_ghz,
+        FIELD_local_cpu_utilization,
+        FIELD_local_mem_available_mb,
+        FIELD_local_queue_length,
+        FIELD_local_processing_count,
+        FIELD_pos_x,
+        FIELD_pos_y,
+        FIELD_speed,
+        FIELD_local_decision,
+    };
+  public:
+    OffloadingRequestMessageDescriptor();
+    virtual ~OffloadingRequestMessageDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(OffloadingRequestMessageDescriptor)
+
+OffloadingRequestMessageDescriptor::OffloadingRequestMessageDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::OffloadingRequestMessage)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+OffloadingRequestMessageDescriptor::~OffloadingRequestMessageDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool OffloadingRequestMessageDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<OffloadingRequestMessage *>(obj)!=nullptr;
+}
+
+const char **OffloadingRequestMessageDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *OffloadingRequestMessageDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int OffloadingRequestMessageDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 17+base->getFieldCount() : 17;
+}
+
+unsigned int OffloadingRequestMessageDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        0,    // FIELD_senderAddress
+        FD_ISEDITABLE,    // FIELD_task_id
+        FD_ISEDITABLE,    // FIELD_vehicle_id
+        FD_ISEDITABLE,    // FIELD_request_time
+        FD_ISEDITABLE,    // FIELD_task_size_bytes
+        FD_ISEDITABLE,    // FIELD_cpu_cycles
+        FD_ISEDITABLE,    // FIELD_deadline_seconds
+        FD_ISEDITABLE,    // FIELD_qos_value
+        FD_ISEDITABLE,    // FIELD_local_cpu_available_ghz
+        FD_ISEDITABLE,    // FIELD_local_cpu_utilization
+        FD_ISEDITABLE,    // FIELD_local_mem_available_mb
+        FD_ISEDITABLE,    // FIELD_local_queue_length
+        FD_ISEDITABLE,    // FIELD_local_processing_count
+        FD_ISEDITABLE,    // FIELD_pos_x
+        FD_ISEDITABLE,    // FIELD_pos_y
+        FD_ISEDITABLE,    // FIELD_speed
+        FD_ISEDITABLE,    // FIELD_local_decision
+    };
+    return (field >= 0 && field < 17) ? fieldTypeFlags[field] : 0;
+}
+
+const char *OffloadingRequestMessageDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "senderAddress",
+        "task_id",
+        "vehicle_id",
+        "request_time",
+        "task_size_bytes",
+        "cpu_cycles",
+        "deadline_seconds",
+        "qos_value",
+        "local_cpu_available_ghz",
+        "local_cpu_utilization",
+        "local_mem_available_mb",
+        "local_queue_length",
+        "local_processing_count",
+        "pos_x",
+        "pos_y",
+        "speed",
+        "local_decision",
+    };
+    return (field >= 0 && field < 17) ? fieldNames[field] : nullptr;
+}
+
+int OffloadingRequestMessageDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "senderAddress") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "task_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "request_time") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "task_size_bytes") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "cpu_cycles") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "qos_value") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "local_cpu_available_ghz") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "local_cpu_utilization") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "local_mem_available_mb") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "local_queue_length") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "local_processing_count") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 13;
+    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 14;
+    if (strcmp(fieldName, "speed") == 0) return baseIndex + 15;
+    if (strcmp(fieldName, "local_decision") == 0) return baseIndex + 16;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *OffloadingRequestMessageDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "veins::LAddress::L2Type",    // FIELD_senderAddress
+        "string",    // FIELD_task_id
+        "string",    // FIELD_vehicle_id
+        "double",    // FIELD_request_time
+        "uint64_t",    // FIELD_task_size_bytes
+        "uint64_t",    // FIELD_cpu_cycles
+        "double",    // FIELD_deadline_seconds
+        "double",    // FIELD_qos_value
+        "double",    // FIELD_local_cpu_available_ghz
+        "double",    // FIELD_local_cpu_utilization
+        "double",    // FIELD_local_mem_available_mb
+        "uint32_t",    // FIELD_local_queue_length
+        "uint32_t",    // FIELD_local_processing_count
+        "double",    // FIELD_pos_x
+        "double",    // FIELD_pos_y
+        "double",    // FIELD_speed
+        "string",    // FIELD_local_decision
+    };
+    return (field >= 0 && field < 17) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **OffloadingRequestMessageDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *OffloadingRequestMessageDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int OffloadingRequestMessageDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void OffloadingRequestMessageDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'OffloadingRequestMessage'", field);
+    }
+}
+
+const char *OffloadingRequestMessageDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string OffloadingRequestMessageDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_senderAddress: return "";
+        case FIELD_task_id: return oppstring2string(pp->getTask_id());
+        case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
+        case FIELD_request_time: return double2string(pp->getRequest_time());
+        case FIELD_task_size_bytes: return uint642string(pp->getTask_size_bytes());
+        case FIELD_cpu_cycles: return uint642string(pp->getCpu_cycles());
+        case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
+        case FIELD_qos_value: return double2string(pp->getQos_value());
+        case FIELD_local_cpu_available_ghz: return double2string(pp->getLocal_cpu_available_ghz());
+        case FIELD_local_cpu_utilization: return double2string(pp->getLocal_cpu_utilization());
+        case FIELD_local_mem_available_mb: return double2string(pp->getLocal_mem_available_mb());
+        case FIELD_local_queue_length: return ulong2string(pp->getLocal_queue_length());
+        case FIELD_local_processing_count: return ulong2string(pp->getLocal_processing_count());
+        case FIELD_pos_x: return double2string(pp->getPos_x());
+        case FIELD_pos_y: return double2string(pp->getPos_y());
+        case FIELD_speed: return double2string(pp->getSpeed());
+        case FIELD_local_decision: return oppstring2string(pp->getLocal_decision());
+        default: return "";
+    }
+}
+
+void OffloadingRequestMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id((value)); break;
+        case FIELD_vehicle_id: pp->setVehicle_id((value)); break;
+        case FIELD_request_time: pp->setRequest_time(string2double(value)); break;
+        case FIELD_task_size_bytes: pp->setTask_size_bytes(string2uint64(value)); break;
+        case FIELD_cpu_cycles: pp->setCpu_cycles(string2uint64(value)); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
+        case FIELD_qos_value: pp->setQos_value(string2double(value)); break;
+        case FIELD_local_cpu_available_ghz: pp->setLocal_cpu_available_ghz(string2double(value)); break;
+        case FIELD_local_cpu_utilization: pp->setLocal_cpu_utilization(string2double(value)); break;
+        case FIELD_local_mem_available_mb: pp->setLocal_mem_available_mb(string2double(value)); break;
+        case FIELD_local_queue_length: pp->setLocal_queue_length(string2ulong(value)); break;
+        case FIELD_local_processing_count: pp->setLocal_processing_count(string2ulong(value)); break;
+        case FIELD_pos_x: pp->setPos_x(string2double(value)); break;
+        case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
+        case FIELD_speed: pp->setSpeed(string2double(value)); break;
+        case FIELD_local_decision: pp->setLocal_decision((value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingRequestMessage'", field);
+    }
+}
+
+omnetpp::cValue OffloadingRequestMessageDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
+        case FIELD_task_id: return pp->getTask_id();
+        case FIELD_vehicle_id: return pp->getVehicle_id();
+        case FIELD_request_time: return pp->getRequest_time();
+        case FIELD_task_size_bytes: return (omnetpp::intval_t)(pp->getTask_size_bytes());
+        case FIELD_cpu_cycles: return (omnetpp::intval_t)(pp->getCpu_cycles());
+        case FIELD_deadline_seconds: return pp->getDeadline_seconds();
+        case FIELD_qos_value: return pp->getQos_value();
+        case FIELD_local_cpu_available_ghz: return pp->getLocal_cpu_available_ghz();
+        case FIELD_local_cpu_utilization: return pp->getLocal_cpu_utilization();
+        case FIELD_local_mem_available_mb: return pp->getLocal_mem_available_mb();
+        case FIELD_local_queue_length: return (omnetpp::intval_t)(pp->getLocal_queue_length());
+        case FIELD_local_processing_count: return (omnetpp::intval_t)(pp->getLocal_processing_count());
+        case FIELD_pos_x: return pp->getPos_x();
+        case FIELD_pos_y: return pp->getPos_y();
+        case FIELD_speed: return pp->getSpeed();
+        case FIELD_local_decision: return pp->getLocal_decision();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'OffloadingRequestMessage' as cValue -- field index out of range?", field);
+    }
+}
+
+void OffloadingRequestMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
+        case FIELD_vehicle_id: pp->setVehicle_id(value.stringValue()); break;
+        case FIELD_request_time: pp->setRequest_time(value.doubleValue()); break;
+        case FIELD_task_size_bytes: pp->setTask_size_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_cpu_cycles: pp->setCpu_cycles(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
+        case FIELD_qos_value: pp->setQos_value(value.doubleValue()); break;
+        case FIELD_local_cpu_available_ghz: pp->setLocal_cpu_available_ghz(value.doubleValue()); break;
+        case FIELD_local_cpu_utilization: pp->setLocal_cpu_utilization(value.doubleValue()); break;
+        case FIELD_local_mem_available_mb: pp->setLocal_mem_available_mb(value.doubleValue()); break;
+        case FIELD_local_queue_length: pp->setLocal_queue_length(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
+        case FIELD_local_processing_count: pp->setLocal_processing_count(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
+        case FIELD_pos_x: pp->setPos_x(value.doubleValue()); break;
+        case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
+        case FIELD_speed: pp->setSpeed(value.doubleValue()); break;
+        case FIELD_local_decision: pp->setLocal_decision(value.stringValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingRequestMessage'", field);
+    }
+}
+
+const char *OffloadingRequestMessageDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr OffloadingRequestMessageDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void OffloadingRequestMessageDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingRequestMessage'", field);
+    }
+}
+
+Register_Class(OffloadingDecisionMessage)
+
+OffloadingDecisionMessage::OffloadingDecisionMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+OffloadingDecisionMessage::OffloadingDecisionMessage(const OffloadingDecisionMessage& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+OffloadingDecisionMessage::~OffloadingDecisionMessage()
+{
+}
+
+OffloadingDecisionMessage& OffloadingDecisionMessage::operator=(const OffloadingDecisionMessage& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void OffloadingDecisionMessage::copy(const OffloadingDecisionMessage& other)
+{
+    this->senderAddress = other.senderAddress;
+    this->task_id = other.task_id;
+    this->vehicle_id = other.vehicle_id;
+    this->decision_time = other.decision_time;
+    this->decision_type = other.decision_type;
+    this->target_service_vehicle_id = other.target_service_vehicle_id;
+    this->target_service_vehicle_mac = other.target_service_vehicle_mac;
+    this->confidence_score = other.confidence_score;
+    this->estimated_completion_time = other.estimated_completion_time;
+    this->decision_reason = other.decision_reason;
+}
+
+void OffloadingDecisionMessage::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->senderAddress);
+    doParsimPacking(b,this->task_id);
+    doParsimPacking(b,this->vehicle_id);
+    doParsimPacking(b,this->decision_time);
+    doParsimPacking(b,this->decision_type);
+    doParsimPacking(b,this->target_service_vehicle_id);
+    doParsimPacking(b,this->target_service_vehicle_mac);
+    doParsimPacking(b,this->confidence_score);
+    doParsimPacking(b,this->estimated_completion_time);
+    doParsimPacking(b,this->decision_reason);
+}
+
+void OffloadingDecisionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->senderAddress);
+    doParsimUnpacking(b,this->task_id);
+    doParsimUnpacking(b,this->vehicle_id);
+    doParsimUnpacking(b,this->decision_time);
+    doParsimUnpacking(b,this->decision_type);
+    doParsimUnpacking(b,this->target_service_vehicle_id);
+    doParsimUnpacking(b,this->target_service_vehicle_mac);
+    doParsimUnpacking(b,this->confidence_score);
+    doParsimUnpacking(b,this->estimated_completion_time);
+    doParsimUnpacking(b,this->decision_reason);
+}
+
+const LAddress::L2Type& OffloadingDecisionMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void OffloadingDecisionMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
+{
+    this->senderAddress = senderAddress;
+}
+
+const char * OffloadingDecisionMessage::getTask_id() const
+{
+    return this->task_id.c_str();
+}
+
+void OffloadingDecisionMessage::setTask_id(const char * task_id)
+{
+    this->task_id = task_id;
+}
+
+const char * OffloadingDecisionMessage::getVehicle_id() const
+{
+    return this->vehicle_id.c_str();
+}
+
+void OffloadingDecisionMessage::setVehicle_id(const char * vehicle_id)
+{
+    this->vehicle_id = vehicle_id;
+}
+
+double OffloadingDecisionMessage::getDecision_time() const
+{
+    return this->decision_time;
+}
+
+void OffloadingDecisionMessage::setDecision_time(double decision_time)
+{
+    this->decision_time = decision_time;
+}
+
+const char * OffloadingDecisionMessage::getDecision_type() const
+{
+    return this->decision_type.c_str();
+}
+
+void OffloadingDecisionMessage::setDecision_type(const char * decision_type)
+{
+    this->decision_type = decision_type;
+}
+
+const char * OffloadingDecisionMessage::getTarget_service_vehicle_id() const
+{
+    return this->target_service_vehicle_id.c_str();
+}
+
+void OffloadingDecisionMessage::setTarget_service_vehicle_id(const char * target_service_vehicle_id)
+{
+    this->target_service_vehicle_id = target_service_vehicle_id;
+}
+
+uint64_t OffloadingDecisionMessage::getTarget_service_vehicle_mac() const
+{
+    return this->target_service_vehicle_mac;
+}
+
+void OffloadingDecisionMessage::setTarget_service_vehicle_mac(uint64_t target_service_vehicle_mac)
+{
+    this->target_service_vehicle_mac = target_service_vehicle_mac;
+}
+
+double OffloadingDecisionMessage::getConfidence_score() const
+{
+    return this->confidence_score;
+}
+
+void OffloadingDecisionMessage::setConfidence_score(double confidence_score)
+{
+    this->confidence_score = confidence_score;
+}
+
+double OffloadingDecisionMessage::getEstimated_completion_time() const
+{
+    return this->estimated_completion_time;
+}
+
+void OffloadingDecisionMessage::setEstimated_completion_time(double estimated_completion_time)
+{
+    this->estimated_completion_time = estimated_completion_time;
+}
+
+const char * OffloadingDecisionMessage::getDecision_reason() const
+{
+    return this->decision_reason.c_str();
+}
+
+void OffloadingDecisionMessage::setDecision_reason(const char * decision_reason)
+{
+    this->decision_reason = decision_reason;
+}
+
+class OffloadingDecisionMessageDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_senderAddress,
+        FIELD_task_id,
+        FIELD_vehicle_id,
+        FIELD_decision_time,
+        FIELD_decision_type,
+        FIELD_target_service_vehicle_id,
+        FIELD_target_service_vehicle_mac,
+        FIELD_confidence_score,
+        FIELD_estimated_completion_time,
+        FIELD_decision_reason,
+    };
+  public:
+    OffloadingDecisionMessageDescriptor();
+    virtual ~OffloadingDecisionMessageDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(OffloadingDecisionMessageDescriptor)
+
+OffloadingDecisionMessageDescriptor::OffloadingDecisionMessageDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::OffloadingDecisionMessage)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+OffloadingDecisionMessageDescriptor::~OffloadingDecisionMessageDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool OffloadingDecisionMessageDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<OffloadingDecisionMessage *>(obj)!=nullptr;
+}
+
+const char **OffloadingDecisionMessageDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *OffloadingDecisionMessageDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int OffloadingDecisionMessageDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 10+base->getFieldCount() : 10;
+}
+
+unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        0,    // FIELD_senderAddress
+        FD_ISEDITABLE,    // FIELD_task_id
+        FD_ISEDITABLE,    // FIELD_vehicle_id
+        FD_ISEDITABLE,    // FIELD_decision_time
+        FD_ISEDITABLE,    // FIELD_decision_type
+        FD_ISEDITABLE,    // FIELD_target_service_vehicle_id
+        FD_ISEDITABLE,    // FIELD_target_service_vehicle_mac
+        FD_ISEDITABLE,    // FIELD_confidence_score
+        FD_ISEDITABLE,    // FIELD_estimated_completion_time
+        FD_ISEDITABLE,    // FIELD_decision_reason
+    };
+    return (field >= 0 && field < 10) ? fieldTypeFlags[field] : 0;
+}
+
+const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "senderAddress",
+        "task_id",
+        "vehicle_id",
+        "decision_time",
+        "decision_type",
+        "target_service_vehicle_id",
+        "target_service_vehicle_mac",
+        "confidence_score",
+        "estimated_completion_time",
+        "decision_reason",
+    };
+    return (field >= 0 && field < 10) ? fieldNames[field] : nullptr;
+}
+
+int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "senderAddress") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "task_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "decision_time") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "decision_type") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "target_service_vehicle_id") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "target_service_vehicle_mac") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "confidence_score") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "estimated_completion_time") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "decision_reason") == 0) return baseIndex + 9;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *OffloadingDecisionMessageDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "veins::LAddress::L2Type",    // FIELD_senderAddress
+        "string",    // FIELD_task_id
+        "string",    // FIELD_vehicle_id
+        "double",    // FIELD_decision_time
+        "string",    // FIELD_decision_type
+        "string",    // FIELD_target_service_vehicle_id
+        "uint64_t",    // FIELD_target_service_vehicle_mac
+        "double",    // FIELD_confidence_score
+        "double",    // FIELD_estimated_completion_time
+        "string",    // FIELD_decision_reason
+    };
+    return (field >= 0 && field < 10) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **OffloadingDecisionMessageDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *OffloadingDecisionMessageDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int OffloadingDecisionMessageDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void OffloadingDecisionMessageDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'OffloadingDecisionMessage'", field);
+    }
+}
+
+const char *OffloadingDecisionMessageDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string OffloadingDecisionMessageDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_senderAddress: return "";
+        case FIELD_task_id: return oppstring2string(pp->getTask_id());
+        case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
+        case FIELD_decision_time: return double2string(pp->getDecision_time());
+        case FIELD_decision_type: return oppstring2string(pp->getDecision_type());
+        case FIELD_target_service_vehicle_id: return oppstring2string(pp->getTarget_service_vehicle_id());
+        case FIELD_target_service_vehicle_mac: return uint642string(pp->getTarget_service_vehicle_mac());
+        case FIELD_confidence_score: return double2string(pp->getConfidence_score());
+        case FIELD_estimated_completion_time: return double2string(pp->getEstimated_completion_time());
+        case FIELD_decision_reason: return oppstring2string(pp->getDecision_reason());
+        default: return "";
+    }
+}
+
+void OffloadingDecisionMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id((value)); break;
+        case FIELD_vehicle_id: pp->setVehicle_id((value)); break;
+        case FIELD_decision_time: pp->setDecision_time(string2double(value)); break;
+        case FIELD_decision_type: pp->setDecision_type((value)); break;
+        case FIELD_target_service_vehicle_id: pp->setTarget_service_vehicle_id((value)); break;
+        case FIELD_target_service_vehicle_mac: pp->setTarget_service_vehicle_mac(string2uint64(value)); break;
+        case FIELD_confidence_score: pp->setConfidence_score(string2double(value)); break;
+        case FIELD_estimated_completion_time: pp->setEstimated_completion_time(string2double(value)); break;
+        case FIELD_decision_reason: pp->setDecision_reason((value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
+    }
+}
+
+omnetpp::cValue OffloadingDecisionMessageDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
+        case FIELD_task_id: return pp->getTask_id();
+        case FIELD_vehicle_id: return pp->getVehicle_id();
+        case FIELD_decision_time: return pp->getDecision_time();
+        case FIELD_decision_type: return pp->getDecision_type();
+        case FIELD_target_service_vehicle_id: return pp->getTarget_service_vehicle_id();
+        case FIELD_target_service_vehicle_mac: return (omnetpp::intval_t)(pp->getTarget_service_vehicle_mac());
+        case FIELD_confidence_score: return pp->getConfidence_score();
+        case FIELD_estimated_completion_time: return pp->getEstimated_completion_time();
+        case FIELD_decision_reason: return pp->getDecision_reason();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'OffloadingDecisionMessage' as cValue -- field index out of range?", field);
+    }
+}
+
+void OffloadingDecisionMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
+        case FIELD_vehicle_id: pp->setVehicle_id(value.stringValue()); break;
+        case FIELD_decision_time: pp->setDecision_time(value.doubleValue()); break;
+        case FIELD_decision_type: pp->setDecision_type(value.stringValue()); break;
+        case FIELD_target_service_vehicle_id: pp->setTarget_service_vehicle_id(value.stringValue()); break;
+        case FIELD_target_service_vehicle_mac: pp->setTarget_service_vehicle_mac(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_confidence_score: pp->setConfidence_score(value.doubleValue()); break;
+        case FIELD_estimated_completion_time: pp->setEstimated_completion_time(value.doubleValue()); break;
+        case FIELD_decision_reason: pp->setDecision_reason(value.stringValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
+    }
+}
+
+const char *OffloadingDecisionMessageDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr OffloadingDecisionMessageDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void OffloadingDecisionMessageDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    OffloadingDecisionMessage *pp = omnetpp::fromAnyPtr<OffloadingDecisionMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
+    }
+}
+
+Register_Class(TaskOffloadPacket)
+
+TaskOffloadPacket::TaskOffloadPacket(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+TaskOffloadPacket::TaskOffloadPacket(const TaskOffloadPacket& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+TaskOffloadPacket::~TaskOffloadPacket()
+{
+}
+
+TaskOffloadPacket& TaskOffloadPacket::operator=(const TaskOffloadPacket& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void TaskOffloadPacket::copy(const TaskOffloadPacket& other)
+{
+    this->task_id = other.task_id;
+    this->origin_vehicle_id = other.origin_vehicle_id;
+    this->origin_vehicle_mac = other.origin_vehicle_mac;
+    this->offload_time = other.offload_time;
+    this->task_size_bytes = other.task_size_bytes;
+    this->cpu_cycles = other.cpu_cycles;
+    this->deadline_seconds = other.deadline_seconds;
+    this->qos_value = other.qos_value;
+    this->task_input_data = other.task_input_data;
+}
+
+void TaskOffloadPacket::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->task_id);
+    doParsimPacking(b,this->origin_vehicle_id);
+    doParsimPacking(b,this->origin_vehicle_mac);
+    doParsimPacking(b,this->offload_time);
+    doParsimPacking(b,this->task_size_bytes);
+    doParsimPacking(b,this->cpu_cycles);
+    doParsimPacking(b,this->deadline_seconds);
+    doParsimPacking(b,this->qos_value);
+    doParsimPacking(b,this->task_input_data);
+}
+
+void TaskOffloadPacket::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->task_id);
+    doParsimUnpacking(b,this->origin_vehicle_id);
+    doParsimUnpacking(b,this->origin_vehicle_mac);
+    doParsimUnpacking(b,this->offload_time);
+    doParsimUnpacking(b,this->task_size_bytes);
+    doParsimUnpacking(b,this->cpu_cycles);
+    doParsimUnpacking(b,this->deadline_seconds);
+    doParsimUnpacking(b,this->qos_value);
+    doParsimUnpacking(b,this->task_input_data);
+}
+
+const char * TaskOffloadPacket::getTask_id() const
+{
+    return this->task_id.c_str();
+}
+
+void TaskOffloadPacket::setTask_id(const char * task_id)
+{
+    this->task_id = task_id;
+}
+
+const char * TaskOffloadPacket::getOrigin_vehicle_id() const
+{
+    return this->origin_vehicle_id.c_str();
+}
+
+void TaskOffloadPacket::setOrigin_vehicle_id(const char * origin_vehicle_id)
+{
+    this->origin_vehicle_id = origin_vehicle_id;
+}
+
+uint64_t TaskOffloadPacket::getOrigin_vehicle_mac() const
+{
+    return this->origin_vehicle_mac;
+}
+
+void TaskOffloadPacket::setOrigin_vehicle_mac(uint64_t origin_vehicle_mac)
+{
+    this->origin_vehicle_mac = origin_vehicle_mac;
+}
+
+double TaskOffloadPacket::getOffload_time() const
+{
+    return this->offload_time;
+}
+
+void TaskOffloadPacket::setOffload_time(double offload_time)
+{
+    this->offload_time = offload_time;
+}
+
+uint64_t TaskOffloadPacket::getTask_size_bytes() const
+{
+    return this->task_size_bytes;
+}
+
+void TaskOffloadPacket::setTask_size_bytes(uint64_t task_size_bytes)
+{
+    this->task_size_bytes = task_size_bytes;
+}
+
+uint64_t TaskOffloadPacket::getCpu_cycles() const
+{
+    return this->cpu_cycles;
+}
+
+void TaskOffloadPacket::setCpu_cycles(uint64_t cpu_cycles)
+{
+    this->cpu_cycles = cpu_cycles;
+}
+
+double TaskOffloadPacket::getDeadline_seconds() const
+{
+    return this->deadline_seconds;
+}
+
+void TaskOffloadPacket::setDeadline_seconds(double deadline_seconds)
+{
+    this->deadline_seconds = deadline_seconds;
+}
+
+double TaskOffloadPacket::getQos_value() const
+{
+    return this->qos_value;
+}
+
+void TaskOffloadPacket::setQos_value(double qos_value)
+{
+    this->qos_value = qos_value;
+}
+
+const char * TaskOffloadPacket::getTask_input_data() const
+{
+    return this->task_input_data.c_str();
+}
+
+void TaskOffloadPacket::setTask_input_data(const char * task_input_data)
+{
+    this->task_input_data = task_input_data;
+}
+
+class TaskOffloadPacketDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_task_id,
+        FIELD_origin_vehicle_id,
+        FIELD_origin_vehicle_mac,
+        FIELD_offload_time,
+        FIELD_task_size_bytes,
+        FIELD_cpu_cycles,
+        FIELD_deadline_seconds,
+        FIELD_qos_value,
+        FIELD_task_input_data,
+    };
+  public:
+    TaskOffloadPacketDescriptor();
+    virtual ~TaskOffloadPacketDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(TaskOffloadPacketDescriptor)
+
+TaskOffloadPacketDescriptor::TaskOffloadPacketDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::TaskOffloadPacket)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+TaskOffloadPacketDescriptor::~TaskOffloadPacketDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool TaskOffloadPacketDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<TaskOffloadPacket *>(obj)!=nullptr;
+}
+
+const char **TaskOffloadPacketDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *TaskOffloadPacketDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int TaskOffloadPacketDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 9+base->getFieldCount() : 9;
+}
+
+unsigned int TaskOffloadPacketDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,    // FIELD_task_id
+        FD_ISEDITABLE,    // FIELD_origin_vehicle_id
+        FD_ISEDITABLE,    // FIELD_origin_vehicle_mac
+        FD_ISEDITABLE,    // FIELD_offload_time
+        FD_ISEDITABLE,    // FIELD_task_size_bytes
+        FD_ISEDITABLE,    // FIELD_cpu_cycles
+        FD_ISEDITABLE,    // FIELD_deadline_seconds
+        FD_ISEDITABLE,    // FIELD_qos_value
+        FD_ISEDITABLE,    // FIELD_task_input_data
+    };
+    return (field >= 0 && field < 9) ? fieldTypeFlags[field] : 0;
+}
+
+const char *TaskOffloadPacketDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "task_id",
+        "origin_vehicle_id",
+        "origin_vehicle_mac",
+        "offload_time",
+        "task_size_bytes",
+        "cpu_cycles",
+        "deadline_seconds",
+        "qos_value",
+        "task_input_data",
+    };
+    return (field >= 0 && field < 9) ? fieldNames[field] : nullptr;
+}
+
+int TaskOffloadPacketDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "task_id") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "origin_vehicle_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "origin_vehicle_mac") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "offload_time") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "task_size_bytes") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "cpu_cycles") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "qos_value") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "task_input_data") == 0) return baseIndex + 8;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *TaskOffloadPacketDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "string",    // FIELD_task_id
+        "string",    // FIELD_origin_vehicle_id
+        "uint64_t",    // FIELD_origin_vehicle_mac
+        "double",    // FIELD_offload_time
+        "uint64_t",    // FIELD_task_size_bytes
+        "uint64_t",    // FIELD_cpu_cycles
+        "double",    // FIELD_deadline_seconds
+        "double",    // FIELD_qos_value
+        "string",    // FIELD_task_input_data
+    };
+    return (field >= 0 && field < 9) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **TaskOffloadPacketDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *TaskOffloadPacketDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int TaskOffloadPacketDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void TaskOffloadPacketDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'TaskOffloadPacket'", field);
+    }
+}
+
+const char *TaskOffloadPacketDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string TaskOffloadPacketDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: return oppstring2string(pp->getTask_id());
+        case FIELD_origin_vehicle_id: return oppstring2string(pp->getOrigin_vehicle_id());
+        case FIELD_origin_vehicle_mac: return uint642string(pp->getOrigin_vehicle_mac());
+        case FIELD_offload_time: return double2string(pp->getOffload_time());
+        case FIELD_task_size_bytes: return uint642string(pp->getTask_size_bytes());
+        case FIELD_cpu_cycles: return uint642string(pp->getCpu_cycles());
+        case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
+        case FIELD_qos_value: return double2string(pp->getQos_value());
+        case FIELD_task_input_data: return oppstring2string(pp->getTask_input_data());
+        default: return "";
+    }
+}
+
+void TaskOffloadPacketDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id((value)); break;
+        case FIELD_origin_vehicle_id: pp->setOrigin_vehicle_id((value)); break;
+        case FIELD_origin_vehicle_mac: pp->setOrigin_vehicle_mac(string2uint64(value)); break;
+        case FIELD_offload_time: pp->setOffload_time(string2double(value)); break;
+        case FIELD_task_size_bytes: pp->setTask_size_bytes(string2uint64(value)); break;
+        case FIELD_cpu_cycles: pp->setCpu_cycles(string2uint64(value)); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
+        case FIELD_qos_value: pp->setQos_value(string2double(value)); break;
+        case FIELD_task_input_data: pp->setTask_input_data((value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadPacket'", field);
+    }
+}
+
+omnetpp::cValue TaskOffloadPacketDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: return pp->getTask_id();
+        case FIELD_origin_vehicle_id: return pp->getOrigin_vehicle_id();
+        case FIELD_origin_vehicle_mac: return (omnetpp::intval_t)(pp->getOrigin_vehicle_mac());
+        case FIELD_offload_time: return pp->getOffload_time();
+        case FIELD_task_size_bytes: return (omnetpp::intval_t)(pp->getTask_size_bytes());
+        case FIELD_cpu_cycles: return (omnetpp::intval_t)(pp->getCpu_cycles());
+        case FIELD_deadline_seconds: return pp->getDeadline_seconds();
+        case FIELD_qos_value: return pp->getQos_value();
+        case FIELD_task_input_data: return pp->getTask_input_data();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'TaskOffloadPacket' as cValue -- field index out of range?", field);
+    }
+}
+
+void TaskOffloadPacketDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
+        case FIELD_origin_vehicle_id: pp->setOrigin_vehicle_id(value.stringValue()); break;
+        case FIELD_origin_vehicle_mac: pp->setOrigin_vehicle_mac(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_offload_time: pp->setOffload_time(value.doubleValue()); break;
+        case FIELD_task_size_bytes: pp->setTask_size_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_cpu_cycles: pp->setCpu_cycles(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
+        case FIELD_qos_value: pp->setQos_value(value.doubleValue()); break;
+        case FIELD_task_input_data: pp->setTask_input_data(value.stringValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadPacket'", field);
+    }
+}
+
+const char *TaskOffloadPacketDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr TaskOffloadPacketDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void TaskOffloadPacketDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadPacket *pp = omnetpp::fromAnyPtr<TaskOffloadPacket>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadPacket'", field);
+    }
+}
+
+Register_Class(TaskResultMessage)
+
+TaskResultMessage::TaskResultMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+TaskResultMessage::TaskResultMessage(const TaskResultMessage& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+TaskResultMessage::~TaskResultMessage()
+{
+}
+
+TaskResultMessage& TaskResultMessage::operator=(const TaskResultMessage& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void TaskResultMessage::copy(const TaskResultMessage& other)
+{
+    this->task_id = other.task_id;
+    this->origin_vehicle_id = other.origin_vehicle_id;
+    this->processor_id = other.processor_id;
+    this->completion_time = other.completion_time;
+    this->processing_time = other.processing_time;
+    this->success = other.success;
+    this->task_output_data = other.task_output_data;
+    this->failure_reason = other.failure_reason;
+}
+
+void TaskResultMessage::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->task_id);
+    doParsimPacking(b,this->origin_vehicle_id);
+    doParsimPacking(b,this->processor_id);
+    doParsimPacking(b,this->completion_time);
+    doParsimPacking(b,this->processing_time);
+    doParsimPacking(b,this->success);
+    doParsimPacking(b,this->task_output_data);
+    doParsimPacking(b,this->failure_reason);
+}
+
+void TaskResultMessage::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->task_id);
+    doParsimUnpacking(b,this->origin_vehicle_id);
+    doParsimUnpacking(b,this->processor_id);
+    doParsimUnpacking(b,this->completion_time);
+    doParsimUnpacking(b,this->processing_time);
+    doParsimUnpacking(b,this->success);
+    doParsimUnpacking(b,this->task_output_data);
+    doParsimUnpacking(b,this->failure_reason);
+}
+
+const char * TaskResultMessage::getTask_id() const
+{
+    return this->task_id.c_str();
+}
+
+void TaskResultMessage::setTask_id(const char * task_id)
+{
+    this->task_id = task_id;
+}
+
+const char * TaskResultMessage::getOrigin_vehicle_id() const
+{
+    return this->origin_vehicle_id.c_str();
+}
+
+void TaskResultMessage::setOrigin_vehicle_id(const char * origin_vehicle_id)
+{
+    this->origin_vehicle_id = origin_vehicle_id;
+}
+
+const char * TaskResultMessage::getProcessor_id() const
+{
+    return this->processor_id.c_str();
+}
+
+void TaskResultMessage::setProcessor_id(const char * processor_id)
+{
+    this->processor_id = processor_id;
+}
+
+double TaskResultMessage::getCompletion_time() const
+{
+    return this->completion_time;
+}
+
+void TaskResultMessage::setCompletion_time(double completion_time)
+{
+    this->completion_time = completion_time;
+}
+
+double TaskResultMessage::getProcessing_time() const
+{
+    return this->processing_time;
+}
+
+void TaskResultMessage::setProcessing_time(double processing_time)
+{
+    this->processing_time = processing_time;
+}
+
+bool TaskResultMessage::getSuccess() const
+{
+    return this->success;
+}
+
+void TaskResultMessage::setSuccess(bool success)
+{
+    this->success = success;
+}
+
+const char * TaskResultMessage::getTask_output_data() const
+{
+    return this->task_output_data.c_str();
+}
+
+void TaskResultMessage::setTask_output_data(const char * task_output_data)
+{
+    this->task_output_data = task_output_data;
+}
+
+const char * TaskResultMessage::getFailure_reason() const
+{
+    return this->failure_reason.c_str();
+}
+
+void TaskResultMessage::setFailure_reason(const char * failure_reason)
+{
+    this->failure_reason = failure_reason;
+}
+
+class TaskResultMessageDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_task_id,
+        FIELD_origin_vehicle_id,
+        FIELD_processor_id,
+        FIELD_completion_time,
+        FIELD_processing_time,
+        FIELD_success,
+        FIELD_task_output_data,
+        FIELD_failure_reason,
+    };
+  public:
+    TaskResultMessageDescriptor();
+    virtual ~TaskResultMessageDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(TaskResultMessageDescriptor)
+
+TaskResultMessageDescriptor::TaskResultMessageDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::TaskResultMessage)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+TaskResultMessageDescriptor::~TaskResultMessageDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool TaskResultMessageDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<TaskResultMessage *>(obj)!=nullptr;
+}
+
+const char **TaskResultMessageDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *TaskResultMessageDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int TaskResultMessageDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 8+base->getFieldCount() : 8;
+}
+
+unsigned int TaskResultMessageDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,    // FIELD_task_id
+        FD_ISEDITABLE,    // FIELD_origin_vehicle_id
+        FD_ISEDITABLE,    // FIELD_processor_id
+        FD_ISEDITABLE,    // FIELD_completion_time
+        FD_ISEDITABLE,    // FIELD_processing_time
+        FD_ISEDITABLE,    // FIELD_success
+        FD_ISEDITABLE,    // FIELD_task_output_data
+        FD_ISEDITABLE,    // FIELD_failure_reason
+    };
+    return (field >= 0 && field < 8) ? fieldTypeFlags[field] : 0;
+}
+
+const char *TaskResultMessageDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "task_id",
+        "origin_vehicle_id",
+        "processor_id",
+        "completion_time",
+        "processing_time",
+        "success",
+        "task_output_data",
+        "failure_reason",
+    };
+    return (field >= 0 && field < 8) ? fieldNames[field] : nullptr;
+}
+
+int TaskResultMessageDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "task_id") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "origin_vehicle_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "processor_id") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "completion_time") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "processing_time") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "success") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "task_output_data") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "failure_reason") == 0) return baseIndex + 7;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *TaskResultMessageDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "string",    // FIELD_task_id
+        "string",    // FIELD_origin_vehicle_id
+        "string",    // FIELD_processor_id
+        "double",    // FIELD_completion_time
+        "double",    // FIELD_processing_time
+        "bool",    // FIELD_success
+        "string",    // FIELD_task_output_data
+        "string",    // FIELD_failure_reason
+    };
+    return (field >= 0 && field < 8) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **TaskResultMessageDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *TaskResultMessageDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int TaskResultMessageDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void TaskResultMessageDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'TaskResultMessage'", field);
+    }
+}
+
+const char *TaskResultMessageDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string TaskResultMessageDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: return oppstring2string(pp->getTask_id());
+        case FIELD_origin_vehicle_id: return oppstring2string(pp->getOrigin_vehicle_id());
+        case FIELD_processor_id: return oppstring2string(pp->getProcessor_id());
+        case FIELD_completion_time: return double2string(pp->getCompletion_time());
+        case FIELD_processing_time: return double2string(pp->getProcessing_time());
+        case FIELD_success: return bool2string(pp->getSuccess());
+        case FIELD_task_output_data: return oppstring2string(pp->getTask_output_data());
+        case FIELD_failure_reason: return oppstring2string(pp->getFailure_reason());
+        default: return "";
+    }
+}
+
+void TaskResultMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id((value)); break;
+        case FIELD_origin_vehicle_id: pp->setOrigin_vehicle_id((value)); break;
+        case FIELD_processor_id: pp->setProcessor_id((value)); break;
+        case FIELD_completion_time: pp->setCompletion_time(string2double(value)); break;
+        case FIELD_processing_time: pp->setProcessing_time(string2double(value)); break;
+        case FIELD_success: pp->setSuccess(string2bool(value)); break;
+        case FIELD_task_output_data: pp->setTask_output_data((value)); break;
+        case FIELD_failure_reason: pp->setFailure_reason((value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskResultMessage'", field);
+    }
+}
+
+omnetpp::cValue TaskResultMessageDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: return pp->getTask_id();
+        case FIELD_origin_vehicle_id: return pp->getOrigin_vehicle_id();
+        case FIELD_processor_id: return pp->getProcessor_id();
+        case FIELD_completion_time: return pp->getCompletion_time();
+        case FIELD_processing_time: return pp->getProcessing_time();
+        case FIELD_success: return pp->getSuccess();
+        case FIELD_task_output_data: return pp->getTask_output_data();
+        case FIELD_failure_reason: return pp->getFailure_reason();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'TaskResultMessage' as cValue -- field index out of range?", field);
+    }
+}
+
+void TaskResultMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
+        case FIELD_origin_vehicle_id: pp->setOrigin_vehicle_id(value.stringValue()); break;
+        case FIELD_processor_id: pp->setProcessor_id(value.stringValue()); break;
+        case FIELD_completion_time: pp->setCompletion_time(value.doubleValue()); break;
+        case FIELD_processing_time: pp->setProcessing_time(value.doubleValue()); break;
+        case FIELD_success: pp->setSuccess(value.boolValue()); break;
+        case FIELD_task_output_data: pp->setTask_output_data(value.stringValue()); break;
+        case FIELD_failure_reason: pp->setFailure_reason(value.stringValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskResultMessage'", field);
+    }
+}
+
+const char *TaskResultMessageDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr TaskResultMessageDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void TaskResultMessageDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskResultMessage *pp = omnetpp::fromAnyPtr<TaskResultMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskResultMessage'", field);
+    }
+}
+
+Register_Class(TaskOffloadingEvent)
+
+TaskOffloadingEvent::TaskOffloadingEvent(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+TaskOffloadingEvent::TaskOffloadingEvent(const TaskOffloadingEvent& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+TaskOffloadingEvent::~TaskOffloadingEvent()
+{
+}
+
+TaskOffloadingEvent& TaskOffloadingEvent::operator=(const TaskOffloadingEvent& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void TaskOffloadingEvent::copy(const TaskOffloadingEvent& other)
+{
+    this->task_id = other.task_id;
+    this->event_type = other.event_type;
+    this->source_entity_id = other.source_entity_id;
+    this->target_entity_id = other.target_entity_id;
+    this->event_time = other.event_time;
+    this->event_details = other.event_details;
+}
+
+void TaskOffloadingEvent::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->task_id);
+    doParsimPacking(b,this->event_type);
+    doParsimPacking(b,this->source_entity_id);
+    doParsimPacking(b,this->target_entity_id);
+    doParsimPacking(b,this->event_time);
+    doParsimPacking(b,this->event_details);
+}
+
+void TaskOffloadingEvent::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->task_id);
+    doParsimUnpacking(b,this->event_type);
+    doParsimUnpacking(b,this->source_entity_id);
+    doParsimUnpacking(b,this->target_entity_id);
+    doParsimUnpacking(b,this->event_time);
+    doParsimUnpacking(b,this->event_details);
+}
+
+const char * TaskOffloadingEvent::getTask_id() const
+{
+    return this->task_id.c_str();
+}
+
+void TaskOffloadingEvent::setTask_id(const char * task_id)
+{
+    this->task_id = task_id;
+}
+
+const char * TaskOffloadingEvent::getEvent_type() const
+{
+    return this->event_type.c_str();
+}
+
+void TaskOffloadingEvent::setEvent_type(const char * event_type)
+{
+    this->event_type = event_type;
+}
+
+const char * TaskOffloadingEvent::getSource_entity_id() const
+{
+    return this->source_entity_id.c_str();
+}
+
+void TaskOffloadingEvent::setSource_entity_id(const char * source_entity_id)
+{
+    this->source_entity_id = source_entity_id;
+}
+
+const char * TaskOffloadingEvent::getTarget_entity_id() const
+{
+    return this->target_entity_id.c_str();
+}
+
+void TaskOffloadingEvent::setTarget_entity_id(const char * target_entity_id)
+{
+    this->target_entity_id = target_entity_id;
+}
+
+double TaskOffloadingEvent::getEvent_time() const
+{
+    return this->event_time;
+}
+
+void TaskOffloadingEvent::setEvent_time(double event_time)
+{
+    this->event_time = event_time;
+}
+
+const char * TaskOffloadingEvent::getEvent_details() const
+{
+    return this->event_details.c_str();
+}
+
+void TaskOffloadingEvent::setEvent_details(const char * event_details)
+{
+    this->event_details = event_details;
+}
+
+class TaskOffloadingEventDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_task_id,
+        FIELD_event_type,
+        FIELD_source_entity_id,
+        FIELD_target_entity_id,
+        FIELD_event_time,
+        FIELD_event_details,
+    };
+  public:
+    TaskOffloadingEventDescriptor();
+    virtual ~TaskOffloadingEventDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(TaskOffloadingEventDescriptor)
+
+TaskOffloadingEventDescriptor::TaskOffloadingEventDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::TaskOffloadingEvent)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+TaskOffloadingEventDescriptor::~TaskOffloadingEventDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool TaskOffloadingEventDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<TaskOffloadingEvent *>(obj)!=nullptr;
+}
+
+const char **TaskOffloadingEventDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *TaskOffloadingEventDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int TaskOffloadingEventDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 6+base->getFieldCount() : 6;
+}
+
+unsigned int TaskOffloadingEventDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,    // FIELD_task_id
+        FD_ISEDITABLE,    // FIELD_event_type
+        FD_ISEDITABLE,    // FIELD_source_entity_id
+        FD_ISEDITABLE,    // FIELD_target_entity_id
+        FD_ISEDITABLE,    // FIELD_event_time
+        FD_ISEDITABLE,    // FIELD_event_details
+    };
+    return (field >= 0 && field < 6) ? fieldTypeFlags[field] : 0;
+}
+
+const char *TaskOffloadingEventDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "task_id",
+        "event_type",
+        "source_entity_id",
+        "target_entity_id",
+        "event_time",
+        "event_details",
+    };
+    return (field >= 0 && field < 6) ? fieldNames[field] : nullptr;
+}
+
+int TaskOffloadingEventDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "task_id") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "event_type") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "source_entity_id") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "target_entity_id") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "event_time") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "event_details") == 0) return baseIndex + 5;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *TaskOffloadingEventDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "string",    // FIELD_task_id
+        "string",    // FIELD_event_type
+        "string",    // FIELD_source_entity_id
+        "string",    // FIELD_target_entity_id
+        "double",    // FIELD_event_time
+        "string",    // FIELD_event_details
+    };
+    return (field >= 0 && field < 6) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **TaskOffloadingEventDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *TaskOffloadingEventDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int TaskOffloadingEventDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void TaskOffloadingEventDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'TaskOffloadingEvent'", field);
+    }
+}
+
+const char *TaskOffloadingEventDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string TaskOffloadingEventDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: return oppstring2string(pp->getTask_id());
+        case FIELD_event_type: return oppstring2string(pp->getEvent_type());
+        case FIELD_source_entity_id: return oppstring2string(pp->getSource_entity_id());
+        case FIELD_target_entity_id: return oppstring2string(pp->getTarget_entity_id());
+        case FIELD_event_time: return double2string(pp->getEvent_time());
+        case FIELD_event_details: return oppstring2string(pp->getEvent_details());
+        default: return "";
+    }
+}
+
+void TaskOffloadingEventDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id((value)); break;
+        case FIELD_event_type: pp->setEvent_type((value)); break;
+        case FIELD_source_entity_id: pp->setSource_entity_id((value)); break;
+        case FIELD_target_entity_id: pp->setTarget_entity_id((value)); break;
+        case FIELD_event_time: pp->setEvent_time(string2double(value)); break;
+        case FIELD_event_details: pp->setEvent_details((value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadingEvent'", field);
+    }
+}
+
+omnetpp::cValue TaskOffloadingEventDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: return pp->getTask_id();
+        case FIELD_event_type: return pp->getEvent_type();
+        case FIELD_source_entity_id: return pp->getSource_entity_id();
+        case FIELD_target_entity_id: return pp->getTarget_entity_id();
+        case FIELD_event_time: return pp->getEvent_time();
+        case FIELD_event_details: return pp->getEvent_details();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'TaskOffloadingEvent' as cValue -- field index out of range?", field);
+    }
+}
+
+void TaskOffloadingEventDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
+        case FIELD_event_type: pp->setEvent_type(value.stringValue()); break;
+        case FIELD_source_entity_id: pp->setSource_entity_id(value.stringValue()); break;
+        case FIELD_target_entity_id: pp->setTarget_entity_id(value.stringValue()); break;
+        case FIELD_event_time: pp->setEvent_time(value.doubleValue()); break;
+        case FIELD_event_details: pp->setEvent_details(value.stringValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadingEvent'", field);
+    }
+}
+
+const char *TaskOffloadingEventDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr TaskOffloadingEventDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void TaskOffloadingEventDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadingEvent'", field);
+    }
+}
+
 }  // namespace veins
 
 namespace omnetpp {

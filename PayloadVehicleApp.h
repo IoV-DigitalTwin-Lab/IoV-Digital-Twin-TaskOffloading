@@ -8,10 +8,12 @@
 #include "veins/base/utils/Coord.h"
 #include "Task.h"
 #include "TaskMetadataMessage_m.h"
+#include "TaskOffloadingDecision.h"
 #include <queue>
 #include <set>
 #include <vector>
 #include <deque>
+#include <map>
 
 namespace complex_network {
 
@@ -115,6 +117,10 @@ private:
     void sendResourceStatusToRSU();           // Send periodic heartbeat
     void sendVehicleResourceStatus();         // Wrapper for resource status sending
     
+    // Service Vehicle Task Completion Handlers
+    void handleServiceTaskCompletion(Task* task);  // Service task finished
+    void handleServiceTaskDeadline(Task* task);    // Service task deadline expired
+    
     // Logging Methods
     void logResourceState(const std::string& context);
     void logQueueState(const std::string& context);
@@ -149,6 +155,55 @@ private:
             return (double)successes / receptionHistory.size();
         }
     };
+    
+    // ============================================================================
+    // TASK OFFLOADING DECISION FRAMEWORK
+    // ============================================================================
+    
+    bool offloadingEnabled = false;                        // Enable/disable offloading
+    TaskOffloadingDecisionMaker* decisionMaker = nullptr;  // Offloading decision maker
+    
+    // Pending offloading requests (awaiting RSU decision)
+    std::map<std::string, Task*> pendingOffloadingDecisions;  // task_id -> Task*
+    
+    // Offloaded tasks (awaiting results)
+    std::map<std::string, Task*> offloadedTasks;  // task_id -> Task*
+    std::map<std::string, std::string> offloadedTaskTargets;  // task_id -> target ("RSU" or vehicle_id)
+    
+    // Timeout parameters
+    simtime_t rsuDecisionTimeout = 1.0;            // Timeout for RSU decision response
+    simtime_t offloadedTaskTimeout = 5.0;          // Timeout for task execution result
+    
+    // Offloading helper methods
+    double getRSUDistance();                          // Get distance to selected RSU
+    double getEstimatedRSSI();                        // Get estimated RSSI to RSU
+    double estimateTransmissionTime(Task* task);     // Estimate network transmission time
+    
+    // Offloading request/response handlers
+    void sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision);
+    void handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg);
+    void executeOffloadingDecision(Task* task, veins::OffloadingDecisionMessage* decision);
+    
+    // Task execution methods
+    void sendTaskToRSU(Task* task);
+    void sendTaskToServiceVehicle(Task* task, const std::string& serviceVehicleId, veins::LAddress::L2Type serviceMac);
+    void handleTaskResult(veins::TaskResultMessage* msg);
+    void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType, 
+                                  const std::string& sourceEntity, const std::string& targetEntity);
+    
+    // Service vehicle capability (this vehicle can process tasks for others)
+    bool serviceVehicleEnabled = false;
+    int maxConcurrentServiceTasks = 3;
+    double serviceCpuReservation = 0.3;  // 30% CPU reserved for service
+    double serviceMemoryReservation = 512.0;  // 512 MB reserved
+    std::queue<Task*> serviceTasks;  // Queue for tasks from other vehicles
+    std::set<Task*> processingServiceTasks;  // Currently processing service tasks
+    std::map<std::string, std::string> serviceTaskOriginVehicles;  // task_id -> origin_vehicle_id
+    std::map<std::string, veins::LAddress::L2Type> serviceTaskOriginMACs;  // task_id -> origin_mac
+    
+    void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
+    void processServiceTask(Task* task);
+    void sendServiceTaskResult(Task* task, const std::string& originalVehicleId);
     
     // RSU Selection Members
     std::map<int, RSUMetrics> rsuMetrics;            // Metrics for each RSU (indexed by RSU number)

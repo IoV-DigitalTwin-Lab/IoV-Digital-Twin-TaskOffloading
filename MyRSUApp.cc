@@ -202,56 +202,9 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
     
     EV << "RSU: Received message from vehicle at time " << simTime() << endl;
-
-    bool parsed_data = false;
-    std::map<std::string, std::string> telemetry_data;
     
-    // Check for VEHICLE_DATA prefix
-    if (!payload.empty() && payload.rfind("VEHICLE_DATA|", 0) == 0) {
-        std::cout << "CONSOLE: MyRSUApp - ✓ Found VEHICLE_DATA prefix, parsing..." << std::endl;
-        
-        std::string body = payload.substr(13);  // strlen("VEHICLE_DATA|") = 13
-        std::istringstream parts(body);
-        std::string token;
-        
-        int field_count = 0;
-        while (std::getline(parts, token, '|')) {
-            auto pos = token.find(':');
-            if (pos != std::string::npos) {
-                std::string k = token.substr(0, pos);
-                std::string v = token.substr(pos + 1);
-                telemetry_data[k] = v;
-                field_count++;
-                std::cout << "CONSOLE: MyRSUApp -   Field[" << field_count 
-                          << "]: " << k << " = " << v << std::endl;
-            }
-        }
-        
-        std::cout << "CONSOLE: MyRSUApp - Parsed " << field_count << " fields" << std::endl;
-
-        if (!telemetry_data.empty()) {
-            // Insert directly to PostgreSQL
-            insertVehicleTelemetry(telemetry_data);
-            parsed_data = true;
-            std::cout << "CONSOLE: MyRSUApp - ✓ Vehicle telemetry inserted to PostgreSQL" << std::endl;
-        }
-        
-    } else {
-        std::cout << "CONSOLE: MyRSUApp - ⚠ No VEHICLE_DATA prefix found" << std::endl;
-    }
-
-    if (!parsed_data) {
-        std::cout << "CONSOLE: MyRSUApp - Creating fallback telemetry record..." << std::endl;
-        
-        // Create minimal telemetry record
-        telemetry_data["PosX"] = std::to_string(dsm->getSenderPos().x);
-        telemetry_data["PosY"] = std::to_string(dsm->getSenderPos().y);
-        telemetry_data["Time"] = std::to_string(simTime().dbl());
-        telemetry_data["raw_payload"] = payload;
-        
-        insertVehicleTelemetry(telemetry_data);
-        std::cout << "CONSOLE: MyRSUApp - ✓ Fallback telemetry inserted to PostgreSQL" << std::endl;
-    }
+    // Note: Vehicle telemetry (position, speed) now comes with VehicleResourceStatusMessage
+    // This onWSM() handler primarily receives regular beacons
     
     std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
 }
@@ -285,6 +238,36 @@ void MyRSUApp::finish() {
 void MyRSUApp::handleMessage(cMessage* msg) {
     std::cout << "CONSOLE: MyRSUApp handleMessage() called with message: " << msg->getName()
               << " at time " << simTime() << std::endl;
+
+    // ========================================================================
+    // HANDLE OFFLOADING REQUEST MESSAGES
+    // ========================================================================
+    veins::OffloadingRequestMessage* offloadReq = dynamic_cast<veins::OffloadingRequestMessage*>(msg);
+    if (offloadReq) {
+        EV_INFO << "Received OffloadingRequestMessage" << endl;
+        handleOffloadingRequest(offloadReq);
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE TASK OFFLOAD PACKETS (for RSU processing)
+    // ========================================================================
+    veins::TaskOffloadPacket* taskPacket = dynamic_cast<veins::TaskOffloadPacket*>(msg);
+    if (taskPacket) {
+        EV_INFO << "Received TaskOffloadPacket" << endl;
+        handleTaskOffloadPacket(taskPacket);
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE TASK OFFLOADING LIFECYCLE EVENTS
+    // ========================================================================
+    veins::TaskOffloadingEvent* offloadEvent = dynamic_cast<veins::TaskOffloadingEvent*>(msg);
+    if (offloadEvent) {
+        EV_INFO << "Received TaskOffloadingEvent" << endl;
+        handleTaskOffloadingEvent(offloadEvent);
+        return;
+    }
 
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
@@ -478,7 +461,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
     // Insert into PostgreSQL database
-    insertVehicleResources(msg);
+    insertVehicleStatus(msg);
     
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << twin.cpu_utilization << "%" << endl;
@@ -829,13 +812,13 @@ void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
     PQclear(res);
 }
 
-void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
+void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     PGconn* conn = getDBConnection();
     if (!conn) {
-        return; // Silently skip for resource updates
+        return; // Silently skip for status updates
     }
     
-    // Prepare JSON payload with all resource info
+    // Prepare JSON payload with all status info
     std::ostringstream payload_json;
     payload_json << "{"
                  << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
@@ -848,18 +831,24 @@ void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
                  << "\"cpu_utilization\":" << msg->getCpu_utilization() << ","
                  << "\"mem_total\":" << msg->getMem_total() << ","
                  << "\"mem_available\":" << msg->getMem_available() << ","
-                 << "\"mem_utilization\":" << msg->getMem_utilization()
+                 << "\"mem_utilization\":" << msg->getMem_utilization() << ","
+                 << "\"avg_completion_time\":" << msg->getAvg_completion_time() << ","
+                 << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
                  << "}";
     
-    const char* paramValues[16];
+    const char* paramValues[24];
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string update_time = std::to_string(simTime().dbl());
-    std::string cpu_total = std::to_string(msg->getCpu_total());
+    std::string pos_x = std::to_string(msg->getPos_x());
+    std::string pos_y = std::to_string(msg->getPos_y());
+    std::string speed = std::to_string(msg->getSpeed());
+    std::string heading = "0";
+    std::string cpu_total_str = std::to_string(msg->getCpu_total());
     std::string cpu_allocable = std::to_string(msg->getCpu_allocable());
     std::string cpu_available = std::to_string(msg->getCpu_available());
     std::string cpu_util = std::to_string(msg->getCpu_utilization());
-    std::string mem_total = std::to_string(msg->getMem_total());
+    std::string mem_total_str = std::to_string(msg->getMem_total());
     std::string mem_available = std::to_string(msg->getMem_available());
     std::string mem_util = std::to_string(msg->getMem_utilization());
     std::string queue_len = std::to_string(msg->getCurrent_queue_length());
@@ -869,115 +858,516 @@ void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
     std::string tasks_late = std::to_string(msg->getTasks_completed_late());
     std::string tasks_fail = std::to_string(msg->getTasks_failed());
     std::string tasks_reject = std::to_string(msg->getTasks_rejected());
+    std::string avg_comp_time = std::to_string(msg->getAvg_completion_time());
+    std::string deadline_miss = std::to_string(msg->getDeadline_miss_ratio());
     std::string payload = payload_json.str();
     
     paramValues[0] = vehicle_id.c_str();
     paramValues[1] = rsu_id_str.c_str();
     paramValues[2] = update_time.c_str();
-    paramValues[3] = cpu_total.c_str();
-    paramValues[4] = cpu_allocable.c_str();
-    paramValues[5] = cpu_available.c_str();
-    paramValues[6] = cpu_util.c_str();
-    paramValues[7] = mem_total.c_str();
-    paramValues[8] = mem_available.c_str();
-    paramValues[9] = mem_util.c_str();
-    paramValues[10] = queue_len.c_str();
-    paramValues[11] = proc_count.c_str();
-    paramValues[12] = tasks_gen.c_str();
-    paramValues[13] = tasks_ok.c_str();
-    paramValues[14] = tasks_late.c_str();
-    paramValues[15] = payload.c_str();
+    paramValues[3] = pos_x.c_str();
+    paramValues[4] = pos_y.c_str();
+    paramValues[5] = speed.c_str();
+    paramValues[6] = heading.c_str();
+    paramValues[7] = cpu_total_str.c_str();
+    paramValues[8] = cpu_allocable.c_str();
+    paramValues[9] = cpu_available.c_str();
+    paramValues[10] = cpu_util.c_str();
+    paramValues[11] = mem_total_str.c_str();
+    paramValues[12] = mem_available.c_str();
+    paramValues[13] = mem_util.c_str();
+    paramValues[14] = queue_len.c_str();
+    paramValues[15] = proc_count.c_str();
+    paramValues[16] = tasks_gen.c_str();
+    paramValues[17] = tasks_ok.c_str();
+    paramValues[18] = tasks_late.c_str();
+    paramValues[19] = tasks_fail.c_str();
+    paramValues[20] = tasks_reject.c_str();
+    paramValues[21] = avg_comp_time.c_str();
+    paramValues[22] = deadline_miss.c_str();
+    paramValues[23] = payload.c_str();
     
-    const char* query = "INSERT INTO vehicle_resources (vehicle_id, rsu_id, update_time, "
+    const char* query = "INSERT INTO vehicle_status (vehicle_id, rsu_id, update_time, "
+                        "pos_x, pos_y, speed, heading, "
                         "cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
-                        "mem_total, mem_available, mem_utilization, queue_length, processing_count, "
-                        "tasks_generated, tasks_completed_on_time, tasks_completed_late, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)";
+                        "mem_total, mem_available, mem_utilization, "
+                        "queue_length, processing_count, "
+                        "tasks_generated, tasks_completed_on_time, tasks_completed_late, "
+                        "tasks_failed, tasks_rejected, avg_completion_time, deadline_miss_ratio, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, "
+                        "$15, $16, $17, $18, $19, $20, $21, $22, $23, $24::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 16, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 24, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        // Don't spam warnings for resource updates
+        EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_INFO << "✓ Vehicle status inserted (" << vehicle_id << " @ " << update_time << "s)" << endl;
     }
     
     PQclear(res);
 }
 
-void MyRSUApp::insertVehicleTelemetry(const std::map<std::string, std::string>& data) {
+// ============================================================================
+// OFFLOADING DATABASE INSERTIONS
+// ============================================================================
+
+void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     PGconn* conn = getDBConnection();
     if (!conn) {
-        return; // Silently skip if no connection
+        EV_WARN << "⚠ Cannot insert offloading request: No database connection" << endl;
+        std::cout << "WARN: ⚠ Cannot insert offloading request: No database connection" << std::endl;
+        return;
     }
     
-    // Extract fields from map
-    auto get_value = [&data](const std::string& key, const std::string& default_val = "") -> std::string {
-        auto it = data.find(key);
-        return (it != data.end()) ? it->second : default_val;
-    };
+    EV_INFO << "📤 Inserting offloading request into database for task " << request.task_id << endl;
+    std::cout << "INFO: 📤 Inserting offloading request into database for task " << request.task_id << std::endl;
     
-    std::string veh_id_str = get_value("VehID", "-1");
-    std::string sim_time = get_value("Time", std::to_string(simTime().dbl()));
-    std::string floc_hz = get_value("FlocHz", "0");
-    std::string tx_power = get_value("TxPower_mW", "0");
-    std::string speed = get_value("Speed", "0");
-    std::string pos_x = get_value("PosX", "0");
-    std::string pos_y = get_value("PosY", "0");
-    std::string mac = get_value("MAC", "");
-    
-    // Build JSON payload with all data
+    // Prepare JSON payload
     std::ostringstream payload_json;
-    payload_json << "{";
-    bool first = true;
-    for (const auto& kv : data) {
-        if (!first) payload_json << ",";
-        first = false;
-        payload_json << "\"" << kv.first << "\":";
-        
-        // Check if value looks like a number
-        if (kv.first == "MAC" || kv.first == "raw_payload") {
-            // String value - quote it
-            payload_json << "\"" << kv.second << "\"";
-        } else {
-            // Numeric value - no quotes
-            payload_json << kv.second;
-        }
-    }
-    payload_json << ",\"rsu_id\":" << rsu_id;
-    payload_json << ",\"received_time\":" << simTime().dbl();
-    payload_json << "}";
+    payload_json << "{"
+                 << "\"task_id\":\"" << request.task_id << "\","
+                 << "\"vehicle_id\":\"" << request.vehicle_id << "\","
+                 << "\"local_decision\":\"" << request.local_decision << "\","
+                 << "\"task_size_bytes\":" << request.task_size_bytes << ","
+                 << "\"cpu_cycles\":" << request.cpu_cycles << ","
+                 << "\"deadline_seconds\":" << request.deadline_seconds << ","
+                 << "\"qos_value\":" << request.qos_value
+                 << "}";
     
+    const char* paramValues[13];
+    std::string task_id = request.task_id;
+    std::string vehicle_id = request.vehicle_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string request_time = std::to_string(request.request_time);
+    std::string task_size = std::to_string(request.task_size_bytes);
+    std::string cpu_cycles = std::to_string(request.cpu_cycles);
+    std::string deadline = std::to_string(request.deadline_seconds);
+    std::string qos = std::to_string(request.qos_value);
+    std::string cpu_avail = std::to_string(request.vehicle_cpu_available);
+    std::string cpu_util = std::to_string(request.vehicle_cpu_utilization);
+    std::string queue_len = std::to_string(request.vehicle_queue_length);
+    std::string local_dec = request.local_decision;
     std::string payload = payload_json.str();
     
-    const char* paramValues[9];
-    paramValues[0] = veh_id_str.c_str();
-    paramValues[1] = sim_time.c_str();
-    paramValues[2] = floc_hz.c_str();
-    paramValues[3] = tx_power.c_str();
-    paramValues[4] = speed.c_str();
-    paramValues[5] = pos_x.c_str();
-    paramValues[6] = pos_y.c_str();
-    paramValues[7] = mac.c_str();
-    paramValues[8] = payload.c_str();
+    paramValues[0] = task_id.c_str();
+    paramValues[1] = vehicle_id.c_str();
+    paramValues[2] = rsu_id_str.c_str();
+    paramValues[3] = request_time.c_str();
+    paramValues[4] = task_size.c_str();
+    paramValues[5] = cpu_cycles.c_str();
+    paramValues[6] = deadline.c_str();
+    paramValues[7] = qos.c_str();
+    paramValues[8] = cpu_avail.c_str();
+    paramValues[9] = cpu_util.c_str();
+    paramValues[10] = queue_len.c_str();
+    paramValues[11] = local_dec.c_str();
+    paramValues[12] = payload.c_str();
     
-    const char* query = "INSERT INTO vehicle_telemetry (veh_id, sim_time, floc_hz, tx_power_mw, "
-                        "speed, pos_x, pos_y, mac, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)";
+    const char* query = "INSERT INTO offloading_requests (task_id, vehicle_id, rsu_id, request_time, "
+                        "task_size_bytes, cpu_cycles, deadline_seconds, qos_value, "
+                        "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_queue_length, "
+                        "local_decision, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 9, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 13, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert vehicle telemetry: " << PQerrorMessage(conn) << endl;
+        EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
+        std::cout << "WARN: ✗ Failed to insert offloading request: " << PQerrorMessage(conn) << std::endl;
     } else {
-        EV_INFO << "✓ Vehicle telemetry inserted (VehID: " << veh_id_str 
-                << ", Time: " << sim_time << ")" << endl;
-        std::cout << "DB_INSERT: Vehicle " << veh_id_str << " telemetry @ " 
-                  << sim_time << "s stored in PostgreSQL" << std::endl;
+        EV_INFO << "✓ Offloading request inserted successfully (Task: " << request.task_id << ")" << endl;
+        std::cout << "INFO: ✓ Offloading request inserted successfully (Task: " << request.task_id << ")" << std::endl;
     }
     
     PQclear(res);
 }
 
+void MyRSUApp::insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert offloading decision: No database connection" << endl;
+        return;
+    }
+    
+    EV_DEBUG << "📤 Inserting offloading decision into PostgreSQL..." << endl;
+    
+    // Prepare JSON payload
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"task_id\":\"" << decision->getTask_id() << "\","
+                 << "\"decision_type\":\"" << decision->getDecision_type() << "\","
+                 << "\"confidence_score\":" << decision->getConfidence_score() << ","
+                 << "\"estimated_completion_time\":" << decision->getEstimated_completion_time() << ","
+                 << "\"decision_reason\":\"" << decision->getDecision_reason() << "\""
+                 << "}";
+    
+    const char* paramValues[10];
+    std::string task_id_str = task_id;
+    std::string vehicle_id = decision->getVehicle_id();
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string decision_time = std::to_string(decision->getDecision_time());
+    std::string decision_type = decision->getDecision_type();
+    std::string target_sv = decision->getTarget_service_vehicle_id();
+    std::string confidence = std::to_string(decision->getConfidence_score());
+    std::string est_time = std::to_string(decision->getEstimated_completion_time());
+    std::string reason = decision->getDecision_reason();
+    std::string payload = payload_json.str();
+    
+    paramValues[0] = task_id_str.c_str();
+    paramValues[1] = vehicle_id.c_str();
+    paramValues[2] = rsu_id_str.c_str();
+    paramValues[3] = decision_time.c_str();
+    paramValues[4] = decision_type.c_str();
+    paramValues[5] = target_sv.c_str();
+    paramValues[6] = confidence.c_str();
+    paramValues[7] = est_time.c_str();
+    paramValues[8] = reason.c_str();
+    paramValues[9] = payload.c_str();
+    
+    const char* query = "INSERT INTO offloading_decisions (task_id, vehicle_id, rsu_id, decision_time, "
+                        "decision_type, target_service_vehicle_id, confidence_score, "
+                        "estimated_completion_time, decision_reason, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)";
+    
+    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert offloading decision: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Offloading decision inserted (Task: " << task_id << ")" << endl;
+    }
+    
+    PQclear(res);
 }
+
+void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert task offloading event: No database connection" << endl;
+        return;
+    }
+    
+    EV_DEBUG << "📤 Inserting task offloading event into PostgreSQL..." << endl;
+    
+    const char* paramValues[7];
+    std::string task_id = event->getTask_id();
+    std::string event_type = event->getEvent_type();
+    std::string event_time = std::to_string(event->getEvent_time());
+    std::string source_entity = event->getSource_entity_id();
+    std::string target_entity = event->getTarget_entity_id();
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string event_details = event->getEvent_details();
+    
+    paramValues[0] = task_id.c_str();
+    paramValues[1] = event_type.c_str();
+    paramValues[2] = event_time.c_str();
+    paramValues[3] = source_entity.c_str();
+    paramValues[4] = target_entity.c_str();
+    paramValues[5] = rsu_id_str.c_str();
+    paramValues[6] = event_details.c_str();
+    
+    const char* query = "INSERT INTO task_offloading_events (task_id, event_type, event_time, "
+                        "source_entity_id, target_entity_id, rsu_id, event_details) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)";
+    
+    PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert task offloading event: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Task offloading event inserted (Task: " << task_id << ", Type: " << event_type << ")" << endl;
+    }
+    
+    PQclear(res);
+}
+
+// ============================================================================
+// TASK OFFLOADING ORCHESTRATION IMPLEMENTATION
+// ============================================================================
+
+void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║              RSU: OFFLOADING REQUEST RECEIVED                            ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getVehicle_id();
+    
+    std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
+    std::cout << "INFO: RSU RECEIVED OFFLOADING REQUEST" << std::endl;
+    std::cout << "INFO: Task ID: " << task_id << std::endl;
+    std::cout << "INFO: Vehicle ID: " << vehicle_id << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" << std::endl;
+    
+    // Store request details
+    OffloadingRequest request;
+    request.task_id = task_id;
+    request.vehicle_id = vehicle_id;
+    request.vehicle_mac = msg->getSenderAddress();  // Inherited from BaseFrame1609_4
+    request.request_time = simTime().dbl();
+    request.local_decision = msg->getLocal_decision();
+    
+    // Task characteristics
+    request.task_size_bytes = msg->getTask_size_bytes();
+    request.cpu_cycles = msg->getCpu_cycles();
+    request.deadline_seconds = msg->getDeadline_seconds();
+    request.qos_value = msg->getQos_value();
+    
+    // Vehicle state
+    request.vehicle_cpu_available = msg->getLocal_cpu_available_ghz();
+    request.vehicle_cpu_utilization = msg->getLocal_cpu_utilization();
+    request.vehicle_queue_length = msg->getLocal_queue_length();
+    
+    pending_offloading_requests[task_id] = request;
+    
+    std::cout << "INFO: 📊 Calling insertOffloadingRequest() for task " << task_id << std::endl;
+    
+    // Store request in Digital Twin database
+    insertOffloadingRequest(request);
+    
+    EV_INFO << "  Task ID: " << task_id << endl;
+    EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
+    EV_INFO << "  Task Size: " << (request.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  CPU Cycles: " << (request.cpu_cycles / 1e9) << " G" << endl;
+    EV_INFO << "  Deadline: " << request.deadline_seconds << " s" << endl;
+    EV_INFO << "  QoS: " << request.qos_value << endl;
+    EV_INFO << "  Local Decision Recommendation: " << request.local_decision << endl;
+    EV_INFO << "  Vehicle CPU Available: " << request.vehicle_cpu_available << " GHz" << endl;
+    EV_INFO << "  Vehicle CPU Utilization: " << (request.vehicle_cpu_utilization * 100) << "%" << endl;
+    EV_INFO << "  Vehicle Queue Length: " << request.vehicle_queue_length << endl;
+    
+    // Make ML-based offloading decision
+    veins::OffloadingDecisionMessage* decision = makeOffloadingDecision(request);
+    
+    if (decision) {
+        // Store decision in Digital Twin database
+        insertOffloadingDecision(task_id, decision);
+        
+        // Send decision back to vehicle
+        populateWSM(decision, request.vehicle_mac);
+        sendDown(decision);
+        
+        EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
+        std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id 
+                  << ": " << decision->getDecision_type() << std::endl;
+    } else {
+        EV_ERROR << "Failed to create offloading decision" << endl;
+    }
+    
+    // Clean up request message
+    delete msg;
+}
+
+veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const OffloadingRequest& request) {
+    EV_INFO << "🤖 RSU: Making ML-based offloading decision..." << endl;
+    
+    // ========================================================================
+    // ML DECISION ENGINE (PLACEHOLDER - REPLACE WITH ACTUAL ML MODEL)
+    // ========================================================================
+    
+    std::string decisionType;
+    std::string reason;
+    double confidence = 0.0;
+    double estimated_completion_time = 0.0;
+    std::string target_service_vehicle_id;
+    LAddress::L2Type target_service_vehicle_mac = 0;
+    
+    if (!mlModelEnabled) {
+        // PLACEHOLDER: Simple rule-based decision
+        EV_INFO << "  Using placeholder rule-based decision (ML model disabled)" << endl;
+        
+        // Rule 1: If vehicle queue is long, offload to RSU
+        if (request.vehicle_queue_length > 5) {
+            decisionType = "RSU";
+            reason = "Vehicle queue overloaded (>" + std::to_string((int)request.vehicle_queue_length) + " tasks)";
+            confidence = 0.8;
+            estimated_completion_time = request.deadline_seconds * 0.6;  // Estimate 60% of deadline
+        }
+        // Rule 2: If vehicle CPU utilization is high, try service vehicle
+        else if (request.vehicle_cpu_utilization > 0.8 && serviceVehicleSelectionEnabled) {
+            std::string sv_id = selectBestServiceVehicle(request);
+            if (!sv_id.empty()) {
+                decisionType = "SERVICE_VEHICLE";
+                target_service_vehicle_id = sv_id;
+                // TODO: Get actual MAC address from Digital Twin
+                target_service_vehicle_mac = 0;  // Placeholder
+                reason = "Vehicle CPU high (" + std::to_string((int)(request.vehicle_cpu_utilization*100)) + "%), service vehicle available";
+                confidence = 0.75;
+                estimated_completion_time = request.deadline_seconds * 0.7;
+            } else {
+                // No service vehicle available, use RSU
+                decisionType = "RSU";
+                reason = "Vehicle CPU high but no service vehicle available";
+                confidence = 0.7;
+                estimated_completion_time = request.deadline_seconds * 0.6;
+            }
+        }
+        // Rule 3: Vehicle can handle it locally
+        else if (request.vehicle_cpu_available > 0.5) {
+            decisionType = "LOCAL";
+            reason = "Vehicle has sufficient resources (CPU available: " + std::to_string(request.vehicle_cpu_available) + " GHz)";
+            confidence = 0.85;
+            estimated_completion_time = request.deadline_seconds * 0.5;
+        }
+        // Rule 4: Borderline case - default to RSU
+        else {
+            decisionType = "RSU";
+            reason = "Borderline case, using RSU for reliability";
+            confidence = 0.65;
+            estimated_completion_time = request.deadline_seconds * 0.7;
+        }
+    } else {
+        // TODO: ML MODEL INFERENCE HERE
+        // Extract features from request and Digital Twin
+        // Call ML model prediction
+        // Parse ML model output
+        EV_INFO << "  ML model inference (NOT YET IMPLEMENTED)" << endl;
+        decisionType = "LOCAL";  // Fallback
+        reason = "ML model not yet integrated";
+        confidence = 0.5;
+        estimated_completion_time = request.deadline_seconds * 0.8;
+    }
+    
+    EV_INFO << "  Decision: " << decisionType << endl;
+    EV_INFO << "  Reason: " << reason << endl;
+    EV_INFO << "  Confidence: " << confidence << endl;
+    
+    // Create decision message
+    veins::OffloadingDecisionMessage* decision = new veins::OffloadingDecisionMessage();
+    decision->setSenderAddress(myId);  // Set RSU's MAC address
+    decision->setTask_id(request.task_id.c_str());
+    decision->setVehicle_id(request.vehicle_id.c_str());
+    decision->setDecision_type(decisionType.c_str());
+    decision->setDecision_time(simTime().dbl());
+    decision->setConfidence_score(confidence);
+    decision->setEstimated_completion_time(estimated_completion_time);
+    decision->setDecision_reason(reason.c_str());
+    
+    if (decisionType == "SERVICE_VEHICLE") {
+        decision->setTarget_service_vehicle_id(target_service_vehicle_id.c_str());
+        decision->setTarget_service_vehicle_mac(target_service_vehicle_mac);
+    }
+    
+    return decision;
+}
+
+std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) {
+    EV_INFO << "  Searching for best service vehicle..." << endl;
+    
+    // Query Digital Twin for available service vehicles
+    // TODO: Implement proper service vehicle selection based on:
+    // - CPU/memory availability
+    // - Distance from task vehicle
+    // - Current workload
+    // - Historical reliability
+    
+    // PLACEHOLDER: Return empty (no service vehicle available)
+    EV_INFO << "    No service vehicles available (placeholder)" << endl;
+    return "";
+}
+
+void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║              RSU: TASK OFFLOAD PACKET RECEIVED                           ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getOrigin_vehicle_id();
+    
+    std::cout << "RSU_PROCESS: Received task " << task_id << " from vehicle " << vehicle_id 
+              << " for RSU processing" << std::endl;
+    
+    EV_INFO << "  Task ID: " << task_id << endl;
+    EV_INFO << "  Origin Vehicle: " << vehicle_id << endl;
+    EV_INFO << "  Task Size: " << (msg->getTask_size_bytes() / 1024.0) << " KB" << endl;
+    EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
+    
+    // Process task on RSU edge server
+    processTaskOnRSU(task_id, msg);
+    
+    // msg will be deleted in processTaskOnRSU or here
+    delete msg;
+}
+
+void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
+    EV_INFO << "⚙️ RSU: Processing task " << task_id << " on edge server..." << endl;
+    
+    // TODO: Implement actual task processing
+    // - Allocate RSU edge server resources
+    // - Simulate processing time based on CPU cycles
+    // - Track task in processing queue
+    // - Schedule completion event
+    
+    // PLACEHOLDER: Simulate instant processing
+    std::string vehicle_id = packet->getOrigin_vehicle_id();
+    LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
+    
+    EV_INFO << "  Edge Server CPU: " << edgeCPU_GHz << " GHz" << endl;
+    EV_INFO << "  Edge Server Memory: " << edgeMemory_GB << " GB" << endl;
+    
+    // Simulate successful processing
+    bool success = true;
+    
+    std::cout << "RSU_PROCESS: Task " << task_id << " processing complete, sending result" << std::endl;
+    
+    sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, success);
+}
+
+void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
+                                        LAddress::L2Type vehicle_mac, bool success) {
+    EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
+    
+    // Create result message
+    veins::TaskResultMessage* result = new veins::TaskResultMessage();
+    result->setTask_id(task_id.c_str());
+    result->setProcessor_id("RSU");
+    result->setSuccess(success);
+    result->setProcessing_time(0.1);  // Placeholder: 100ms processing time
+    result->setCompletion_time(simTime().dbl());
+    
+    if (success) {
+        result->setTask_output_data("RSU_PROCESSED_DATA");  // Placeholder
+        EV_INFO << "  Result: SUCCESS" << endl;
+    } else {
+        result->setFailure_reason("Processing failed");
+        EV_INFO << "  Result: FAILED" << endl;
+    }
+    
+    // Send to vehicle
+    populateWSM(result, vehicle_mac);
+    sendDown(result);
+    
+    std::cout << "RSU_RESULT: Sent task result for " << task_id << " to vehicle " << vehicle_id << std::endl;
+}
+
+void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
+    EV_DEBUG << "📊 RSU: Received task offloading event" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string event_type = msg->getEvent_type();
+    std::string source = msg->getSource_entity_id();
+    std::string target = msg->getTarget_entity_id();
+    double event_time = msg->getEvent_time();
+    
+    EV_DEBUG << "  Task: " << task_id << endl;
+    EV_DEBUG << "  Event: " << event_type << endl;
+    EV_DEBUG << "  Source: " << source << " → Target: " << target << endl;
+    EV_DEBUG << "  Time: " << event_time << "s" << endl;
+    
+    // Store event in Digital Twin database
+    insertTaskOffloadingEvent(msg);
+    
+    std::cout << "RSU_EVENT: " << event_type << " for task " << task_id 
+              << " (" << source << " → " << target << ")" << std::endl;
+    
+    delete msg;
+}
+
+
+}  // namespace complex_network
 
 
 

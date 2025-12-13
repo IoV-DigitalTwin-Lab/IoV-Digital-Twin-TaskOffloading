@@ -121,6 +121,51 @@ private:
     void logTaskRecord(const TaskRecord& record, const std::string& event);
     
     // ============================================================================
+    // TASK OFFLOADING ORCHESTRATION
+    // ============================================================================
+    
+    // Offloading request tracking
+    struct OffloadingRequest {
+        std::string task_id;
+        std::string vehicle_id;
+        LAddress::L2Type vehicle_mac;
+        double request_time;
+        std::string local_decision;
+        
+        // Task characteristics
+        uint64_t task_size_bytes;
+        uint64_t cpu_cycles;
+        double deadline_seconds;
+        double qos_value;
+        
+        // Vehicle state at request
+        double vehicle_cpu_available;
+        double vehicle_cpu_utilization;
+        uint32_t vehicle_queue_length;  // Changed from double to uint32_t to match database INTEGER type
+    };
+    
+    std::map<std::string, OffloadingRequest> pending_offloading_requests;  // task_id -> request
+    
+    // Offloading message handlers
+    void handleOffloadingRequest(veins::OffloadingRequestMessage* msg);
+    void handleTaskOffloadPacket(veins::TaskOffloadPacket* msg);
+    void handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg);
+    
+    // ML-based decision engine
+    veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
+    std::string selectBestServiceVehicle(const OffloadingRequest& request);
+    
+    // RSU task processing (edge server)
+    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
+    void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id, 
+                                  LAddress::L2Type vehicle_mac, bool success);
+    
+    // Configuration parameters
+    bool mlModelEnabled = false;
+    int maxConcurrentOffloadedTasks = 10;
+    bool serviceVehicleSelectionEnabled = true;
+    
+    // ============================================================================
     // POSTGRESQL DATABASE INTEGRATION
     // ============================================================================
     
@@ -135,8 +180,12 @@ private:
     void insertTaskMetadata(const TaskMetadataMessage* msg);
     void insertTaskCompletion(const TaskCompletionMessage* msg);
     void insertTaskFailure(const TaskFailureMessage* msg);
-    void insertVehicleResources(const VehicleResourceStatusMessage* msg);
-    void insertVehicleTelemetry(const std::map<std::string, std::string>& data);
+    void insertVehicleStatus(const VehicleResourceStatusMessage* msg);
+    
+    // Offloading-specific database insertions
+    void insertOffloadingRequest(const OffloadingRequest& request);
+    void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
+    void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
 };
 
 } // namespace complex_network

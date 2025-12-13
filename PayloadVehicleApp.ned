@@ -39,6 +39,21 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         double min_cpu_guarantee = default(0.1);              // Minimum CPU fraction per task
         
         // ============================================================================
+        // TASK OFFLOADING SYSTEM PARAMETERS
+        // ============================================================================
+        
+        // Offloading Control
+        bool offloadingEnabled = default(true);               // Enable ML-based offloading
+        double rsuDecisionTimeout @unit(s) = default(1.0s);   // Timeout for RSU decision response
+        double offloadedTaskTimeout @unit(s) = default(5.0s); // Timeout for task execution result
+        
+        // Service Vehicle Capability (can process tasks for other vehicles)
+        bool serviceVehicleEnabled = default(false);          // Enable service vehicle mode
+        int maxConcurrentServiceTasks = default(3);           // Max tasks to process for others
+        double serviceCpuReservation = default(0.3);          // CPU reserved for service (30%)
+        double serviceMemoryReservation = default(512e6);     // Memory reserved for service (512 MB)
+        
+        // ============================================================================
         
         // ---- Legacy task parameters (kept for compatibility) ----
         double taskGenIntervalS @unit(s) = default(2.0s);     // mean cadence for task arrivals
