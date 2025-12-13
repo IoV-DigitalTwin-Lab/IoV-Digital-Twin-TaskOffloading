@@ -117,6 +117,10 @@ private:
     void sendResourceStatusToRSU();           // Send periodic heartbeat
     void sendVehicleResourceStatus();         // Wrapper for resource status sending
     
+    // Service Vehicle Task Completion Handlers
+    void handleServiceTaskCompletion(Task* task);  // Service task finished
+    void handleServiceTaskDeadline(Task* task);    // Service task deadline expired
+    
     // Logging Methods
     void logResourceState(const std::string& context);
     void logQueueState(const std::string& context);
@@ -194,6 +198,8 @@ private:
     double serviceMemoryReservation = 512.0;  // 512 MB reserved
     std::queue<Task*> serviceTasks;  // Queue for tasks from other vehicles
     std::set<Task*> processingServiceTasks;  // Currently processing service tasks
+    std::map<std::string, std::string> serviceTaskOriginVehicles;  // task_id -> origin_vehicle_id
+    std::map<std::string, veins::LAddress::L2Type> serviceTaskOriginMACs;  // task_id -> origin_mac
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);

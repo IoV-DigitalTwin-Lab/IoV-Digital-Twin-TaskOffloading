@@ -97,6 +97,18 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         delete msg;
         return;
     }
+    else if (strcmp(msg->getName(), "serviceTaskCompletion") == 0) {
+        Task* task = (Task*)msg->getContextPointer();
+        handleServiceTaskCompletion(task);
+        delete msg;
+        return;
+    }
+    else if (strcmp(msg->getName(), "serviceTaskDeadline") == 0) {
+        Task* task = (Task*)msg->getContextPointer();
+        handleServiceTaskDeadline(task);
+        delete msg;
+        return;
+    }
     else if (strcmp(msg->getName(), "sendPayloadMessage") == 0) {
         std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic vehicle status update..." << std::endl;
         EV << "PayloadVehicleApp: Sending periodic vehicle status update..." << endl;
@@ -1213,6 +1225,136 @@ void PayloadVehicleApp::sendTaskFailureToRSU(Task* task, const std::string& reas
     }
 }
 
+// ============================================================================
+// SERVICE VEHICLE TASK COMPLETION HANDLERS
+// ============================================================================
+
+void PayloadVehicleApp::handleServiceTaskCompletion(Task* task) {
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║              SERVICE TASK COMPLETED                                      ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    task->completion_time = simTime();
+    double processing_time = (task->completion_time - task->processing_start_time).dbl();
+    
+    // Determine if task met its deadline
+    if (task->completion_time <= task->deadline) {
+        task->state = COMPLETED_ON_TIME;
+        EV_INFO << "✅ Service task COMPLETED ON TIME" << endl;
+        std::cout << "SERVICE_COMPLETE_ON_TIME: Vehicle " << getParentModule()->getIndex() 
+                  << " completed service task " << task->task_id 
+                  << " in " << processing_time << "s" << std::endl;
+    } else {
+        task->state = COMPLETED_LATE;
+        double lateness = (task->completion_time - task->deadline).dbl();
+        EV_INFO << "⚠️ Service task COMPLETED LATE (+" << lateness << "s)" << endl;
+        std::cout << "SERVICE_COMPLETE_LATE: Vehicle " << getParentModule()->getIndex() 
+                  << " completed service task " << task->task_id 
+                  << " LATE by " << lateness << "s" << std::endl;
+    }
+    
+    EV_INFO << "  Processing time: " << processing_time << " seconds" << endl;
+    
+    // Remove from processing set
+    processingServiceTasks.erase(task);
+    
+    // Release resources
+    memory_available += task->task_size_bytes;
+    
+    // Cancel deadline event
+    if (task->deadline_event && task->deadline_event->isScheduled()) {
+        cancelEvent(task->deadline_event);
+        delete task->deadline_event;
+        task->deadline_event = nullptr;
+    }
+    
+    // Get origin vehicle and send result
+    auto it = serviceTaskOriginVehicles.find(task->task_id);
+    if (it != serviceTaskOriginVehicles.end()) {
+        std::string origin_vehicle_id = it->second;
+        sendServiceTaskResult(task, origin_vehicle_id);
+    } else {
+        EV_ERROR << "Origin vehicle not found for service task " << task->task_id << endl;
+    }
+    
+    // Try to process next queued service task
+    if (!serviceTasks.empty() && processingServiceTasks.size() < maxConcurrentServiceTasks) {
+        Task* nextTask = serviceTasks.front();
+        serviceTasks.pop();
+        processServiceTask(nextTask);
+    }
+    
+    // Clean up
+    delete task;
+    
+    EV_INFO << "Service vehicle queue: " << serviceTasks.size() 
+            << ", processing: " << processingServiceTasks.size() << endl;
+}
+
+void PayloadVehicleApp::handleServiceTaskDeadline(Task* task) {
+    // Check if task is still processing
+    if (task->state != PROCESSING) {
+        // Task already completed
+        return;
+    }
+    
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║           SERVICE TASK DEADLINE EXPIRED                                  ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    task->state = FAILED;
+    task->completion_time = simTime();
+    double wasted_time = (task->completion_time - task->processing_start_time).dbl();
+    
+    EV_INFO << "❌ Service task FAILED - deadline missed" << endl;
+    EV_INFO << "  Wasted time: " << wasted_time << " seconds" << endl;
+    
+    std::cout << "SERVICE_FAILED: Vehicle " << getParentModule()->getIndex() 
+              << " service task " << task->task_id 
+              << " DEADLINE MISSED (wasted " << wasted_time << "s)" << std::endl;
+    
+    // Remove from processing set
+    if (processingServiceTasks.find(task) != processingServiceTasks.end()) {
+        processingServiceTasks.erase(task);
+        memory_available += task->task_size_bytes;
+        
+        // Cancel completion event
+        if (task->completion_event && task->completion_event->isScheduled()) {
+            cancelEvent(task->completion_event);
+            delete task->completion_event;
+            task->completion_event = nullptr;
+        }
+    }
+    
+    // Send failure result to origin vehicle
+    auto it = serviceTaskOriginVehicles.find(task->task_id);
+    if (it != serviceTaskOriginVehicles.end()) {
+        std::string origin_vehicle_id = it->second;
+        // Could send failure notification here
+        EV_INFO << "Service task failed for origin vehicle: " << origin_vehicle_id << endl;
+        
+        // Clean up tracking
+        serviceTaskOriginVehicles.erase(task->task_id);
+        serviceTaskOriginMACs.erase(task->task_id);
+    }
+    
+    // Try to process next queued service task
+    if (!serviceTasks.empty() && processingServiceTasks.size() < maxConcurrentServiceTasks) {
+        Task* nextTask = serviceTasks.front();
+        serviceTasks.pop();
+        processServiceTask(nextTask);
+    }
+    
+    delete task;
+    
+    EV_INFO << "Service vehicle queue: " << serviceTasks.size() 
+            << ", processing: " << processingServiceTasks.size() << endl;
+}
+
+// ============================================================================
+
 void PayloadVehicleApp::logResourceState(const std::string& context) {
     EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
     EV_INFO << "│ RESOURCE STATE: " << std::left << std::setw(56) << context << " │" << endl;
@@ -1901,7 +2043,30 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task) {
     EV_INFO << "📤 Sending task " << task->task_id << " to RSU for processing" << endl;
     std::cout << "OFFLOAD_TO_RSU: Task " << task->task_id << " sent to RSU" << std::endl;
     
-    // TODO: Create and send TaskOffloadPacket to RSU
+    // Create TaskOffloadPacket
+    veins::TaskOffloadPacket* packet = new veins::TaskOffloadPacket();
+    packet->setTask_id(task->task_id.c_str());
+    packet->setOrigin_vehicle_id(task->vehicle_id.c_str());
+    packet->setOrigin_vehicle_mac(myId);  // Set our MAC address for return routing
+    packet->setOffload_time(simTime().dbl());
+    packet->setTask_size_bytes(task->task_size_bytes);
+    packet->setCpu_cycles(task->cpu_cycles);
+    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setQos_value(task->qos_value);
+    packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
+    
+    // Send to RSU
+    LAddress::L2Type rsuMac = selectBestRSU();
+    if (rsuMac != 0) {
+        populateWSM(packet, rsuMac);
+        sendDown(packet);
+        EV_INFO << "✓ Task offload packet sent to RSU MAC: " << rsuMac << endl;
+    } else {
+        EV_ERROR << "No RSU available to send task" << endl;
+        delete packet;
+        return;
+    }
+    
     offloadedTasks[task->task_id] = task;
     offloadedTaskTargets[task->task_id] = "RSU";
 }
@@ -1911,7 +2076,24 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     std::cout << "OFFLOAD_TO_SV: Task " << task->task_id << " sent to service vehicle " 
               << serviceVehicleId << std::endl;
     
-    // TODO: Create and send TaskOffloadPacket to service vehicle
+    // Create TaskOffloadPacket
+    veins::TaskOffloadPacket* packet = new veins::TaskOffloadPacket();
+    packet->setTask_id(task->task_id.c_str());
+    packet->setOrigin_vehicle_id(task->vehicle_id.c_str());
+    packet->setOrigin_vehicle_mac(myId);  // Set our MAC address for return routing
+    packet->setOffload_time(simTime().dbl());
+    packet->setTask_size_bytes(task->task_size_bytes);
+    packet->setCpu_cycles(task->cpu_cycles);
+    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setQos_value(task->qos_value);
+    packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
+    
+    // Send to service vehicle
+    populateWSM(packet, serviceMac);
+    sendDown(packet);
+    
+    EV_INFO << "✓ Task offload packet sent to service vehicle MAC: " << serviceMac << endl;
+    
     offloadedTasks[task->task_id] = task;
     offloadedTaskTargets[task->task_id] = serviceVehicleId;
 }
@@ -1948,26 +2130,182 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
         return;
     }
     
-    EV_INFO << "📥 Received service task request: " << msg->getTask_id() << endl;
-    std::cout << "SERVICE_REQUEST: Vehicle " << getParentModule()->getIndex() 
-              << " received task " << msg->getTask_id() << " for service processing" << std::endl;
+    std::string task_id = msg->getTask_id();
+    std::string origin_vehicle_id = msg->getOrigin_vehicle_id();
+    veins::LAddress::L2Type origin_mac = msg->getOrigin_vehicle_mac();
     
-    // TODO: Create Task object from packet, check capacity, queue for processing
+    EV_INFO << "📥 SERVICE VEHICLE: Received task request from vehicle " << origin_vehicle_id << endl;
+    std::cout << "SERVICE_REQUEST: Vehicle " << getParentModule()->getIndex() 
+              << " received task " << task_id << " from vehicle " << origin_vehicle_id << std::endl;
+    
+    // Check service vehicle capacity
+    int total_service_tasks = serviceTasks.size() + processingServiceTasks.size();
+    if (total_service_tasks >= maxConcurrentServiceTasks) {
+        EV_WARN << "Service vehicle at capacity (" << total_service_tasks << "/" 
+                << maxConcurrentServiceTasks << "), rejecting task" << endl;
+        std::cout << "SERVICE_REJECT: Task " << task_id << " rejected - capacity full" << std::endl;
+        
+        // TODO: Send rejection message back to origin vehicle
+        delete msg;
+        return;
+    }
+    
+    // Calculate reserved resources for service processing
+    double service_cpu_hz = cpu_total * serviceCpuReservation;
+    double service_mem_bytes = serviceMemoryReservation * 1e6;  // MB to bytes
+    
+    // Check if we have sufficient reserved resources
+    if (memory_available < msg->getTask_size_bytes()) {
+        EV_WARN << "Insufficient memory for service task (need " 
+                << (msg->getTask_size_bytes()/1e6) << "MB, have " 
+                << (memory_available/1e6) << "MB)" << endl;
+        std::cout << "SERVICE_REJECT: Task " << task_id << " rejected - insufficient memory" << std::endl;
+        delete msg;
+        return;
+    }
+    
+    // Create Task object from packet
+    std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+    Task* task = new Task(origin_vehicle_id, task_sequence_number++, 
+                          msg->getTask_size_bytes(), msg->getCpu_cycles(),
+                          msg->getDeadline_seconds(), msg->getQos_value());
+    
+    // Override task_id with original task_id from packet
+    task->task_id = task_id;
+    
+    // Store origin information for result sending
+    serviceTaskOriginVehicles[task_id] = origin_vehicle_id;
+    serviceTaskOriginMACs[task_id] = origin_mac;
+    
+    EV_INFO << "  Task ID: " << task_id << endl;
+    EV_INFO << "  Origin Vehicle: " << origin_vehicle_id << endl;
+    EV_INFO << "  Task Size: " << (msg->getTask_size_bytes() / 1024.0) << " KB" << endl;
+    EV_INFO << "  CPU Cycles: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
+    EV_INFO << "  Deadline: " << msg->getDeadline_seconds() << " s" << endl;
+    EV_INFO << "  Service Queue: " << serviceTasks.size() << ", Processing: " 
+            << processingServiceTasks.size() << endl;
+    
+    // Queue task for service processing
+    task->state = QUEUED;
+    serviceTasks.push(task);
+    
+    std::cout << "SERVICE_QUEUED: Task " << task_id << " queued for service processing" << std::endl;
+    
+    // Try to start processing immediately if we have capacity
+    if (processingServiceTasks.size() < maxConcurrentServiceTasks) {
+        // Dequeue and start processing
+        Task* nextTask = serviceTasks.front();
+        serviceTasks.pop();
+        processServiceTask(nextTask);
+    }
+    
     delete msg;
 }
 
 void PayloadVehicleApp::processServiceTask(Task* task) {
-    EV_INFO << "⚙️ Processing service task " << task->task_id << endl;
+    EV_INFO << "⚙️ SERVICE VEHICLE: Starting service task " << task->task_id << endl;
+    std::cout << "SERVICE_PROCESS: Vehicle " << getParentModule()->getIndex() 
+              << " processing service task " << task->task_id << std::endl;
     
-    // TODO: Implement service task processing using reserved resources
+    // Use RESERVED resources for service tasks
+    double service_cpu_hz = cpu_total * serviceCpuReservation;
+    double service_mem_bytes = serviceMemoryReservation * 1e6;
+    
+    // Calculate processing time using reserved CPU
+    double processing_time = (double)task->cpu_cycles / service_cpu_hz;
+    
+    EV_INFO << "  Reserved Service CPU: " << (service_cpu_hz / 1e9) << " GHz" << endl;
+    EV_INFO << "  Task CPU Cycles: " << (task->cpu_cycles / 1e9) << " G" << endl;
+    EV_INFO << "  Estimated Processing Time: " << processing_time << " s" << endl;
+    EV_INFO << "  Deadline: " << task->relative_deadline << " s" << endl;
+    
+    // Update task state
+    task->state = PROCESSING;
+    task->processing_start_time = simTime();
+    task->cpu_allocated = service_cpu_hz;
+    processingServiceTasks.insert(task);
+    
+    // Allocate memory (from reserved service memory)
+    if (task->task_size_bytes <= memory_available) {
+        memory_available -= task->task_size_bytes;
+        EV_INFO << "  Memory allocated: " << (task->task_size_bytes / 1e6) << " MB" << endl;
+        EV_INFO << "  Memory available: " << (memory_available / 1e6) << " MB" << endl;
+    } else {
+        EV_WARN << "  Insufficient memory, processing anyway with degraded performance" << endl;
+    }
+    
+    // Schedule completion event
+    cMessage* completionMsg = new cMessage("serviceTaskCompletion");
+    completionMsg->setContextPointer(task);
+    task->completion_event = completionMsg;
+    scheduleAt(simTime() + processing_time, completionMsg);
+    
+    // Schedule deadline check
+    cMessage* deadlineMsg = new cMessage("serviceTaskDeadline");
+    deadlineMsg->setContextPointer(task);
+    task->deadline_event = deadlineMsg;
+    scheduleAt(task->deadline, deadlineMsg);
+    
+    EV_INFO << "✓ Service task processing started, completion expected at " 
+            << (simTime() + processing_time).dbl() << endl;
 }
 
 void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& originalVehicleId) {
-    EV_INFO << "📤 Sending service task result to vehicle " << originalVehicleId << endl;
-    std::cout << "SERVICE_RESULT: Returning task " << task->task_id 
+    EV_INFO << "📤 SERVICE VEHICLE: Sending result for task " << task->task_id 
+            << " back to vehicle " << originalVehicleId << endl;
+    std::cout << "SERVICE_RESULT: Vehicle " << getParentModule()->getIndex() 
+              << " returning task " << task->task_id 
               << " result to vehicle " << originalVehicleId << std::endl;
     
-    // TODO: Create and send TaskResultMessage back to original vehicle
+    // Create TaskResultMessage
+    veins::TaskResultMessage* result = new veins::TaskResultMessage();
+    result->setTask_id(task->task_id.c_str());
+    result->setOrigin_vehicle_id(originalVehicleId.c_str());
+    result->setProcessor_id(std::to_string(getParentModule()->getIndex()).c_str());
+    result->setSuccess(task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
+    result->setCompletion_time(task->completion_time.dbl());
+    result->setProcessing_time((task->completion_time - task->processing_start_time).dbl());
+    
+    // Set result data (placeholder - in real system would include actual computation output)
+    result->setTask_output_data("{\"status\":\"completed_by_service_vehicle\"}");
+    
+    // Set failure reason if task failed
+    if (task->state != COMPLETED_ON_TIME && task->state != COMPLETED_LATE) {
+        result->setFailure_reason("Task processing failed");
+    } else {
+        result->setFailure_reason("");
+    }
+    
+    // Get origin vehicle MAC address
+    auto mac_it = serviceTaskOriginMACs.find(task->task_id);
+    if (mac_it != serviceTaskOriginMACs.end()) {
+        veins::LAddress::L2Type origin_mac = mac_it->second;
+        
+        EV_INFO << "  Sending result to origin vehicle MAC: " << origin_mac << endl;
+        
+        // Send directly to origin vehicle
+        populateWSM(result, origin_mac);
+        sendDown(result);
+        
+        EV_INFO << "✓ Service task result sent successfully" << endl;
+    } else {
+        EV_ERROR << "Origin vehicle MAC not found for task " << task->task_id << endl;
+        
+        // Fallback: send via RSU
+        LAddress::L2Type rsuMac = selectBestRSU();
+        if (rsuMac != 0) {
+            EV_INFO << "  Fallback: Sending result via RSU" << endl;
+            populateWSM(result, rsuMac);
+            sendDown(result);
+        } else {
+            EV_ERROR << "Cannot send result - no RSU available" << endl;
+            delete result;
+        }
+    }
+    
+    // Clean up origin tracking
+    serviceTaskOriginVehicles.erase(task->task_id);
+    serviceTaskOriginMACs.erase(task->task_id);
 }
 
 // ============================================================================
