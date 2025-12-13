@@ -89,6 +89,36 @@ void MyRSUApp::handleLowerMsg(cMessage* msg) {
 void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     std::cout << "\n🔴 RSU SHADOW ANALYSIS - Message Reception at " << simTime() << std::endl;
     
+    // Check for task-related messages first
+    TaskMetadataMessage* taskMetadata = dynamic_cast<TaskMetadataMessage*>(wsm);
+    if (taskMetadata) {
+        EV_INFO << "📥 RSU received TaskMetadataMessage" << endl;
+        handleTaskMetadata(taskMetadata);
+        return;
+    }
+    
+    TaskCompletionMessage* taskCompletion = dynamic_cast<TaskCompletionMessage*>(wsm);
+    if (taskCompletion) {
+        EV_INFO << "📥 RSU received TaskCompletionMessage" << endl;
+        handleTaskCompletion(taskCompletion);
+        return;
+    }
+    
+    TaskFailureMessage* taskFailure = dynamic_cast<TaskFailureMessage*>(wsm);
+    if (taskFailure) {
+        EV_INFO << "📥 RSU received TaskFailureMessage" << endl;
+        handleTaskFailure(taskFailure);
+        return;
+    }
+    
+    VehicleResourceStatusMessage* resourceStatus = dynamic_cast<VehicleResourceStatusMessage*>(wsm);
+    if (resourceStatus) {
+        EV_INFO << "📥 RSU received VehicleResourceStatusMessage" << endl;
+        handleVehicleResourceStatus(resourceStatus);
+        return;
+    }
+    
+    // Original DemoSafetyMessage handling
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if(!dsm) {
         std::cout << "CONSOLE: MyRSUApp - ERROR: Message is NOT DemoSafetyMessage!" 
@@ -292,6 +322,10 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
 
 void MyRSUApp::finish() {
     std::cout << "\n=== CONSOLE: MyRSUApp - finish() called ===" << std::endl;
+    
+    // Log final Digital Twin statistics
+    logDigitalTwinState();
+    
     EV << "MyRSUApp: stopping RSUHttpPoster...\n";
     // cancel and delete our beacon self-message if still scheduled
     if (beaconMsg) {
@@ -323,4 +357,295 @@ void MyRSUApp::handleMessage(cMessage* msg) {
     DemoBaseApplLayer::handleMessage(msg);
 }
 
+// ============================================================================
+// DIGITAL TWIN TRACKING IMPLEMENTATION
+// ============================================================================
+
+void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║                   RSU: TASK METADATA RECEIVED                            ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getVehicle_id();
+    
+    // Create task record
+    TaskRecord record;
+    record.task_id = task_id;
+    record.vehicle_id = vehicle_id;
+    record.task_size_bytes = msg->getTask_size_bytes();
+    record.cpu_cycles = msg->getCpu_cycles();
+    record.created_time = msg->getCreated_time();
+    record.deadline_seconds = msg->getDeadline_seconds();
+    record.received_time = simTime().dbl();
+    record.qos_value = msg->getQos_value();
+    
+    // Store in task records
+    task_records[task_id] = record;
+    
+    // Update vehicle digital twin
+    VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
+    twin.tasks_generated++;
+    twin.last_update_time = simTime().dbl();
+    
+    EV_INFO << "Task metadata stored:" << endl;
+    EV_INFO << "  Task ID: " << task_id << endl;
+    EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
+    EV_INFO << "  Size: " << (record.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  CPU Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
+    EV_INFO << "  Deadline: " << record.deadline_seconds << " sec" << endl;
+    EV_INFO << "  QoS: " << record.qos_value << endl;
+    EV_INFO << "  Received at: " << record.received_time << " (delay: " 
+            << (record.received_time - record.created_time) << " sec)" << endl;
+    
+    logTaskRecord(record, "METADATA_RECEIVED");
+    
+    std::cout << "DT_TASK: RSU received metadata for task " << task_id 
+              << " from vehicle " << vehicle_id << std::endl;
 }
+
+void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║                   RSU: TASK COMPLETION RECEIVED                          ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getVehicle_id();
+    
+    // Update task record
+    auto it = task_records.find(task_id);
+    if (it != task_records.end()) {
+        TaskRecord& record = it->second;
+        record.completed = true;
+        record.completion_time = msg->getCompletion_time();
+        record.processing_time = msg->getProcessing_time();
+        record.completed_on_time = msg->getCompleted_on_time();
+        
+        EV_INFO << "Task completion details:" << endl;
+        EV_INFO << "  Task ID: " << task_id << endl;
+        EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
+        EV_INFO << "  Completion time: " << record.completion_time << endl;
+        EV_INFO << "  Processing time: " << record.processing_time << " sec" << endl;
+        EV_INFO << "  On time: " << (record.completed_on_time ? "YES" : "NO (LATE)") << endl;
+        EV_INFO << "  CPU allocated: " << (msg->getCpu_allocated() / 1e9) << " GHz" << endl;
+        
+        logTaskRecord(record, record.completed_on_time ? "COMPLETED_ON_TIME" : "COMPLETED_LATE");
+        
+        // Update vehicle digital twin
+        VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
+        if (record.completed_on_time) {
+            twin.tasks_completed_on_time++;
+            std::cout << "DT_SUCCESS: Task " << task_id << " completed ON TIME" << std::endl;
+        } else {
+            twin.tasks_completed_late++;
+            std::cout << "DT_LATE: Task " << task_id << " completed LATE" << std::endl;
+        }
+        twin.last_update_time = simTime().dbl();
+    } else {
+        EV_INFO << "⚠ Task record not found for task " << task_id << endl;
+        std::cout << "DT_WARNING: RSU received completion for unknown task " << task_id << std::endl;
+    }
+    
+    updateDigitalTwinStatistics();
+}
+
+void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║                   RSU: TASK FAILURE RECEIVED                             ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getVehicle_id();
+    std::string reason = msg->getFailure_reason();
+    
+    // Update task record
+    auto it = task_records.find(task_id);
+    if (it != task_records.end()) {
+        TaskRecord& record = it->second;
+        record.failed = true;
+        record.completion_time = msg->getFailure_time();
+        record.failure_reason = reason;
+        
+        EV_INFO << "Task failure details:" << endl;
+        EV_INFO << "  Task ID: " << task_id << endl;
+        EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
+        EV_INFO << "  Failure time: " << msg->getFailure_time() << endl;
+        EV_INFO << "  Reason: " << reason << endl;
+        EV_INFO << "  Wasted time: " << msg->getWasted_time() << " sec" << endl;
+        
+        logTaskRecord(record, "FAILED_" + reason);
+        
+        // Update vehicle digital twin
+        VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
+        if (reason == "REJECTED") {
+            twin.tasks_rejected++;
+            std::cout << "DT_REJECT: Task " << task_id << " REJECTED" << std::endl;
+        } else {
+            twin.tasks_failed++;
+            std::cout << "DT_FAIL: Task " << task_id << " FAILED - " << reason << std::endl;
+        }
+        twin.last_update_time = simTime().dbl();
+    } else {
+        EV_INFO << "⚠ Task record not found for task " << task_id << endl;
+        std::cout << "DT_WARNING: RSU received failure for unknown task " << task_id << std::endl;
+    }
+    
+    updateDigitalTwinStatistics();
+}
+
+void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
+    EV_INFO << "📊 RSU: Vehicle resource status update received" << endl;
+    
+    std::string vehicle_id = msg->getVehicle_id();
+    VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
+    
+    // Update vehicle state
+    twin.pos_x = msg->getPos_x();
+    twin.pos_y = msg->getPos_y();
+    twin.speed = msg->getSpeed();
+    
+    // Update resource information
+    twin.cpu_total = msg->getCpu_total();
+    twin.cpu_allocable = msg->getCpu_allocable();
+    twin.cpu_available = msg->getCpu_available();
+    twin.cpu_utilization = msg->getCpu_utilization();
+    
+    twin.mem_total = msg->getMem_total();
+    twin.mem_available = msg->getMem_available();
+    twin.mem_utilization = msg->getMem_utilization();
+    
+    // Update task statistics
+    twin.tasks_generated = msg->getTasks_generated();
+    twin.tasks_completed_on_time = msg->getTasks_completed_on_time();
+    twin.tasks_completed_late = msg->getTasks_completed_late();
+    twin.tasks_failed = msg->getTasks_failed();
+    twin.tasks_rejected = msg->getTasks_rejected();
+    twin.current_queue_length = msg->getCurrent_queue_length();
+    twin.current_processing_count = msg->getCurrent_processing_count();
+    
+    twin.avg_completion_time = msg->getAvg_completion_time();
+    twin.deadline_miss_ratio = msg->getDeadline_miss_ratio();
+    
+    twin.last_update_time = simTime().dbl();
+    
+    EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
+    EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
+    EV_INFO << "  CPU Utilization: " << twin.cpu_utilization << "%" << endl;
+    EV_INFO << "  Memory Utilization: " << twin.mem_utilization << "%" << endl;
+    EV_INFO << "  Queue Length: " << twin.current_queue_length << endl;
+    EV_INFO << "  Processing Count: " << twin.current_processing_count << endl;
+    
+    std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << twin.cpu_utilization 
+              << "% Mem:" << twin.mem_utilization << "% Queue:" << twin.current_queue_length << std::endl;
+}
+
+VehicleDigitalTwin& MyRSUApp::getOrCreateVehicleTwin(const std::string& vehicle_id) {
+    auto it = vehicle_twins.find(vehicle_id);
+    if (it == vehicle_twins.end()) {
+        VehicleDigitalTwin twin;
+        twin.vehicle_id = vehicle_id;
+        twin.first_seen_time = simTime().dbl();
+        twin.last_update_time = simTime().dbl();
+        vehicle_twins[vehicle_id] = twin;
+        
+        EV_INFO << "✨ Created new Digital Twin for vehicle " << vehicle_id << endl;
+        std::cout << "DT_NEW: Created Digital Twin for vehicle " << vehicle_id << std::endl;
+        
+        return vehicle_twins[vehicle_id];
+    }
+    return it->second;
+}
+
+void MyRSUApp::updateDigitalTwinStatistics() {
+    // This could compute aggregate statistics across all vehicles
+    // For now, just log current state
+    logDigitalTwinState();
+}
+
+void MyRSUApp::logDigitalTwinState() {
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║                    DIGITAL TWIN STATE SUMMARY                            ║" << endl;
+    EV_INFO << "╠══════════════════════════════════════════════════════════════════════════╣" << endl;
+    EV_INFO << "║ Tracked Vehicles: " << std::setw(54) << vehicle_twins.size() << "║" << endl;
+    EV_INFO << "║ Task Records:     " << std::setw(54) << task_records.size() << "║" << endl;
+    EV_INFO << "╠══════════════════════════════════════════════════════════════════════════╣" << endl;
+    
+    uint32_t total_generated = 0;
+    uint32_t total_completed_on_time = 0;
+    uint32_t total_completed_late = 0;
+    uint32_t total_failed = 0;
+    uint32_t total_rejected = 0;
+    
+    for (const auto& pair : vehicle_twins) {
+        const VehicleDigitalTwin& twin = pair.second;
+        total_generated += twin.tasks_generated;
+        total_completed_on_time += twin.tasks_completed_on_time;
+        total_completed_late += twin.tasks_completed_late;
+        total_failed += twin.tasks_failed;
+        total_rejected += twin.tasks_rejected;
+        
+        EV_INFO << "║ Vehicle " << std::left << std::setw(63) << twin.vehicle_id << "║" << endl;
+        EV_INFO << "║   Generated: " << std::setw(11) << twin.tasks_generated 
+                << " OnTime: " << std::setw(11) << twin.tasks_completed_on_time
+                << " Late: " << std::setw(11) << twin.tasks_completed_late 
+                << " Failed: " << std::setw(8) << twin.tasks_failed << "║" << endl;
+        EV_INFO << "║   CPU: " << std::setw(5) << (int)twin.cpu_utilization << "%  "
+                << "Mem: " << std::setw(5) << (int)twin.mem_utilization << "%  "
+                << "Queue: " << std::setw(5) << twin.current_queue_length << "  "
+                << "Processing: " << std::setw(19) << twin.current_processing_count << "║" << endl;
+    }
+    
+    EV_INFO << "╠══════════════════════════════════════════════════════════════════════════╣" << endl;
+    EV_INFO << "║ AGGREGATE STATISTICS                                                     ║" << endl;
+    EV_INFO << "╠══════════════════════════════════════════════════════════════════════════╣" << endl;
+    EV_INFO << "║ Total Generated:      " << std::setw(48) << total_generated << "║" << endl;
+    EV_INFO << "║ Total On Time:        " << std::setw(48) << total_completed_on_time << "║" << endl;
+    EV_INFO << "║ Total Late:           " << std::setw(48) << total_completed_late << "║" << endl;
+    EV_INFO << "║ Total Failed:         " << std::setw(48) << total_failed << "║" << endl;
+    EV_INFO << "║ Total Rejected:       " << std::setw(48) << total_rejected << "║" << endl;
+    
+    if (total_generated > 0) {
+        double success_rate = (double)total_completed_on_time / total_generated * 100.0;
+        double late_rate = (double)total_completed_late / total_generated * 100.0;
+        double fail_rate = (double)total_failed / total_generated * 100.0;
+        double reject_rate = (double)total_rejected / total_generated * 100.0;
+        
+        EV_INFO << "║ ────────────────────────────────────────────────────────────────────────║" << endl;
+        EV_INFO << "║ Success Rate:         " << std::setw(38) << success_rate << " %        ║" << endl;
+        EV_INFO << "║ Late Rate:            " << std::setw(38) << late_rate << " %        ║" << endl;
+        EV_INFO << "║ Failure Rate:         " << std::setw(38) << fail_rate << " %        ║" << endl;
+        EV_INFO << "║ Rejection Rate:       " << std::setw(38) << reject_rate << " %        ║" << endl;
+    }
+    
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::cout << "DT_SUMMARY: Vehicles:" << vehicle_twins.size() 
+              << " Tasks:" << task_records.size()
+              << " Generated:" << total_generated
+              << " OnTime:" << total_completed_on_time
+              << " Late:" << total_completed_late
+              << " Failed:" << total_failed
+              << " Rejected:" << total_rejected << std::endl;
+}
+
+void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event) {
+    EV_INFO << "📝 TASK RECORD [" << event << "]:" << endl;
+    EV_INFO << "  ID: " << record.task_id << endl;
+    EV_INFO << "  Vehicle: " << record.vehicle_id << endl;
+    EV_INFO << "  Size: " << (record.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
+    EV_INFO << "  QoS: " << record.qos_value << endl;
+    EV_INFO << "  Created: " << record.created_time << " s" << endl;
+    EV_INFO << "  Received: " << record.received_time << " s" << endl;
+    if (record.completed || record.failed) {
+        EV_INFO << "  Completion: " << record.completion_time << " s" << endl;
+        EV_INFO << "  Processing: " << record.processing_time << " s" << endl;
+    }
+    if (record.failed) {
+        EV_INFO << "  Failure reason: " << record.failure_reason << endl;
+    }
+}
+
+}
+

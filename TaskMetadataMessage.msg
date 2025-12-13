@@ -1,0 +1,87 @@
+//
+// TaskMetadataMessage.msg
+// Message definitions for task metadata communication between vehicles and RSUs
+//
+
+import veins.modules.messages.BaseFrame1609_4;
+
+namespace veins;
+
+//
+// Task Metadata Message - Sent from vehicle to RSU when task is generated
+//
+packet TaskMetadataMessage extends BaseFrame1609_4 {
+    // Task Identification
+    string task_id;              // Unique task identifier
+    string vehicle_id;           // Originating vehicle ID
+    
+    // Task Characteristics
+    uint64_t task_size_bytes;    // Memory footprint (D_task)
+    uint64_t cpu_cycles;         // Required CPU cycles (C_task)
+    
+    // Timing Information
+    double created_time;         // SimTime when task was generated
+    double deadline_seconds;     // Relative deadline (e.g., 0.3 seconds)
+    double received_time = 0;    // Assigned by RSU upon reception
+    
+    // QoS and Priority
+    double qos_value;            // Quality of Service (0.0 - 1.0)
+}
+
+//
+// Task Completion Message - Sent from vehicle to RSU when task completes
+//
+packet TaskCompletionMessage extends BaseFrame1609_4 {
+    string task_id;              // Task identifier
+    string vehicle_id;           // Originating vehicle ID
+    double completion_time;      // When task completed
+    double processing_time;      // Actual processing duration
+    bool completed_on_time;      // True if completed before deadline
+    double cpu_allocated;        // Average CPU allocated during processing
+}
+
+//
+// Task Failure Message - Sent from vehicle to RSU when task fails/is rejected
+//
+packet TaskFailureMessage extends BaseFrame1609_4 {
+    string task_id;              // Task identifier
+    string vehicle_id;           // Originating vehicle ID
+    double failure_time;         // When task failed/was rejected
+    string failure_reason;       // "DEADLINE_MISSED", "REJECTED_QUEUE_FULL", "REJECTED_INFEASIBLE"
+    double wasted_time;          // Time spent before failure
+}
+
+//
+// Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
+//
+packet VehicleResourceStatusMessage extends BaseFrame1609_4 {
+    string vehicle_id;           // Vehicle identifier
+    
+    // Vehicle State
+    double pos_x;                // Position X
+    double pos_y;                // Position Y
+    double speed;                // Current speed
+    
+    // Resource Information
+    double cpu_total;            // Total CPU capacity (Hz)
+    double cpu_allocable;        // CPU available for tasks (after reservation)
+    double cpu_available;        // Currently available CPU (Hz)
+    double cpu_utilization;      // CPU utilization percentage (0-100)
+    
+    double mem_total;            // Total memory (bytes)
+    double mem_available;        // Available memory (bytes)
+    double mem_utilization;      // Memory utilization percentage (0-100)
+    
+    // Task Queue Status
+    uint32_t tasks_generated;    // Total tasks generated
+    uint32_t tasks_completed_on_time;  // Tasks completed before deadline
+    uint32_t tasks_completed_late;     // Tasks completed after deadline (soft miss)
+    uint32_t tasks_failed;       // Tasks that missed deadline (hard miss)
+    uint32_t tasks_rejected;     // Tasks rejected (queue full/infeasible)
+    uint32_t current_queue_length;     // Current pending tasks
+    uint32_t current_processing_count; // Currently processing tasks
+    
+    // Performance Metrics
+    double avg_completion_time;  // Average task completion time
+    double deadline_miss_ratio;  // Ratio of missed deadlines
+}

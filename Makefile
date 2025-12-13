@@ -39,11 +39,14 @@ OBJS = \
     $O/rsu_http_poster.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
+    $O/Task.o \
     $O/UnicastVisualizer.o \
-    $O/VehicleApp.o
+    $O/VehicleApp.o \
+    $O/TaskMetadataMessage_m.o
 
 # Message files
-MSGFILES =
+MSGFILES = \
+    TaskMetadataMessage.msg
 
 # SM files
 SMFILES =

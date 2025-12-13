@@ -2968,3 +2968,263 @@ Wed Dec 10 18:47:30 2025
 Wed Dec 10 18:47:30 2025
 >>>>>>> origin/digital-twin
  WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec 11 13:33:43 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec 11 13:33:43 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Thu Dec 11 13:33:43 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec 11 13:33:43 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec 11 13:33:43 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Thu Dec 11 13:33:43 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Thu Dec 11 13:33:43 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Thu Dec 11 13:33:43 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Thu Dec 11 13:33:43 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+2025-12-11 14:04:53 ONWSM raw='VEHICLE_DATA|VehID:0|Time:10.100|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:3196093590.24|CPU_Load_Pct:41.83|Battery_Pct:52.71|Battery_mAh:3243.22|Battery_Max_mAh:6153.15|Memory_Avail_MB:3452.17|Memory_Avail_Pct:72.88|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.94|PosX:550.84|PosY:758.87|MAC:66'
+2025-12-11 14:04:53 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":10.1001}'
+Thu Dec 11 14:04:53 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":10.1001}
+Thu Dec 11 14:04:53 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.71, "Battery_mAh": 3243.22, "CPU_Avail_Hz": 3196093590.24, "CPU_Load_Pct": 41.83, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3452.17, "Memory_Avail_Pct": 72.88, "Memory_Max_MB": 4736.54, "PosX": 550.84, "PosY": 758.87, "Speed": 13.94, "Time": 10.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:04:53 2025
+ SEND payload={"diag":"ping","simTime":10.1001}
+Thu Dec 11 14:04:54 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:04:54 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.71, "Battery_mAh": 3243.22, "CPU_Avail_Hz": 3196093590.24, "CPU_Load_Pct": 41.83, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3452.17, "Memory_Avail_Pct": 72.88, "Memory_Max_MB": 4736.54, "PosX": 550.84, "PosY": 758.87, "Speed": 13.94, "Time": 10.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:04:54 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:06:58 ONWSM raw='VEHICLE_DATA|VehID:0|Time:10.600|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:3218886751.41|CPU_Load_Pct:41.41|Battery_Pct:52.70|Battery_mAh:3242.83|Battery_Max_mAh:6153.15|Memory_Avail_MB:3430.15|Memory_Avail_Pct:72.42|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.92|PosX:550.89|PosY:751.92|MAC:66'
+2025-12-11 14:06:58 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":10.6001}'
+Thu Dec 11 14:06:58 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":10.6001}
+Thu Dec 11 14:06:58 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.70, "Battery_mAh": 3242.83, "CPU_Avail_Hz": 3218886751.41, "CPU_Load_Pct": 41.41, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3430.15, "Memory_Avail_Pct": 72.42, "Memory_Max_MB": 4736.54, "PosX": 550.89, "PosY": 751.92, "Speed": 13.92, "Time": 10.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:06:58 2025
+ SEND payload={"diag":"ping","simTime":10.6001}
+Thu Dec 11 14:06:58 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:06:58 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.70, "Battery_mAh": 3242.83, "CPU_Avail_Hz": 3218886751.41, "CPU_Load_Pct": 41.41, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3430.15, "Memory_Avail_Pct": 72.42, "Memory_Max_MB": 4736.54, "PosX": 550.89, "PosY": 751.92, "Speed": 13.92, "Time": 10.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:06:58 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:08:51 ONWSM raw='VEHICLE_DATA|VehID:0|Time:11.100|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:3151645631.53|CPU_Load_Pct:42.64|Battery_Pct:52.70|Battery_mAh:3242.43|Battery_Max_mAh:6153.15|Memory_Avail_MB:3257.71|Memory_Avail_Pct:68.78|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.99|PosX:550.94|PosY:744.93|MAC:66'
+2025-12-11 14:08:51 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":11.1001}'
+Thu Dec 11 14:08:51 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":11.1001}
+Thu Dec 11 14:08:51 2025
+ SEND payload={"diag":"ping","simTime":11.1001}
+Thu Dec 11 14:08:51 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.70, "Battery_mAh": 3242.43, "CPU_Avail_Hz": 3151645631.53, "CPU_Load_Pct": 42.64, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3257.71, "Memory_Avail_Pct": 68.78, "Memory_Max_MB": 4736.54, "PosX": 550.94, "PosY": 744.93, "Speed": 13.99, "Time": 11.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:08:51 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:08:51 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.70, "Battery_mAh": 3242.43, "CPU_Avail_Hz": 3151645631.53, "CPU_Load_Pct": 42.64, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3257.71, "Memory_Avail_Pct": 68.78, "Memory_Max_MB": 4736.54, "PosX": 550.94, "PosY": 744.93, "Speed": 13.99, "Time": 11.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:08:51 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:10:38 ONWSM raw='VEHICLE_DATA|VehID:0|Time:11.600|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:3390014171.89|CPU_Load_Pct:38.30|Battery_Pct:52.69|Battery_mAh:3242.05|Battery_Max_mAh:6153.15|Memory_Avail_MB:3217.95|Memory_Avail_Pct:67.94|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.88|PosX:550.99|PosY:737.95|MAC:66'
+2025-12-11 14:10:38 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":11.6001}'
+Thu Dec 11 14:10:38 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":11.6001}
+Thu Dec 11 14:10:38 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.69, "Battery_mAh": 3242.05, "CPU_Avail_Hz": 3390014171.89, "CPU_Load_Pct": 38.30, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3217.95, "Memory_Avail_Pct": 67.94, "Memory_Max_MB": 4736.54, "PosX": 550.99, "PosY": 737.95, "Speed": 13.88, "Time": 11.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:10:38 2025
+ SEND payload={"diag":"ping","simTime":11.6001}
+Thu Dec 11 14:10:38 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:10:38 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.69, "Battery_mAh": 3242.05, "CPU_Avail_Hz": 3390014171.89, "CPU_Load_Pct": 38.30, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3217.95, "Memory_Avail_Pct": 67.94, "Memory_Max_MB": 4736.54, "PosX": 550.99, "PosY": 737.95, "Speed": 13.88, "Time": 11.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:10:38 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:12:47 ONWSM raw='VEHICLE_DATA|VehID:0|Time:12.100|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:3176498917.92|CPU_Load_Pct:42.19|Battery_Pct:52.68|Battery_mAh:3241.66|Battery_Max_mAh:6153.15|Memory_Avail_MB:3086.73|Memory_Avail_Pct:65.17|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:14.00|PosX:551.04|PosY:730.98|MAC:66'
+2025-12-11 14:12:47 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":12.1004}'
+Thu Dec 11 14:12:47 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":12.1004}
+Thu Dec 11 14:12:47 2025
+ SEND payload={"diag":"ping","simTime":12.1004}
+Thu Dec 11 14:12:47 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.68, "Battery_mAh": 3241.66, "CPU_Avail_Hz": 3176498917.92, "CPU_Load_Pct": 42.19, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3086.73, "Memory_Avail_Pct": 65.17, "Memory_Max_MB": 4736.54, "PosX": 551.04, "PosY": 730.98, "Speed": 14.00, "Time": 12.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:12:47 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:12:47 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.68, "Battery_mAh": 3241.66, "CPU_Avail_Hz": 3176498917.92, "CPU_Load_Pct": 42.19, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3086.73, "Memory_Avail_Pct": 65.17, "Memory_Max_MB": 4736.54, "PosX": 551.04, "PosY": 730.98, "Speed": 14.00, "Time": 12.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:12:47 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:14:31 ONWSM raw='VEHICLE_DATA|VehID:0|Time:12.600|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:3124195028.54|CPU_Load_Pct:43.14|Battery_Pct:52.68|Battery_mAh:3241.26|Battery_Max_mAh:6153.15|Memory_Avail_MB:2914.31|Memory_Avail_Pct:61.53|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.97|PosX:550.85|PosY:724.08|MAC:66'
+2025-12-11 14:14:31 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":12.6001}'
+Thu Dec 11 14:14:31 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":12.6001}
+Thu Dec 11 14:14:31 2025
+ SEND payload={"diag":"ping","simTime":12.6001}
+Thu Dec 11 14:14:31 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.68, "Battery_mAh": 3241.26, "CPU_Avail_Hz": 3124195028.54, "CPU_Load_Pct": 43.14, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2914.31, "Memory_Avail_Pct": 61.53, "Memory_Max_MB": 4736.54, "PosX": 550.85, "PosY": 724.08, "Speed": 13.97, "Time": 12.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:14:31 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:14:31 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.68, "Battery_mAh": 3241.26, "CPU_Avail_Hz": 3124195028.54, "CPU_Load_Pct": 43.14, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2914.31, "Memory_Avail_Pct": 61.53, "Memory_Max_MB": 4736.54, "PosX": 550.85, "PosY": 724.08, "Speed": 13.97, "Time": 12.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:14:31 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:16:49 ONWSM raw='VEHICLE_DATA|VehID:3|Time:13.100|CPU_Max_Hz:3540872693.06|CPU_Avail_Hz:354087269.31|CPU_Load_Pct:90.00|Battery_Pct:80.64|Battery_mAh:4816.22|Battery_Max_mAh:5972.42|Memory_Avail_MB:4674.20|Memory_Avail_Pct:80.00|Memory_Max_MB:5842.75|TxPower_mW:101.88|Speed:13.93|PosX:550.84|PosY:759.42|MAC:84'
+2025-12-11 14:16:49 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":13.1001}'
+Thu Dec 11 14:16:49 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":13.1001}
+Thu Dec 11 14:16:49 2025
+ SEND payload={"diag":"ping","simTime":13.1001}
+Thu Dec 11 14:16:49 2025
+ ENQUEUE len=348 payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.64, "Battery_mAh": 4816.22, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4674.20, "Memory_Avail_Pct": 80.00, "Memory_Max_MB": 5842.75, "PosX": 550.84, "PosY": 759.42, "Speed": 13.93, "Time": 13.100, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:16:49 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:16:49 2025
+ SEND payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.64, "Battery_mAh": 4816.22, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4674.20, "Memory_Avail_Pct": 80.00, "Memory_Max_MB": 5842.75, "PosX": 550.84, "PosY": 759.42, "Speed": 13.93, "Time": 13.100, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:16:49 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:17:20 ONWSM raw='VEHICLE_DATA|VehID:0|Time:13.100|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:2880742921.52|CPU_Load_Pct:47.57|Battery_Pct:52.67|Battery_mAh:3240.84|Battery_Max_mAh:6153.15|Memory_Avail_MB:3017.49|Memory_Avail_Pct:63.71|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.97|PosX:547.77|PosY:727.00|MAC:66'
+2025-12-11 14:17:20 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":13.1004}'
+Thu Dec 11 14:17:20 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":13.1004}
+Thu Dec 11 14:17:20 2025
+ SEND payload={"diag":"ping","simTime":13.1004}
+Thu Dec 11 14:17:20 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.67, "Battery_mAh": 3240.84, "CPU_Avail_Hz": 2880742921.52, "CPU_Load_Pct": 47.57, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3017.49, "Memory_Avail_Pct": 63.71, "Memory_Max_MB": 4736.54, "PosX": 547.77, "PosY": 727.00, "Speed": 13.97, "Time": 13.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:17:20 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:17:20 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.67, "Battery_mAh": 3240.84, "CPU_Avail_Hz": 2880742921.52, "CPU_Load_Pct": 47.57, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 3017.49, "Memory_Avail_Pct": 63.71, "Memory_Max_MB": 4736.54, "PosX": 547.77, "PosY": 727.00, "Speed": 13.97, "Time": 13.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:17:20 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:22:30 ONWSM raw='VEHICLE_DATA|VehID:0|Time:13.600|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:2714839922.55|CPU_Load_Pct:50.59|Battery_Pct:52.66|Battery_mAh:3240.41|Battery_Max_mAh:6153.15|Memory_Avail_MB:2903.12|Memory_Avail_Pct:61.29|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.98|PosX:547.72|PosY:733.98|MAC:66'
+2025-12-11 14:22:30 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":13.6004}'
+Thu Dec 11 14:22:30 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":13.6004}
+Thu Dec 11 14:22:30 2025
+ SEND payload={"diag":"ping","simTime":13.6004}
+Thu Dec 11 14:22:30 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.66, "Battery_mAh": 3240.41, "CPU_Avail_Hz": 2714839922.55, "CPU_Load_Pct": 50.59, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2903.12, "Memory_Avail_Pct": 61.29, "Memory_Max_MB": 4736.54, "PosX": 547.72, "PosY": 733.98, "Speed": 13.98, "Time": 13.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:22:30 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:22:30 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.66, "Battery_mAh": 3240.41, "CPU_Avail_Hz": 2714839922.55, "CPU_Load_Pct": 50.59, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2903.12, "Memory_Avail_Pct": 61.29, "Memory_Max_MB": 4736.54, "PosX": 547.72, "PosY": 733.98, "Speed": 13.98, "Time": 13.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:22:30 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:23:49 ONWSM raw='VEHICLE_DATA|VehID:3|Time:13.600|CPU_Max_Hz:3540872693.06|CPU_Avail_Hz:491207030.09|CPU_Load_Pct:86.13|Battery_Pct:80.63|Battery_mAh:4815.63|Battery_Max_mAh:5972.42|Memory_Avail_MB:4635.00|Memory_Avail_Pct:79.33|Memory_Max_MB:5842.75|TxPower_mW:101.88|Speed:14.00|PosX:550.89|PosY:752.46|MAC:84'
+2025-12-11 14:23:49 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":13.601}'
+Thu Dec 11 14:23:49 2025
+ ENQUEUE len=32 payload={"diag":"ping","simTime":13.601}
+Thu Dec 11 14:23:49 2025
+ SEND payload={"diag":"ping","simTime":13.601}
+Thu Dec 11 14:23:49 2025
+ ENQUEUE len=348 payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.63, "Battery_mAh": 4815.63, "CPU_Avail_Hz": 491207030.09, "CPU_Load_Pct": 86.13, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4635.00, "Memory_Avail_Pct": 79.33, "Memory_Max_MB": 5842.75, "PosX": 550.89, "PosY": 752.46, "Speed": 14.00, "Time": 13.600, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:23:49 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:23:49 2025
+ SEND payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.63, "Battery_mAh": 4815.63, "CPU_Avail_Hz": 491207030.09, "CPU_Load_Pct": 86.13, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4635.00, "Memory_Avail_Pct": 79.33, "Memory_Max_MB": 5842.75, "PosX": 550.89, "PosY": 752.46, "Speed": 14.00, "Time": 13.600, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:23:49 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:28:03 ONWSM raw='VEHICLE_DATA|VehID:0|Time:14.100|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:2624409575.51|CPU_Load_Pct:52.23|Battery_Pct:52.66|Battery_mAh:3239.97|Battery_Max_mAh:6153.15|Memory_Avail_MB:2800.15|Memory_Avail_Pct:59.12|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.92|PosX:547.67|PosY:740.95|MAC:66'
+2025-12-11 14:28:03 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":14.1004}'
+Thu Dec 11 14:28:03 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":14.1004}
+Thu Dec 11 14:28:03 2025
+ SEND payload={"diag":"ping","simTime":14.1004}
+Thu Dec 11 14:28:03 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.66, "Battery_mAh": 3239.97, "CPU_Avail_Hz": 2624409575.51, "CPU_Load_Pct": 52.23, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2800.15, "Memory_Avail_Pct": 59.12, "Memory_Max_MB": 4736.54, "PosX": 547.67, "PosY": 740.95, "Speed": 13.92, "Time": 14.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:28:03 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:28:03 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.66, "Battery_mAh": 3239.97, "CPU_Avail_Hz": 2624409575.51, "CPU_Load_Pct": 52.23, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2800.15, "Memory_Avail_Pct": 59.12, "Memory_Max_MB": 4736.54, "PosX": 547.67, "PosY": 740.95, "Speed": 13.92, "Time": 14.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:28:03 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:28:56 ONWSM raw='VEHICLE_DATA|VehID:3|Time:14.100|CPU_Max_Hz:3540872693.06|CPU_Avail_Hz:354087269.31|CPU_Load_Pct:90.00|Battery_Pct:80.62|Battery_mAh:4815.01|Battery_Max_mAh:5972.42|Memory_Avail_MB:4469.18|Memory_Avail_Pct:76.49|Memory_Max_MB:5842.75|TxPower_mW:101.88|Speed:13.90|PosX:550.94|PosY:745.49|MAC:84'
+2025-12-11 14:28:56 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":14.1007}'
+Thu Dec 11 14:28:56 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":14.1007}
+Thu Dec 11 14:28:56 2025
+ SEND payload={"diag":"ping","simTime":14.1007}
+Thu Dec 11 14:28:56 2025
+ ENQUEUE len=348 payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.62, "Battery_mAh": 4815.01, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4469.18, "Memory_Avail_Pct": 76.49, "Memory_Max_MB": 5842.75, "PosX": 550.94, "PosY": 745.49, "Speed": 13.90, "Time": 14.100, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:28:56 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:28:56 2025
+ SEND payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.62, "Battery_mAh": 4815.01, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4469.18, "Memory_Avail_Pct": 76.49, "Memory_Max_MB": 5842.75, "PosX": 550.94, "PosY": 745.49, "Speed": 13.90, "Time": 14.100, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:28:56 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:34:06 ONWSM raw='VEHICLE_DATA|VehID:3|Time:14.600|CPU_Max_Hz:3540872693.06|CPU_Avail_Hz:354087269.31|CPU_Load_Pct:90.00|Battery_Pct:80.61|Battery_mAh:4814.40|Battery_Max_mAh:5972.42|Memory_Avail_MB:4359.35|Memory_Avail_Pct:74.61|Memory_Max_MB:5842.75|TxPower_mW:101.88|Speed:13.91|PosX:550.99|PosY:738.51|MAC:84'
+2025-12-11 14:34:06 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":14.6004}'
+Thu Dec 11 14:34:06 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":14.6004}
+Thu Dec 11 14:34:06 2025
+ SEND payload={"diag":"ping","simTime":14.6004}
+Thu Dec 11 14:34:06 2025
+ ENQUEUE len=348 payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.61, "Battery_mAh": 4814.40, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4359.35, "Memory_Avail_Pct": 74.61, "Memory_Max_MB": 5842.75, "PosX": 550.99, "PosY": 738.51, "Speed": 13.91, "Time": 14.600, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:34:06 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:34:06 2025
+ SEND payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.61, "Battery_mAh": 4814.40, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4359.35, "Memory_Avail_Pct": 74.61, "Memory_Max_MB": 5842.75, "PosX": 550.99, "PosY": 738.51, "Speed": 13.91, "Time": 14.600, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:34:06 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:34:38 ONWSM raw='VEHICLE_DATA|VehID:0|Time:14.600|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:2845147754.10|CPU_Load_Pct:48.22|Battery_Pct:52.65|Battery_mAh:3239.55|Battery_Max_mAh:6153.15|Memory_Avail_MB:2627.01|Memory_Avail_Pct:55.46|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.91|PosX:547.62|PosY:747.91|MAC:66'
+2025-12-11 14:34:38 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":14.6006}'
+Thu Dec 11 14:34:38 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":14.6006}
+Thu Dec 11 14:34:38 2025
+ SEND payload={"diag":"ping","simTime":14.6006}
+Thu Dec 11 14:34:38 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.65, "Battery_mAh": 3239.55, "CPU_Avail_Hz": 2845147754.10, "CPU_Load_Pct": 48.22, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2627.01, "Memory_Avail_Pct": 55.46, "Memory_Max_MB": 4736.54, "PosX": 547.62, "PosY": 747.91, "Speed": 13.91, "Time": 14.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:34:38 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:34:38 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.65, "Battery_mAh": 3239.55, "CPU_Avail_Hz": 2845147754.10, "CPU_Load_Pct": 48.22, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2627.01, "Memory_Avail_Pct": 55.46, "Memory_Max_MB": 4736.54, "PosX": 547.62, "PosY": 747.91, "Speed": 13.91, "Time": 14.600, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:34:38 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:40:28 ONWSM raw='VEHICLE_DATA|VehID:0|Time:15.100|CPU_Max_Hz:5494254785.59|CPU_Avail_Hz:2932997137.85|CPU_Load_Pct:46.62|Battery_Pct:52.64|Battery_mAh:3239.14|Battery_Max_mAh:6153.15|Memory_Avail_MB:2462.02|Memory_Avail_Pct:51.98|Memory_Max_MB:4736.54|TxPower_mW:164.59|Speed:13.96|PosX:547.57|PosY:754.86|MAC:66'
+2025-12-11 14:40:28 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":15.1004}'
+Thu Dec 11 14:40:28 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":15.1004}
+Thu Dec 11 14:40:28 2025
+ ENQUEUE len=349 payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.64, "Battery_mAh": 3239.14, "CPU_Avail_Hz": 2932997137.85, "CPU_Load_Pct": 46.62, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2462.02, "Memory_Avail_Pct": 51.98, "Memory_Max_MB": 4736.54, "PosX": 547.57, "PosY": 754.86, "Speed": 13.96, "Time": 15.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:40:28 2025
+ SEND payload={"diag":"ping","simTime":15.1004}
+Thu Dec 11 14:40:28 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:40:28 2025
+ SEND payload={"Battery_Max_mAh": 6153.15, "Battery_Pct": 52.64, "Battery_mAh": 3239.14, "CPU_Avail_Hz": 2932997137.85, "CPU_Load_Pct": 46.62, "CPU_Max_Hz": 5494254785.59, "MAC": "66", "Memory_Avail_MB": 2462.02, "Memory_Avail_Pct": 51.98, "Memory_Max_MB": 4736.54, "PosX": 547.57, "PosY": 754.86, "Speed": 13.96, "Time": 15.100, "TxPower_mW": 164.59, "VehID": 0}
+Thu Dec 11 14:40:28 2025
+ RESULT ERROR=Couldn't connect to server
+2025-12-11 14:41:55 ONWSM raw='VEHICLE_DATA|VehID:3|Time:15.100|CPU_Max_Hz:3540872693.06|CPU_Avail_Hz:354087269.31|CPU_Load_Pct:90.00|Battery_Pct:80.60|Battery_mAh:4813.78|Battery_Max_mAh:5972.42|Memory_Avail_MB:4434.23|Memory_Avail_Pct:75.89|Memory_Max_MB:5842.75|TxPower_mW:101.88|Speed:13.93|PosX:551.04|PosY:731.56|MAC:84'
+2025-12-11 14:41:55 DIAGNOSTIC_ENQUEUE payload='{"diag":"ping","simTime":15.1007}'
+Thu Dec 11 14:41:55 2025
+ ENQUEUE len=33 payload={"diag":"ping","simTime":15.1007}
+Thu Dec 11 14:41:55 2025
+ ENQUEUE len=348 payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.60, "Battery_mAh": 4813.78, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4434.23, "Memory_Avail_Pct": 75.89, "Memory_Max_MB": 5842.75, "PosX": 551.04, "PosY": 731.56, "Speed": 13.93, "Time": 15.100, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:41:55 2025
+ SEND payload={"diag":"ping","simTime":15.1007}
+Thu Dec 11 14:41:55 2025
+ RESULT ERROR=Couldn't connect to server
+Thu Dec 11 14:41:55 2025
+ SEND payload={"Battery_Max_mAh": 5972.42, "Battery_Pct": 80.60, "Battery_mAh": 4813.78, "CPU_Avail_Hz": 354087269.31, "CPU_Load_Pct": 90.00, "CPU_Max_Hz": 3540872693.06, "MAC": "84", "Memory_Avail_MB": 4434.23, "Memory_Avail_Pct": 75.89, "Memory_Max_MB": 5842.75, "PosX": 551.04, "PosY": 731.56, "Speed": 13.93, "Time": 15.100, "TxPower_mW": 101.88, "VehID": 3}
+Thu Dec 11 14:41:55 2025
+ RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:34:06 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:34:06 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:34:06 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:34:06 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:34:06 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:34:06 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:34:06 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:34:06 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:34:06 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
