@@ -2,6 +2,8 @@
 #include <sstream>
 #include <iomanip>
 
+namespace complex_network {
+
 Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cycles, 
            double deadline_sec, double qos) 
     : vehicle_id(vid),
@@ -119,3 +121,5 @@ void Task::logTaskInfo(const std::string& prefix) const {
     }
     EV_INFO << "└────────────────────────────────────────────────────────────────────┘" << endl;
 }
+
+} // namespace complex_network

@@ -12,9 +12,10 @@ class Task;
  * Offloading decision result
  */
 enum class OffloadingDecision {
-    EXECUTE_LOCALLY,    // Process on vehicle
-    OFFLOAD_TO_RSU,     // Send to RSU for processing
-    REJECT_TASK         // Cannot handle (insufficient resources)
+    EXECUTE_LOCALLY,               // Process on vehicle
+    OFFLOAD_TO_RSU,                // Send to RSU for processing
+    OFFLOAD_TO_SERVICE_VEHICLE,    // Send to another vehicle for processing
+    REJECT_TASK                    // Cannot handle (insufficient resources)
 };
 
 /**

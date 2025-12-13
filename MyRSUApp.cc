@@ -239,6 +239,36 @@ void MyRSUApp::handleMessage(cMessage* msg) {
     std::cout << "CONSOLE: MyRSUApp handleMessage() called with message: " << msg->getName()
               << " at time " << simTime() << std::endl;
 
+    // ========================================================================
+    // HANDLE OFFLOADING REQUEST MESSAGES
+    // ========================================================================
+    veins::OffloadingRequestMessage* offloadReq = dynamic_cast<veins::OffloadingRequestMessage*>(msg);
+    if (offloadReq) {
+        EV_INFO << "Received OffloadingRequestMessage" << endl;
+        handleOffloadingRequest(offloadReq);
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE TASK OFFLOAD PACKETS (for RSU processing)
+    // ========================================================================
+    veins::TaskOffloadPacket* taskPacket = dynamic_cast<veins::TaskOffloadPacket*>(msg);
+    if (taskPacket) {
+        EV_INFO << "Received TaskOffloadPacket" << endl;
+        handleTaskOffloadPacket(taskPacket);
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE TASK OFFLOADING LIFECYCLE EVENTS
+    // ========================================================================
+    veins::TaskOffloadingEvent* offloadEvent = dynamic_cast<veins::TaskOffloadingEvent*>(msg);
+    if (offloadEvent) {
+        EV_INFO << "Received TaskOffloadingEvent" << endl;
+        handleTaskOffloadingEvent(offloadEvent);
+        return;
+    }
+
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
         std::cout << "CONSOLE: MyRSUApp handleMessage received BaseFrame1609_4! forwarding to onWSM()" << std::endl;
@@ -876,6 +906,279 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     }
     
     PQclear(res);
+}
+
+// ============================================================================
+// TASK OFFLOADING ORCHESTRATION IMPLEMENTATION
+// ============================================================================
+
+void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║              RSU: OFFLOADING REQUEST RECEIVED                            ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getVehicle_id();
+    
+    std::cout << "RSU_OFFLOAD: Received offloading request for task " << task_id 
+              << " from vehicle " << vehicle_id << std::endl;
+    
+    // Store request details
+    OffloadingRequest request;
+    request.task_id = task_id;
+    request.vehicle_id = vehicle_id;
+    request.vehicle_mac = msg->getSenderAddress();  // Inherited from BaseFrame1609_4
+    request.request_time = simTime().dbl();
+    request.local_decision = msg->getLocal_decision();
+    
+    // Task characteristics
+    request.task_size_bytes = msg->getTask_size_bytes();
+    request.cpu_cycles = msg->getCpu_cycles();
+    request.deadline_seconds = msg->getDeadline_seconds();
+    request.qos_value = msg->getQos_value();
+    
+    // Vehicle state
+    request.vehicle_cpu_available = msg->getLocal_cpu_available_ghz();
+    request.vehicle_cpu_utilization = msg->getLocal_cpu_utilization();
+    request.vehicle_queue_length = msg->getLocal_queue_length();
+    
+    pending_offloading_requests[task_id] = request;
+    
+    EV_INFO << "  Task ID: " << task_id << endl;
+    EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
+    EV_INFO << "  Task Size: " << (request.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  CPU Cycles: " << (request.cpu_cycles / 1e9) << " G" << endl;
+    EV_INFO << "  Deadline: " << request.deadline_seconds << " s" << endl;
+    EV_INFO << "  QoS: " << request.qos_value << endl;
+    EV_INFO << "  Local Decision Recommendation: " << request.local_decision << endl;
+    EV_INFO << "  Vehicle CPU Available: " << request.vehicle_cpu_available << " GHz" << endl;
+    EV_INFO << "  Vehicle CPU Utilization: " << (request.vehicle_cpu_utilization * 100) << "%" << endl;
+    EV_INFO << "  Vehicle Queue Length: " << request.vehicle_queue_length << endl;
+    
+    // Make ML-based offloading decision
+    veins::OffloadingDecisionMessage* decision = makeOffloadingDecision(request);
+    
+    if (decision) {
+        // Send decision back to vehicle
+        populateWSM(decision, request.vehicle_mac);
+        sendDown(decision);
+        
+        EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
+        std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id 
+                  << ": " << decision->getDecision_type() << std::endl;
+    } else {
+        EV_ERROR << "Failed to create offloading decision" << endl;
+    }
+    
+    // Clean up request message
+    delete msg;
+}
+
+veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const OffloadingRequest& request) {
+    EV_INFO << "🤖 RSU: Making ML-based offloading decision..." << endl;
+    
+    // ========================================================================
+    // ML DECISION ENGINE (PLACEHOLDER - REPLACE WITH ACTUAL ML MODEL)
+    // ========================================================================
+    
+    std::string decisionType;
+    std::string reason;
+    double confidence = 0.0;
+    double estimated_completion_time = 0.0;
+    std::string target_service_vehicle_id;
+    LAddress::L2Type target_service_vehicle_mac = 0;
+    
+    if (!mlModelEnabled) {
+        // PLACEHOLDER: Simple rule-based decision
+        EV_INFO << "  Using placeholder rule-based decision (ML model disabled)" << endl;
+        
+        // Rule 1: If vehicle queue is long, offload to RSU
+        if (request.vehicle_queue_length > 5) {
+            decisionType = "RSU";
+            reason = "Vehicle queue overloaded (>" + std::to_string((int)request.vehicle_queue_length) + " tasks)";
+            confidence = 0.8;
+            estimated_completion_time = request.deadline_seconds * 0.6;  // Estimate 60% of deadline
+        }
+        // Rule 2: If vehicle CPU utilization is high, try service vehicle
+        else if (request.vehicle_cpu_utilization > 0.8 && serviceVehicleSelectionEnabled) {
+            std::string sv_id = selectBestServiceVehicle(request);
+            if (!sv_id.empty()) {
+                decisionType = "SERVICE_VEHICLE";
+                target_service_vehicle_id = sv_id;
+                // TODO: Get actual MAC address from Digital Twin
+                target_service_vehicle_mac = 0;  // Placeholder
+                reason = "Vehicle CPU high (" + std::to_string((int)(request.vehicle_cpu_utilization*100)) + "%), service vehicle available";
+                confidence = 0.75;
+                estimated_completion_time = request.deadline_seconds * 0.7;
+            } else {
+                // No service vehicle available, use RSU
+                decisionType = "RSU";
+                reason = "Vehicle CPU high but no service vehicle available";
+                confidence = 0.7;
+                estimated_completion_time = request.deadline_seconds * 0.6;
+            }
+        }
+        // Rule 3: Vehicle can handle it locally
+        else if (request.vehicle_cpu_available > 0.5) {
+            decisionType = "LOCAL";
+            reason = "Vehicle has sufficient resources (CPU available: " + std::to_string(request.vehicle_cpu_available) + " GHz)";
+            confidence = 0.85;
+            estimated_completion_time = request.deadline_seconds * 0.5;
+        }
+        // Rule 4: Borderline case - default to RSU
+        else {
+            decisionType = "RSU";
+            reason = "Borderline case, using RSU for reliability";
+            confidence = 0.65;
+            estimated_completion_time = request.deadline_seconds * 0.7;
+        }
+    } else {
+        // TODO: ML MODEL INFERENCE HERE
+        // Extract features from request and Digital Twin
+        // Call ML model prediction
+        // Parse ML model output
+        EV_INFO << "  ML model inference (NOT YET IMPLEMENTED)" << endl;
+        decisionType = "LOCAL";  // Fallback
+        reason = "ML model not yet integrated";
+        confidence = 0.5;
+        estimated_completion_time = request.deadline_seconds * 0.8;
+    }
+    
+    EV_INFO << "  Decision: " << decisionType << endl;
+    EV_INFO << "  Reason: " << reason << endl;
+    EV_INFO << "  Confidence: " << confidence << endl;
+    
+    // Create decision message
+    veins::OffloadingDecisionMessage* decision = new veins::OffloadingDecisionMessage();
+    decision->setSenderAddress(myId);  // Set RSU's MAC address
+    decision->setTask_id(request.task_id.c_str());
+    decision->setVehicle_id(request.vehicle_id.c_str());
+    decision->setDecision_type(decisionType.c_str());
+    decision->setDecision_time(simTime().dbl());
+    decision->setConfidence_score(confidence);
+    decision->setEstimated_completion_time(estimated_completion_time);
+    decision->setDecision_reason(reason.c_str());
+    
+    if (decisionType == "SERVICE_VEHICLE") {
+        decision->setTarget_service_vehicle_id(target_service_vehicle_id.c_str());
+        decision->setTarget_service_vehicle_mac(target_service_vehicle_mac);
+    }
+    
+    return decision;
+}
+
+std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) {
+    EV_INFO << "  Searching for best service vehicle..." << endl;
+    
+    // Query Digital Twin for available service vehicles
+    // TODO: Implement proper service vehicle selection based on:
+    // - CPU/memory availability
+    // - Distance from task vehicle
+    // - Current workload
+    // - Historical reliability
+    
+    // PLACEHOLDER: Return empty (no service vehicle available)
+    EV_INFO << "    No service vehicles available (placeholder)" << endl;
+    return "";
+}
+
+void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
+    EV_INFO << "\n" << endl;
+    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║              RSU: TASK OFFLOAD PACKET RECEIVED                           ║" << endl;
+    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string vehicle_id = msg->getOrigin_vehicle_id();
+    
+    std::cout << "RSU_PROCESS: Received task " << task_id << " from vehicle " << vehicle_id 
+              << " for RSU processing" << std::endl;
+    
+    EV_INFO << "  Task ID: " << task_id << endl;
+    EV_INFO << "  Origin Vehicle: " << vehicle_id << endl;
+    EV_INFO << "  Task Size: " << (msg->getTask_size_bytes() / 1024.0) << " KB" << endl;
+    EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
+    
+    // Process task on RSU edge server
+    processTaskOnRSU(task_id, msg);
+    
+    // msg will be deleted in processTaskOnRSU or here
+    delete msg;
+}
+
+void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
+    EV_INFO << "⚙️ RSU: Processing task " << task_id << " on edge server..." << endl;
+    
+    // TODO: Implement actual task processing
+    // - Allocate RSU edge server resources
+    // - Simulate processing time based on CPU cycles
+    // - Track task in processing queue
+    // - Schedule completion event
+    
+    // PLACEHOLDER: Simulate instant processing
+    std::string vehicle_id = packet->getOrigin_vehicle_id();
+    LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
+    
+    EV_INFO << "  Edge Server CPU: " << edgeCPU_GHz << " GHz" << endl;
+    EV_INFO << "  Edge Server Memory: " << edgeMemory_GB << " GB" << endl;
+    
+    // Simulate successful processing
+    bool success = true;
+    
+    std::cout << "RSU_PROCESS: Task " << task_id << " processing complete, sending result" << std::endl;
+    
+    sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, success);
+}
+
+void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
+                                        LAddress::L2Type vehicle_mac, bool success) {
+    EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
+    
+    // Create result message
+    veins::TaskResultMessage* result = new veins::TaskResultMessage();
+    result->setTask_id(task_id.c_str());
+    result->setProcessor_id("RSU");
+    result->setSuccess(success);
+    result->setProcessing_time(0.1);  // Placeholder: 100ms processing time
+    result->setCompletion_time(simTime().dbl());
+    
+    if (success) {
+        result->setTask_output_data("RSU_PROCESSED_DATA");  // Placeholder
+        EV_INFO << "  Result: SUCCESS" << endl;
+    } else {
+        result->setFailure_reason("Processing failed");
+        EV_INFO << "  Result: FAILED" << endl;
+    }
+    
+    // Send to vehicle
+    populateWSM(result, vehicle_mac);
+    sendDown(result);
+    
+    std::cout << "RSU_RESULT: Sent task result for " << task_id << " to vehicle " << vehicle_id << std::endl;
+}
+
+void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
+    EV_DEBUG << "📊 RSU: Received task offloading event" << endl;
+    
+    std::string task_id = msg->getTask_id();
+    std::string event_type = msg->getEvent_type();
+    std::string source = msg->getSource_entity_id();
+    std::string target = msg->getTarget_entity_id();
+    double event_time = msg->getEvent_time();
+    
+    EV_DEBUG << "  Task: " << task_id << endl;
+    EV_DEBUG << "  Event: " << event_type << endl;
+    EV_DEBUG << "  Source: " << source << " → Target: " << target << endl;
+    EV_DEBUG << "  Time: " << event_time << "s" << endl;
+    
+    // TODO: Log to Digital Twin database
+    // INSERT INTO task_offloading_events (task_id, event_type, source_entity_id, ...)
+    
+    std::cout << "RSU_EVENT: " << event_type << " for task " << task_id 
+              << " (" << source << " → " << target << ")" << std::endl;
+    
+    delete msg;
 }
 
 }  // namespace complex_network

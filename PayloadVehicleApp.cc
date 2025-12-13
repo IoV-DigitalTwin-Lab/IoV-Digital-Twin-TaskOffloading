@@ -270,6 +270,44 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
     std::cout << "CONSOLE: PayloadVehicleApp handleMessage() called with: " << msg->getName() << std::endl;
     EV << "PayloadVehicleApp: handleMessage() called with " << msg->getName() << endl;
 
+    // ========================================================================
+    // HANDLE OFFLOADING DECISION MESSAGES
+    // ========================================================================
+    veins::OffloadingDecisionMessage* decisionMsg = dynamic_cast<veins::OffloadingDecisionMessage*>(msg);
+    if (decisionMsg) {
+        EV_INFO << "Received OffloadingDecisionMessage" << endl;
+        handleOffloadingDecisionFromRSU(decisionMsg);
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE TASK RESULT MESSAGES
+    // ========================================================================
+    veins::TaskResultMessage* resultMsg = dynamic_cast<veins::TaskResultMessage*>(msg);
+    if (resultMsg) {
+        EV_INFO << "Received TaskResultMessage" << endl;
+        handleTaskResult(resultMsg);
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE SERVICE TASK REQUESTS (if service vehicle enabled)
+    // ========================================================================
+    veins::TaskOffloadPacket* taskPacket = dynamic_cast<veins::TaskOffloadPacket*>(msg);
+    if (taskPacket) {
+        EV_INFO << "Received TaskOffloadPacket" << endl;
+        if (serviceVehicleEnabled) {
+            handleServiceTaskRequest(taskPacket);
+        } else {
+            EV_WARN << "Received service task request but service vehicle not enabled" << endl;
+            delete taskPacket;
+        }
+        return;
+    }
+    
+    // ========================================================================
+    // HANDLE GENERAL WSM MESSAGES
+    // ========================================================================
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
         onWSM(wsm);
@@ -519,6 +557,42 @@ void PayloadVehicleApp::initializeTaskSystem() {
     // Schedule first task generation
     scheduleNextTaskGeneration();
     
+    // ============================================================================
+    // INITIALIZE OFFLOADING DECISION FRAMEWORK
+    // ============================================================================
+    
+    // Check if offloading is enabled
+    offloadingEnabled = par("offloadingEnabled").boolValue();
+    
+    if (offloadingEnabled) {
+        // Initialize decision maker
+        decisionMaker = new HeuristicDecisionMaker();
+        EV_INFO << "✓ Task offloading decision maker initialized" << endl;
+        std::cout << "OFFLOADING: Decision maker initialized for vehicle " 
+                  << getParentModule()->getIndex() << std::endl;
+        
+        // Read timeout parameters
+        rsuDecisionTimeout = par("rsuDecisionTimeout").doubleValue();
+        offloadedTaskTimeout = par("offloadedTaskTimeout").doubleValue();
+        EV_INFO << "  RSU decision timeout: " << rsuDecisionTimeout << "s" << endl;
+        EV_INFO << "  Offloaded task timeout: " << offloadedTaskTimeout << "s" << endl;
+    } else {
+        EV_INFO << "⚠ Offloading DISABLED - tasks will execute locally only" << endl;
+    }
+    
+    // Service vehicle parameters
+    serviceVehicleEnabled = par("serviceVehicleEnabled").boolValue();
+    if (serviceVehicleEnabled) {
+        maxConcurrentServiceTasks = par("maxConcurrentServiceTasks").intValue();
+        serviceCpuReservation = par("serviceCpuReservation").doubleValue();
+        serviceMemoryReservation = par("serviceMemoryReservation").doubleValue();
+        EV_INFO << "✓ Service vehicle mode ENABLED (can process tasks for others)" << endl;
+        std::cout << "SERVICE_VEHICLE: Vehicle " << getParentModule()->getIndex() 
+                  << " can accept " << maxConcurrentServiceTasks << " service tasks" << std::endl;
+    }
+    
+    EV_INFO << "✅ Task offloading system fully initialized" << endl;
+    
     EV_INFO << "✓ Task processing system initialized successfully" << endl;
     std::cout << "TASK_SYSTEM: Initialized for Vehicle " << getParentModule()->getIndex() 
               << " with " << (cpu_allocable/1e9) << " GHz allocable CPU" << std::endl;
@@ -562,6 +636,132 @@ void PayloadVehicleApp::generateTask() {
     // Send metadata to RSU (non-blocking)
     sendTaskMetadataToRSU(task);
     task->state = METADATA_SENT;
+    
+    // ============================================================================
+    // OFFLOADING DECISION INTEGRATION
+    // ============================================================================
+    
+    if (offloadingEnabled && decisionMaker) {
+        EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
+        
+        // Build decision context for the decision maker
+        DecisionContext context;
+        
+        // Task characteristics
+        context.task_size_kb = task->task_size_bytes / 1024.0;
+        context.cpu_cycles_required = task->cpu_cycles;
+        context.qos_value = task->qos_value;
+        context.deadline_seconds = task->relative_deadline;
+        
+        // Local vehicle resources
+        context.local_cpu_available = cpu_available / 1e9;  // Convert Hz to GHz
+        context.local_cpu_utilization = (cpu_allocable - cpu_available) / cpu_allocable;
+        context.local_mem_available = memory_available / 1e6;  // Convert bytes to MB
+        context.local_queue_length = pending_tasks.size();
+        context.local_processing_count = processing_tasks.size();
+        
+        // RSU availability and channel conditions
+        LAddress::L2Type rsu = selectBestRSU();
+        context.rsu_available = (rsu != 0);
+        context.rsu_distance = getRSUDistance();
+        context.estimated_rsu_rssi = getEstimatedRSSI();
+        context.estimated_transmission_time = estimateTransmissionTime(task);
+        
+        // Current time for deadline calculations
+        context.current_time = simTime().dbl();
+        
+        EV_INFO << "Decision context: LocalCPU=" << context.local_cpu_available << "GHz, "
+                << "Utilization=" << (context.local_cpu_utilization*100) << "%, "
+                << "Queue=" << context.local_queue_length << ", "
+                << "RSU_dist=" << context.rsu_distance << "m, "
+                << "RSSI=" << context.estimated_rsu_rssi << "dBm" << endl;
+        
+        // Make local offloading decision
+        OffloadingDecision localDecision = decisionMaker->makeDecision(context);
+        
+        std::string decisionStr;
+        switch(localDecision) {
+            case OffloadingDecision::EXECUTE_LOCALLY:
+                decisionStr = "LOCAL";
+                break;
+            case OffloadingDecision::OFFLOAD_TO_RSU:
+                decisionStr = "OFFLOAD_TO_RSU";
+                break;
+            case OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE:
+                decisionStr = "OFFLOAD_TO_SERVICE_VEHICLE";
+                break;
+            case OffloadingDecision::REJECT_TASK:
+                decisionStr = "REJECT";
+                break;
+        }
+        
+        EV_INFO << "📊 Local decision: " << decisionStr << endl;
+        std::cout << "OFFLOAD_DECISION: Vehicle " << vehicle_id << " local decision for task " 
+                  << task->task_id << ": " << decisionStr << std::endl;
+        
+        // ========================================================================
+        // DECISION BRANCH: LOCAL vs OFFLOAD
+        // ========================================================================
+        
+        if (localDecision == OffloadingDecision::EXECUTE_LOCALLY) {
+            // LOCAL DECISION: Process immediately without consulting RSU
+            // Vehicle is confident it can handle this task
+            EV_INFO << "💻 Local decision is LOCAL - processing immediately (no RSU consultation)" << endl;
+            std::cout << "OFFLOAD_LOCAL: Task " << task->task_id << " processing locally (confident)" << std::endl;
+            
+            // Check if can accept task
+            if (!canAcceptTask(task)) {
+                EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
+                task->state = REJECTED;
+                tasks_rejected++;
+                sendTaskFailureToRSU(task, "LOCAL_REJECTED");
+                delete task;
+                logTaskStatistics();
+                scheduleNextTaskGeneration();
+                return;
+            }
+            
+            // Process locally (existing flow)
+            if (canStartProcessing(task)) {
+                EV_INFO << "✓ Resources available - starting immediately" << endl;
+                allocateResourcesAndStart(task);
+            } else {
+                EV_INFO << "⏸ Resources busy - queuing task" << endl;
+                task->state = QUEUED;
+                pending_tasks.push(task);
+                logQueueState("Task queued after LOCAL decision");
+            }
+            
+            logResourceState("After task generation (local processing)");
+            scheduleNextTaskGeneration();
+            return;
+        }
+        
+        // OFFLOAD DECISION: Consult RSU for final decision
+        // Local heuristic suggests offloading - get ML-based decision from RSU
+        EV_INFO << "🌐 Local decision is OFFLOAD - consulting RSU for optimal placement" << endl;
+        std::cout << "OFFLOAD_REQUEST: Task " << task->task_id << " requesting RSU decision" << std::endl;
+        
+        // Send offloading request to RSU (includes local recommendation)
+        sendOffloadingRequestToRSU(task, localDecision);
+        
+        // Mark task as awaiting RSU ML decision
+        EV_INFO << "⏳ Task awaiting RSU ML decision..." << endl;
+        // Task is already in pendingOffloadingDecisions map from sendOffloadingRequestToRSU()
+        
+        // Schedule a timeout for the decision
+        cMessage* timeoutMsg = new cMessage("rsuDecisionTimeout");
+        timeoutMsg->setContextPointer(task);
+        scheduleAt(simTime() + rsuDecisionTimeout, timeoutMsg);
+        
+        logResourceState("After task generation (awaiting offload decision)");
+        scheduleNextTaskGeneration();
+        return;  // Don't process yet - wait for RSU decision
+    }
+    
+    // ============================================================================
+    // FALLBACK: ORIGINAL LOCAL-ONLY PROCESSING (if offloading disabled)
+    // ============================================================================
     
     // Check if can accept task
     if (!canAcceptTask(task)) {
@@ -1354,6 +1554,452 @@ double PayloadVehicleApp::normalizeValue(double value, double min, double max) {
     if (normalized < 0.0) normalized = 0.0;
     if (normalized > 1.0) normalized = 1.0;
     return normalized;
+}
+
+// ============================================================================
+// TASK OFFLOADING HELPER METHODS
+// ============================================================================
+
+double PayloadVehicleApp::getRSUDistance() {
+    // Get distance to currently selected RSU
+    if (currentRSU == 0) {
+        EV_WARN << "No RSU currently selected, selecting best RSU" << endl;
+        currentRSU = selectBestRSU();
+        if (currentRSU == 0) {
+            EV_WARN << "No RSU available" << endl;
+            return 999999.0;  // Very large distance if no RSU
+        }
+    }
+    
+    // Find the RSU index for currentRSU MAC address
+    for (const auto& pair : rsuMetrics) {
+        if (pair.second.macAddress == currentRSU) {
+            EV_DEBUG << "Distance to RSU: " << pair.second.distance << " meters" << endl;
+            return pair.second.distance;
+        }
+    }
+    
+    // If not found in metrics, return a default high distance
+    EV_WARN << "Current RSU not found in metrics" << endl;
+    return 1000.0;
+}
+
+double PayloadVehicleApp::getEstimatedRSSI() {
+    // Get RSSI from currently selected RSU
+    if (currentRSU == 0) {
+        EV_WARN << "No RSU currently selected, selecting best RSU" << endl;
+        currentRSU = selectBestRSU();
+        if (currentRSU == 0) {
+            EV_WARN << "No RSU available" << endl;
+            return -999.0;  // Very weak signal if no RSU
+        }
+    }
+    
+    // Find the RSU index for currentRSU MAC address
+    for (const auto& pair : rsuMetrics) {
+        if (pair.second.macAddress == currentRSU) {
+            double rssi = pair.second.lastRSSI;
+            EV_DEBUG << "RSSI from RSU: " << rssi << " dBm" << endl;
+            return rssi;
+        }
+    }
+    
+    // If not found in metrics, return a default weak RSSI
+    EV_WARN << "Current RSU not found in metrics" << endl;
+    return -90.0;
+}
+
+double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
+    // IEEE 802.11p DSRC Channel Rate: 3-27 Mbps (typically 6 Mbps for reliability)
+    double bandwidth_mbps = 6.0;  // Conservative estimate for reliable transmission
+    
+    // Calculate transmission time (data size in bits / bandwidth)
+    double transmission_time = (task->task_size_bytes * 8.0) / (bandwidth_mbps * 1e6);
+    
+    // Add propagation delay (distance / speed of light)
+    double distance = getRSUDistance();
+    double propagation_delay = distance / 3e8;  // Speed of light in m/s
+    
+    // Add processing overhead (~1ms for MAC layer)
+    double overhead = 0.001;
+    
+    double total_time = transmission_time + propagation_delay + overhead;
+    
+    EV_DEBUG << "Transmission estimate: " << (transmission_time * 1000) << "ms data + "
+             << (propagation_delay * 1e6) << "us propagation + 1ms overhead = "
+             << (total_time * 1000) << "ms total" << endl;
+    
+    return total_time;
+}
+
+// ============================================================================
+// OFFLOADING REQUEST/RESPONSE HANDLERS
+// ============================================================================
+
+void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision) {
+    EV_INFO << "📤 Sending offloading request to RSU for task " << task->task_id << endl;
+    std::cout << "OFFLOAD_REQUEST: Vehicle " << task->vehicle_id << " requesting decision for task " 
+              << task->task_id << std::endl;
+    
+    // Create offloading request message
+    veins::OffloadingRequestMessage* msg = new veins::OffloadingRequestMessage();
+    
+    // Task identification and characteristics
+    msg->setTask_id(task->task_id.c_str());
+    msg->setVehicle_id(task->vehicle_id.c_str());
+    msg->setRequest_time(simTime().dbl());
+    msg->setTask_size_bytes(task->task_size_bytes);
+    msg->setCpu_cycles(task->cpu_cycles);
+    msg->setDeadline_seconds(task->relative_deadline);
+    msg->setQos_value(task->qos_value);
+    
+    // Vehicle resource state
+    msg->setLocal_cpu_available_ghz(cpu_available / 1e9);
+    msg->setLocal_cpu_utilization((cpu_allocable - cpu_available) / cpu_allocable);
+    msg->setLocal_mem_available_mb(memory_available / 1e6);
+    msg->setLocal_queue_length(pending_tasks.size());
+    msg->setLocal_processing_count(processing_tasks.size());
+    
+    // Vehicle location and mobility
+    Coord pos = mobility->getPositionAt(simTime());
+    msg->setPos_x(pos.x);
+    msg->setPos_y(pos.y);
+    msg->setSpeed(mobility->getSpeed());
+    
+    // Local decision recommendation
+    std::string decisionStr;
+    switch(localDecision) {
+        case OffloadingDecision::EXECUTE_LOCALLY:
+            decisionStr = "LOCAL";
+            break;
+        case OffloadingDecision::OFFLOAD_TO_RSU:
+            decisionStr = "OFFLOAD_TO_RSU";
+            break;
+        case OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE:
+            decisionStr = "OFFLOAD_TO_SERVICE_VEHICLE";
+            break;
+        case OffloadingDecision::REJECT_TASK:
+            decisionStr = "REJECT";
+            break;
+        default:
+            decisionStr = "UNKNOWN";
+    }
+    msg->setLocal_decision(decisionStr.c_str());
+    
+    // Set sender address (our MAC)
+    msg->setSenderAddress(myId);
+    
+    // Send to selected RSU
+    LAddress::L2Type rsuMac = selectBestRSU();
+    if (rsuMac == 0) {
+        EV_ERROR << "No RSU available for offloading request" << endl;
+        delete msg;
+        return;
+    }
+    
+    populateWSM(msg, rsuMac);
+    sendDown(msg);
+    
+    // Mark task as awaiting decision
+    pendingOffloadingDecisions[task->task_id] = task;
+    
+    // Send lifecycle event to RSU for Digital Twin
+    sendTaskOffloadingEvent(task->task_id, "REQUEST_SENT", task->vehicle_id, "RSU");
+    
+    EV_INFO << "Offloading request sent to RSU (MAC: " << rsuMac << ")" << endl;
+    std::cout << "OFFLOAD_REQUEST: Sent to RSU, awaiting ML decision" << std::endl;
+}
+
+void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg) {
+    EV_INFO << "📥 Received offloading decision from RSU" << endl;
+    std::string taskId = msg->getTask_id();
+    std::string decisionType = msg->getDecision_type();
+    
+    std::cout << "OFFLOAD_DECISION: Received decision for task " << taskId 
+              << ": " << decisionType << std::endl;
+    
+    // Find the task in pending decisions
+    auto it = pendingOffloadingDecisions.find(taskId);
+    if (it == pendingOffloadingDecisions.end()) {
+        EV_WARN << "Task " << taskId << " not found in pending decisions (may have timed out)" << endl;
+        delete msg;
+        return;
+    }
+    
+    Task* task = it->second;
+    pendingOffloadingDecisions.erase(it);  // Remove from pending
+    
+    // Cancel any timeout message for this task
+    // (In production, we'd store timeout message handles to cancel them)
+    
+    EV_INFO << "✓ Task found: " << task->task_id << endl;
+    EV_INFO << "  Decision: " << decisionType << endl;
+    EV_INFO << "  Confidence: " << msg->getConfidence_score() << endl;
+    EV_INFO << "  Est. completion: " << msg->getEstimated_completion_time() << "s" << endl;
+    EV_INFO << "  Reason: " << msg->getDecision_reason() << endl;
+    
+    // Send lifecycle event
+    sendTaskOffloadingEvent(taskId, "DECISION_RECEIVED", "RSU", task->vehicle_id);
+    
+    // Execute the decision
+    executeOffloadingDecision(task, msg);
+    
+    delete msg;
+}
+
+void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingDecisionMessage* decision) {
+    EV_INFO << "⚙️ Executing offloading decision for task " << task->task_id << endl;
+    
+    std::string decisionType = decision->getDecision_type();
+    
+    // ========================================================================
+    // DECISION: EXECUTE LOCALLY
+    // ========================================================================
+    if (decisionType == "LOCAL") {
+        EV_INFO << "💻 Decision: EXECUTE LOCALLY" << endl;
+        std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " executing LOCALLY" << std::endl;
+        
+        // Check if can accept task locally
+        if (!canAcceptTask(task)) {
+            EV_WARN << "Cannot accept task locally (queue full) - rejecting" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "LOCAL_QUEUE_FULL");
+            delete task;
+            return;
+        }
+        
+        // Try to start immediately or queue
+        if (canStartProcessing(task)) {
+            EV_INFO << "✓ Starting task immediately" << endl;
+            allocateResourcesAndStart(task);
+        } else {
+            EV_INFO << "⏸ Queuing task for local execution" << endl;
+            task->state = QUEUED;
+            pending_tasks.push(task);
+            logQueueState("Task queued after LOCAL decision");
+        }
+        
+        logResourceState("After LOCAL execution decision");
+    }
+    
+    // ========================================================================
+    // DECISION: OFFLOAD TO RSU
+    // ========================================================================
+    else if (decisionType == "RSU") {
+        EV_INFO << "🏢 Decision: OFFLOAD TO RSU" << endl;
+        std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " offloading to RSU" << std::endl;
+        
+        sendTaskToRSU(task);
+        
+        // Track offloaded task
+        offloadedTasks[task->task_id] = task;
+        offloadedTaskTargets[task->task_id] = "RSU";
+        
+        // Schedule timeout for result
+        cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
+        timeoutMsg->setContextPointer(task);
+        scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
+        
+        EV_INFO << "✓ Task offloaded to RSU, awaiting result" << endl;
+    }
+    
+    // ========================================================================
+    // DECISION: OFFLOAD TO SERVICE VEHICLE
+    // ========================================================================
+    else if (decisionType == "SERVICE_VEHICLE") {
+        EV_INFO << "🚗 Decision: OFFLOAD TO SERVICE VEHICLE" << endl;
+        
+        std::string serviceVehicleId = decision->getTarget_service_vehicle_id();
+        LAddress::L2Type serviceVehicleMac = decision->getTarget_service_vehicle_mac();
+        
+        std::cout << "OFFLOAD_EXEC: Task " << task->task_id 
+                  << " offloading to service vehicle " << serviceVehicleId << std::endl;
+        
+        if (serviceVehicleMac == 0) {
+            EV_ERROR << "Invalid service vehicle MAC address" << endl;
+            // Fallback to local execution
+            EV_INFO << "Falling back to LOCAL execution" << endl;
+            if (canAcceptTask(task)) {
+                if (canStartProcessing(task)) {
+                    allocateResourcesAndStart(task);
+                } else {
+                    task->state = QUEUED;
+                    pending_tasks.push(task);
+                }
+            } else {
+                task->state = REJECTED;
+                tasks_rejected++;
+                sendTaskFailureToRSU(task, "SERVICE_VEHICLE_INVALID");
+                delete task;
+            }
+            return;
+        }
+        
+        sendTaskToServiceVehicle(task, serviceVehicleId, serviceVehicleMac);
+        
+        // Track offloaded task
+        offloadedTasks[task->task_id] = task;
+        offloadedTaskTargets[task->task_id] = "SV_" + serviceVehicleId;
+        
+        // Schedule timeout for result
+        cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
+        timeoutMsg->setContextPointer(task);
+        scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
+        
+        EV_INFO << "✓ Task offloaded to service vehicle, awaiting result" << endl;
+    }
+    
+    // ========================================================================
+    // DECISION: REJECT TASK
+    // ========================================================================
+    else if (decisionType == "REJECT") {
+        EV_INFO << "❌ Decision: REJECT TASK" << endl;
+        std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " REJECTED by RSU" << std::endl;
+        
+        task->state = REJECTED;
+        tasks_rejected++;
+        
+        std::string reason = decision->getDecision_reason();
+        sendTaskFailureToRSU(task, "RSU_REJECTED: " + reason);
+        
+        EV_INFO << "Task rejected - reason: " << reason << endl;
+        delete task;
+    }
+    
+    // ========================================================================
+    // UNKNOWN DECISION
+    // ========================================================================
+    else {
+        EV_ERROR << "Unknown decision type: " << decisionType << endl;
+        std::cout << "OFFLOAD_EXEC: ERROR - Unknown decision type for task " 
+                  << task->task_id << std::endl;
+        
+        // Fallback to local execution if possible
+        if (canAcceptTask(task)) {
+            EV_INFO << "Falling back to local execution" << endl;
+            if (canStartProcessing(task)) {
+                allocateResourcesAndStart(task);
+            } else {
+                task->state = QUEUED;
+                pending_tasks.push(task);
+            }
+        } else {
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "UNKNOWN_DECISION");
+            delete task;
+        }
+    }
+}
+
+// ============================================================================
+// TASK EXECUTION METHODS
+// ============================================================================
+
+void PayloadVehicleApp::sendTaskToRSU(Task* task) {
+    EV_INFO << "📤 Sending task " << task->task_id << " to RSU for processing" << endl;
+    std::cout << "OFFLOAD_TO_RSU: Task " << task->task_id << " sent to RSU" << std::endl;
+    
+    // TODO: Create and send TaskOffloadPacket to RSU
+    offloadedTasks[task->task_id] = task;
+    offloadedTaskTargets[task->task_id] = "RSU";
+}
+
+void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& serviceVehicleId, veins::LAddress::L2Type serviceMac) {
+    EV_INFO << "📤 Sending task " << task->task_id << " to service vehicle " << serviceVehicleId << endl;
+    std::cout << "OFFLOAD_TO_SV: Task " << task->task_id << " sent to service vehicle " 
+              << serviceVehicleId << std::endl;
+    
+    // TODO: Create and send TaskOffloadPacket to service vehicle
+    offloadedTasks[task->task_id] = task;
+    offloadedTaskTargets[task->task_id] = serviceVehicleId;
+}
+
+void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
+    std::string task_id = msg->getTask_id();
+    EV_INFO << "📥 Received task result for " << task_id << endl;
+    std::cout << "TASK_RESULT: Received result for task " << task_id 
+              << " from " << msg->getProcessor_id() << std::endl;
+    
+    // TODO: Process result, update statistics, provide feedback to decision maker
+    
+    // Clean up
+    auto it = offloadedTasks.find(task_id);
+    if (it != offloadedTasks.end()) {
+        Task* task = it->second;
+        tasks_completed_on_time++;  // TODO: Check actual timing
+        delete task;
+        offloadedTasks.erase(it);
+        offloadedTaskTargets.erase(task_id);
+    }
+    
+    delete msg;
+}
+
+// ============================================================================
+// SERVICE VEHICLE METHODS
+// ============================================================================
+
+void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) {
+    if (!serviceVehicleEnabled) {
+        EV_WARN << "⚠️ Service vehicle mode disabled, rejecting task request" << endl;
+        delete msg;
+        return;
+    }
+    
+    EV_INFO << "📥 Received service task request: " << msg->getTask_id() << endl;
+    std::cout << "SERVICE_REQUEST: Vehicle " << getParentModule()->getIndex() 
+              << " received task " << msg->getTask_id() << " for service processing" << std::endl;
+    
+    // TODO: Create Task object from packet, check capacity, queue for processing
+    delete msg;
+}
+
+void PayloadVehicleApp::processServiceTask(Task* task) {
+    EV_INFO << "⚙️ Processing service task " << task->task_id << endl;
+    
+    // TODO: Implement service task processing using reserved resources
+}
+
+void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& originalVehicleId) {
+    EV_INFO << "📤 Sending service task result to vehicle " << originalVehicleId << endl;
+    std::cout << "SERVICE_RESULT: Returning task " << task->task_id 
+              << " result to vehicle " << originalVehicleId << std::endl;
+    
+    // TODO: Create and send TaskResultMessage back to original vehicle
+}
+
+// ============================================================================
+// TASK OFFLOADING LIFECYCLE EVENT TRACKING
+// ============================================================================
+
+void PayloadVehicleApp::sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
+                                                  const std::string& sourceEntity, const std::string& targetEntity) {
+    EV_DEBUG << "📊 Sending offloading event: " << eventType << " for task " << taskId << endl;
+    
+    // Create TaskOffloadingEvent message
+    veins::TaskOffloadingEvent* event = new veins::TaskOffloadingEvent();
+    event->setTask_id(taskId.c_str());
+    event->setEvent_type(eventType.c_str());
+    event->setEvent_time(simTime().dbl());
+    event->setSource_entity_id(sourceEntity.c_str());
+    event->setTarget_entity_id(targetEntity.c_str());
+    
+    // Optionally add event details (as JSON string)
+    // For now, keep it simple
+    event->setEvent_details("{}");
+    
+    // Send to RSU for Digital Twin tracking
+    LAddress::L2Type rsuMac = selectBestRSU();
+    if (rsuMac != 0) {
+        populateWSM(event, rsuMac);
+        sendDown(event);
+        EV_DEBUG << "Event sent to RSU for Digital Twin" << endl;
+    } else {
+        EV_WARN << "No RSU available to send offloading event" << endl;
+        delete event;
+    }
 }
 
 } // namespace complex_network

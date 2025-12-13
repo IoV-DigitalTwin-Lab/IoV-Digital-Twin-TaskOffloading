@@ -6,6 +6,8 @@
 
 using namespace omnetpp;
 
+namespace complex_network {
+
 /**
  * Task State Machine
  * CREATED → METADATA_SENT → QUEUED → PROCESSING → COMPLETED_ON_TIME/COMPLETED_LATE/FAILED
@@ -108,5 +110,7 @@ struct TaskDropComparator {
         return score_a > score_b;
     }
 };
+
+} // namespace complex_network
 
 #endif /* TASK_H_ */
