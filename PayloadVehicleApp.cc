@@ -179,7 +179,23 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
             delete msg;
         }
     } 
+    else if (msg->getKind() == SEND_BEACON_EVT) {
+        // Handle beacon events ourselves to avoid rescheduling issues
+        // Only process if beaconing is actually enabled
+        if (par("sendBeacons").boolValue()) {
+            DemoSafetyMessage* bsm = new DemoSafetyMessage();
+            populateWSM(bsm);
+            sendDown(bsm);
+            // Cancel before rescheduling to avoid "already scheduled" error
+            if (msg->isScheduled()) {
+                cancelEvent(msg);
+            }
+            scheduleAt(simTime() + par("beaconInterval").doubleValue(), msg);
+        }
+        // Don't delete - message is reused
+    }
     else {
+        // Let parent class handle other events (like WSA)
         DemoBaseApplLayer::handleSelfMsg(msg);
     }
 }

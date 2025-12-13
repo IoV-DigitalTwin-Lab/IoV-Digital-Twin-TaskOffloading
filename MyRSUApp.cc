@@ -916,10 +916,12 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert offloading request: No database connection" << endl;
+        std::cout << "WARN: ⚠ Cannot insert offloading request: No database connection" << std::endl;
         return;
     }
     
-    EV_DEBUG << "📤 Inserting offloading request into PostgreSQL..." << endl;
+    EV_INFO << "📤 Inserting offloading request into database for task " << request.task_id << endl;
+    std::cout << "INFO: 📤 Inserting offloading request into database for task " << request.task_id << std::endl;
     
     // Prepare JSON payload
     std::ostringstream payload_json;
@@ -972,8 +974,10 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
+        std::cout << "WARN: ✗ Failed to insert offloading request: " << PQerrorMessage(conn) << std::endl;
     } else {
-        EV_DEBUG << "✓ Offloading request inserted (Task: " << request.task_id << ")" << endl;
+        EV_INFO << "✓ Offloading request inserted successfully (Task: " << request.task_id << ")" << endl;
+        std::cout << "INFO: ✓ Offloading request inserted successfully (Task: " << request.task_id << ")" << std::endl;
     }
     
     PQclear(res);
@@ -1091,8 +1095,11 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     std::string task_id = msg->getTask_id();
     std::string vehicle_id = msg->getVehicle_id();
     
-    std::cout << "RSU_OFFLOAD: Received offloading request for task " << task_id 
-              << " from vehicle " << vehicle_id << std::endl;
+    std::cout << "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
+    std::cout << "INFO: RSU RECEIVED OFFLOADING REQUEST" << std::endl;
+    std::cout << "INFO: Task ID: " << task_id << std::endl;
+    std::cout << "INFO: Vehicle ID: " << vehicle_id << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" << std::endl;
     
     // Store request details
     OffloadingRequest request;
@@ -1114,6 +1121,8 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     request.vehicle_queue_length = msg->getLocal_queue_length();
     
     pending_offloading_requests[task_id] = request;
+    
+    std::cout << "INFO: 📊 Calling insertOffloadingRequest() for task " << task_id << std::endl;
     
     // Store request in Digital Twin database
     insertOffloadingRequest(request);
