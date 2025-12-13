@@ -42,8 +42,3 @@ Test
 curl -X POST http://localhost:8000/ingest -H "Content-Type: application/json" -d \
   '{"VehID":0,"Time":11.0,"FlocHz":3000000000,"TxPower_mW":100,"Speed":15.31,"PosX":124.48,"PosY":26.60,"MAC":"22"}'
 ```
-
-Next steps
-- Add authentication or a secret token if exposing the ingestion endpoint to untrusted networks.
-- Implement retry logic and backpressure handling on the RSU side.
-- Optionally add metrics and logging to a file or monitoring system.
