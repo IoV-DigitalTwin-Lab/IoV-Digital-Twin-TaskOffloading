@@ -3336,3 +3336,119 @@ Sat Dec 13 11:45:49 2025
  STARTUP_RESULT ERROR=Couldn't connect to server
 Sat Dec 13 11:45:49 2025
  WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:50:12 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:50:12 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:50:12 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:50:12 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:50:12 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:50:12 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:50:12 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:50:12 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:50:12 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:54:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:54:13 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:54:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:54:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:54:13 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:54:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:54:13 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:54:13 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:54:13 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:57:33 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:57:33 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:57:33 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:57:33 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:57:33 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:57:33 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:57:33 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:57:33 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:57:33 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:59:42 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:59:42 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:59:42 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:59:42 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:59:42 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:59:42 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 11:59:42 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 11:59:42 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 11:59:42 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:41:27 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:41:27 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:41:27 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:41:27 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:41:33 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:41:33 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:41:33 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:41:33 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:41:33 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:41:33 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:41:33 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:41:33 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:41:33 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:42:57 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:42:57 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:42:57 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:42:57 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:42:57 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:42:57 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest
+Sat Dec 13 12:42:57 2025
+ STARTUP_SEND payload={"msg": "hello from RSU"}
+Sat Dec 13 12:42:57 2025
+ STARTUP_RESULT ERROR=Couldn't connect to server
+Sat Dec 13 12:42:57 2025
+ WORKER_STARTED endpoint=http://127.0.0.1:8000/ingest

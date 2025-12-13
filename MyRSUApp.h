@@ -8,6 +8,7 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <libpq-fe.h>
 
 using namespace veins;
 
@@ -118,6 +119,23 @@ private:
     void updateDigitalTwinStatistics();
     void logDigitalTwinState();
     void logTaskRecord(const TaskRecord& record, const std::string& event);
+    
+    // ============================================================================
+    // POSTGRESQL DATABASE INTEGRATION
+    // ============================================================================
+    
+    PGconn* db_conn = nullptr;
+    std::string db_conninfo;
+    int rsu_id = 0;
+    
+    void initDatabase();
+    void closeDatabase();
+    PGconn* getDBConnection();
+    
+    void insertTaskMetadata(const TaskMetadataMessage* msg);
+    void insertTaskCompletion(const TaskCompletionMessage* msg);
+    void insertTaskFailure(const TaskFailureMessage* msg);
+    void insertVehicleResources(const VehicleResourceStatusMessage* msg);
 };
 
 } // namespace complex_network
