@@ -136,6 +136,7 @@ private:
     void insertTaskCompletion(const TaskCompletionMessage* msg);
     void insertTaskFailure(const TaskFailureMessage* msg);
     void insertVehicleResources(const VehicleResourceStatusMessage* msg);
+    void insertVehicleTelemetry(const std::map<std::string, std::string>& data);
 };
 
 } // namespace complex_network

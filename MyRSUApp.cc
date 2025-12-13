@@ -48,9 +48,10 @@ void MyRSUApp::initialize(int stage) {
         
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
         
-        poster.start();
+        // RSUHttpPoster disabled - using direct PostgreSQL insertion
+        // poster.start();
         
-        std::cout << "CONSOLE: MyRSUApp - RSUHttpPoster STARTED successfully" << std::endl;
+        std::cout << "CONSOLE: MyRSUApp - Direct PostgreSQL insertion enabled (HTTP poster disabled)" << std::endl;
         std::cout << "=== MyRSUApp READY ===" << std::endl;
         EV << "MyRSUApp: RSUHttpPoster started\n";
     }
@@ -200,47 +201,10 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     std::cout << "CONSOLE: MyRSUApp - Raw payload length: " << payload.length() << std::endl;
     std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
     
-    // Log to file
-    try {
-        std::ofstream lof("rsu_poster.log", std::ios::app);
-        if (lof) {
-            auto now = std::chrono::system_clock::now();
-            std::time_t t = std::chrono::system_clock::to_time_t(now);
-            char timebuf[100];
-            std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
-            lof << timebuf << " ONWSM raw='" << payload << "'\n";
-            lof.close();
-        }
-    } catch(const std::exception& e) {
-        std::cout << "CONSOLE: MyRSUApp - Log file error: " << e.what() << std::endl;
-    }
-
-    // Diagnostic enqueue: always write a diagnostic log entry and enqueue a small ping JSON
-    try {
-        std::ostringstream diagss;
-        diagss << "{\"diag\":\"ping\",\"simTime\":" << simTime().dbl() << "}";
-        std::string diagJson = diagss.str();
-
-        std::ofstream dlf("rsu_poster.log", std::ios::app);
-        if (dlf) {
-            auto now2 = std::chrono::system_clock::now();
-            std::time_t t2 = std::chrono::system_clock::to_time_t(now2);
-            char tb2[100];
-            std::strftime(tb2, sizeof(tb2), "%Y-%m-%d %H:%M:%S", std::localtime(&t2));
-            dlf << tb2 << " DIAGNOSTIC_ENQUEUE payload='" << diagJson << "'\n";
-            dlf.close();
-        }
-
-        poster.enqueue(diagJson);
-        std::cout << "CONSOLE: MyRSUApp - DIAGNOSTIC poster.enqueue() called with: " << diagJson << std::endl;
-    } catch (const std::exception &e) {
-        std::cout << "CONSOLE: MyRSUApp - Diagnostic enqueue/log error: " << e.what() << std::endl;
-    }
-    
     EV << "RSU: Received message from vehicle at time " << simTime() << endl;
 
-    std::ostringstream js;
-    bool posted = false;
+    bool parsed_data = false;
+    std::map<std::string, std::string> telemetry_data;
     
     // Check for VEHICLE_DATA prefix
     if (!payload.empty() && payload.rfind("VEHICLE_DATA|", 0) == 0) {
@@ -249,7 +213,6 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         std::string body = payload.substr(13);  // strlen("VEHICLE_DATA|") = 13
         std::istringstream parts(body);
         std::string token;
-        std::map<std::string, std::string> kv;
         
         int field_count = 0;
         while (std::getline(parts, token, '|')) {
@@ -257,7 +220,7 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
             if (pos != std::string::npos) {
                 std::string k = token.substr(0, pos);
                 std::string v = token.substr(pos + 1);
-                kv[k] = v;
+                telemetry_data[k] = v;
                 field_count++;
                 std::cout << "CONSOLE: MyRSUApp -   Field[" << field_count 
                           << "]: " << k << " = " << v << std::endl;
@@ -266,62 +229,28 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         
         std::cout << "CONSOLE: MyRSUApp - Parsed " << field_count << " fields" << std::endl;
 
-        // Build JSON
-        js << "{";
-        bool first = true;
-        for (const auto &p : kv) {
-            if (!first) js << ", ";
-            first = false;
-            
-            if (p.first == "MAC") {
-                js << "\"" << p.first << "\": \"" << p.second << "\"";
-            } else {
-                js << "\"" << p.first << "\": " << p.second;
-            }
+        if (!telemetry_data.empty()) {
+            // Insert directly to PostgreSQL
+            insertVehicleTelemetry(telemetry_data);
+            parsed_data = true;
+            std::cout << "CONSOLE: MyRSUApp - ✓ Vehicle telemetry inserted to PostgreSQL" << std::endl;
         }
-        js << "}";
-
-        std::string jsonStr = js.str();
-        std::cout << "CONSOLE: MyRSUApp - JSON built: " << jsonStr << std::endl;
-        std::cout << "CONSOLE: MyRSUApp - JSON length: " << jsonStr.size() << " bytes" << std::endl;
-        std::cout << "CONSOLE: MyRSUApp - Calling poster.enqueue()..." << std::endl;
-        
-        EV << "MyRSUApp: enqueueing JSON (len=" << jsonStr.size() << ")\n";
-        
-        poster.enqueue(jsonStr);
-        
-        std::cout << "CONSOLE: MyRSUApp - ✓ JSON enqueued successfully!" << std::endl;
-        EV << "MyRSUApp: enqueued JSON\n";
-        posted = true;
         
     } else {
         std::cout << "CONSOLE: MyRSUApp - ⚠ No VEHICLE_DATA prefix found" << std::endl;
     }
 
-    if (!posted) {
-        std::cout << "CONSOLE: MyRSUApp - Creating fallback JSON..." << std::endl;
+    if (!parsed_data) {
+        std::cout << "CONSOLE: MyRSUApp - Creating fallback telemetry record..." << std::endl;
         
-        std::ostringstream ss;
-        ss << "{\"VehID\":" << std::fixed << std::setprecision(2) << dsm->getSenderPos().x 
-           << ", \"Time\":" << simTime().dbl() 
-           << ", \"raw\":\"";
+        // Create minimal telemetry record
+        telemetry_data["PosX"] = std::to_string(dsm->getSenderPos().x);
+        telemetry_data["PosY"] = std::to_string(dsm->getSenderPos().y);
+        telemetry_data["Time"] = std::to_string(simTime().dbl());
+        telemetry_data["raw_payload"] = payload;
         
-        for (char c : payload) {
-            if (c == '"') ss << "\\\"";
-            else if (c == '\\') ss << "\\\\";
-            else ss << c;
-        }
-        ss << "\"}";
-        
-        std::string jsonStr = ss.str();
-        std::cout << "CONSOLE: MyRSUApp - Fallback JSON: " << jsonStr << std::endl;
-        
-        EV << "MyRSUApp: enqueueing fallback JSON (len=" << jsonStr.size() << ")\n";
-        
-        poster.enqueue(jsonStr);
-        
-        std::cout << "CONSOLE: MyRSUApp - ✓ Fallback JSON enqueued" << std::endl;
-        EV << "MyRSUApp: enqueued fallback JSON\n";
+        insertVehicleTelemetry(telemetry_data);
+        std::cout << "CONSOLE: MyRSUApp - ✓ Fallback telemetry inserted to PostgreSQL" << std::endl;
     }
     
     std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
@@ -343,10 +272,10 @@ void MyRSUApp::finish() {
         beaconMsg = nullptr;
     }
 
-    // stop poster worker
-    poster.stop();
+    // RSUHttpPoster disabled - using direct PostgreSQL insertion
+    // poster.stop();
 
-    std::cout << "CONSOLE: MyRSUApp - Poster stopped successfully" << std::endl;
+    std::cout << "CONSOLE: MyRSUApp - Finished successfully" << std::endl;
     std::cout << "=== MyRSUApp FINISHED ===" << std::endl;
     EV << "MyRSUApp: RSUHttpPoster stopped\n";
 
@@ -969,6 +898,80 @@ void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         // Don't spam warnings for resource updates
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertVehicleTelemetry(const std::map<std::string, std::string>& data) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        return; // Silently skip if no connection
+    }
+    
+    // Extract fields from map
+    auto get_value = [&data](const std::string& key, const std::string& default_val = "") -> std::string {
+        auto it = data.find(key);
+        return (it != data.end()) ? it->second : default_val;
+    };
+    
+    std::string veh_id_str = get_value("VehID", "-1");
+    std::string sim_time = get_value("Time", std::to_string(simTime().dbl()));
+    std::string floc_hz = get_value("FlocHz", "0");
+    std::string tx_power = get_value("TxPower_mW", "0");
+    std::string speed = get_value("Speed", "0");
+    std::string pos_x = get_value("PosX", "0");
+    std::string pos_y = get_value("PosY", "0");
+    std::string mac = get_value("MAC", "");
+    
+    // Build JSON payload with all data
+    std::ostringstream payload_json;
+    payload_json << "{";
+    bool first = true;
+    for (const auto& kv : data) {
+        if (!first) payload_json << ",";
+        first = false;
+        payload_json << "\"" << kv.first << "\":";
+        
+        // Check if value looks like a number
+        if (kv.first == "MAC" || kv.first == "raw_payload") {
+            // String value - quote it
+            payload_json << "\"" << kv.second << "\"";
+        } else {
+            // Numeric value - no quotes
+            payload_json << kv.second;
+        }
+    }
+    payload_json << ",\"rsu_id\":" << rsu_id;
+    payload_json << ",\"received_time\":" << simTime().dbl();
+    payload_json << "}";
+    
+    std::string payload = payload_json.str();
+    
+    const char* paramValues[9];
+    paramValues[0] = veh_id_str.c_str();
+    paramValues[1] = sim_time.c_str();
+    paramValues[2] = floc_hz.c_str();
+    paramValues[3] = tx_power.c_str();
+    paramValues[4] = speed.c_str();
+    paramValues[5] = pos_x.c_str();
+    paramValues[6] = pos_y.c_str();
+    paramValues[7] = mac.c_str();
+    paramValues[8] = payload.c_str();
+    
+    const char* query = "INSERT INTO vehicle_telemetry (veh_id, sim_time, floc_hz, tx_power_mw, "
+                        "speed, pos_x, pos_y, mac, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)";
+    
+    PGresult* res = PQexecParams(conn, query, 9, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "⚠ Failed to insert vehicle telemetry: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_INFO << "✓ Vehicle telemetry inserted (VehID: " << veh_id_str 
+                << ", Time: " << sim_time << ")" << endl;
+        std::cout << "DB_INSERT: Vehicle " << veh_id_str << " telemetry @ " 
+                  << sim_time << "s stored in PostgreSQL" << std::endl;
     }
     
     PQclear(res);

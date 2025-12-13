@@ -133,6 +133,9 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data payload sent: " << vehicleDataPayload << std::endl;
         EV << "PayloadVehicleApp: Sent vehicle data payload message" << endl;
 
+        // Send VehicleResourceStatusMessage to RSU for Digital Twin tracking
+        sendVehicleResourceStatus();
+
         // Schedule next periodic update using heartbeatIntervalS parameter
         double heartbeatInterval = par("heartbeatIntervalS").doubleValue();
         scheduleAt(simTime() + heartbeatInterval, new cMessage("sendPayloadMessage"));
@@ -1104,6 +1107,82 @@ void PayloadVehicleApp::logTaskStatistics() {
               << " Late:" << tasks_completed_late 
               << " Failed:" << tasks_failed 
               << " Rejected:" << tasks_rejected << std::endl;
+}
+
+void PayloadVehicleApp::sendResourceStatusToRSU() {
+    EV_INFO << "📡 Sending vehicle resource status to RSU..." << endl;
+    
+    // Update position and speed
+    if (mobility) {
+        pos = mobility->getPositionAt(simTime());
+        speed = mobility->getSpeed();
+    }
+    
+    // Create VehicleResourceStatusMessage
+    VehicleResourceStatusMessage* statusMsg = new VehicleResourceStatusMessage();
+    
+    // Vehicle identification
+    std::ostringstream veh_id;
+    veh_id << getParentModule()->getIndex();
+    statusMsg->setVehicle_id(veh_id.str().c_str());
+    
+    // Position and speed
+    statusMsg->setPos_x(pos.x);
+    statusMsg->setPos_y(pos.y);
+    statusMsg->setSpeed(speed);
+    
+    // Resource information
+    statusMsg->setCpu_total(cpu_total);
+    statusMsg->setCpu_allocable(cpu_allocable);
+    statusMsg->setCpu_available(cpu_available);
+    double cpu_util = ((cpu_allocable - cpu_available) / cpu_allocable) * 100.0;
+    statusMsg->setCpu_utilization(cpu_util);
+    
+    statusMsg->setMem_total(memory_total);
+    statusMsg->setMem_available(memory_available);
+    double mem_util = ((memory_total - memory_available) / memory_total) * 100.0;
+    statusMsg->setMem_utilization(mem_util);
+    
+    // Task statistics
+    statusMsg->setTasks_generated(tasks_generated);
+    statusMsg->setTasks_completed_on_time(tasks_completed_on_time);
+    statusMsg->setTasks_completed_late(tasks_completed_late);
+    statusMsg->setTasks_failed(tasks_failed);
+    statusMsg->setTasks_rejected(tasks_rejected);
+    statusMsg->setCurrent_queue_length(pending_tasks.size());
+    statusMsg->setCurrent_processing_count(processing_tasks.size());
+    
+    // Calculate average completion time and deadline miss ratio
+    if (tasks_completed_on_time + tasks_completed_late > 0) {
+        statusMsg->setAvg_completion_time(total_completion_time / (tasks_completed_on_time + tasks_completed_late));
+    } else {
+        statusMsg->setAvg_completion_time(0.0);
+    }
+    
+    uint32_t total_completed = tasks_completed_on_time + tasks_completed_late;
+    if (total_completed > 0) {
+        statusMsg->setDeadline_miss_ratio((double)tasks_completed_late / total_completed);
+    } else {
+        statusMsg->setDeadline_miss_ratio(0.0);
+    }
+    
+    // Find RSU and send
+    LAddress::L2Type rsuMacAddress = findRSUMacAddress();
+    if (rsuMacAddress != 0) {
+        populateWSM(statusMsg, rsuMacAddress);
+        sendDown(statusMsg);
+        EV_INFO << "✓ Vehicle resource status sent to RSU (MAC: " << rsuMacAddress << ")" << endl;
+        std::cout << "RESOURCE_UPDATE: Vehicle " << getParentModule()->getIndex() 
+                  << " sent resource status to RSU - CPU:" << cpu_util 
+                  << "% Mem:" << mem_util << "% Queue:" << pending_tasks.size() << std::endl;
+    } else {
+        EV_WARN << "⚠ RSU not found, cannot send resource status" << endl;
+        delete statusMsg;
+    }
+}
+
+void PayloadVehicleApp::sendVehicleResourceStatus() {
+    sendResourceStatusToRSU();
 }
 
 } // namespace complex_network

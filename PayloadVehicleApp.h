@@ -113,6 +113,7 @@ private:
     void sendTaskCompletionToRSU(Task* task); // Send completion notification
     void sendTaskFailureToRSU(Task* task, const std::string& reason); // Send failure notification
     void sendResourceStatusToRSU();           // Send periodic heartbeat
+    void sendVehicleResourceStatus();         // Wrapper for resource status sending
     
     // Logging Methods
     void logResourceState(const std::string& context);
