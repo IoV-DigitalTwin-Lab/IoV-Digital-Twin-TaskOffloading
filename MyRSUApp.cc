@@ -935,7 +935,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
                  << "\"qos_value\":" << request.qos_value
                  << "}";
     
-    const char* paramValues[13];
+    const char* paramValues[18];
     std::string task_id = request.task_id;
     std::string vehicle_id = request.vehicle_id;
     std::string rsu_id_str = std::to_string(rsu_id);
@@ -946,7 +946,12 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     std::string qos = std::to_string(request.qos_value);
     std::string cpu_avail = std::to_string(request.vehicle_cpu_available);
     std::string cpu_util = std::to_string(request.vehicle_cpu_utilization);
+    std::string mem_avail = std::to_string(request.vehicle_mem_available);
     std::string queue_len = std::to_string(request.vehicle_queue_length);
+    std::string proc_count = std::to_string(request.vehicle_processing_count);
+    std::string pos_x = std::to_string(request.pos_x);
+    std::string pos_y = std::to_string(request.pos_y);
+    std::string spd = std::to_string(request.speed);
     std::string local_dec = request.local_decision;
     std::string payload = payload_json.str();
     
@@ -960,17 +965,23 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     paramValues[7] = qos.c_str();
     paramValues[8] = cpu_avail.c_str();
     paramValues[9] = cpu_util.c_str();
-    paramValues[10] = queue_len.c_str();
-    paramValues[11] = local_dec.c_str();
-    paramValues[12] = payload.c_str();
+    paramValues[10] = mem_avail.c_str();
+    paramValues[11] = queue_len.c_str();
+    paramValues[12] = proc_count.c_str();
+    paramValues[13] = pos_x.c_str();
+    paramValues[14] = pos_y.c_str();
+    paramValues[15] = spd.c_str();
+    paramValues[16] = local_dec.c_str();
+    paramValues[17] = payload.c_str();
     
     const char* query = "INSERT INTO offloading_requests (task_id, vehicle_id, rsu_id, request_time, "
                         "task_size_bytes, cpu_cycles, deadline_seconds, qos_value, "
-                        "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_queue_length, "
-                        "local_decision, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)";
+                        "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_mem_available, "
+                        "vehicle_queue_length, vehicle_processing_count, "
+                        "pos_x, pos_y, speed, local_decision, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 13, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 18, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
@@ -1118,7 +1129,14 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     // Vehicle state
     request.vehicle_cpu_available = msg->getLocal_cpu_available_ghz();
     request.vehicle_cpu_utilization = msg->getLocal_cpu_utilization();
+    request.vehicle_mem_available = msg->getLocal_mem_available_mb();
     request.vehicle_queue_length = msg->getLocal_queue_length();
+    request.vehicle_processing_count = msg->getLocal_processing_count();
+    
+    // Vehicle location
+    request.pos_x = msg->getPos_x();
+    request.pos_y = msg->getPos_y();
+    request.speed = msg->getSpeed();
     
     pending_offloading_requests[task_id] = request;
     

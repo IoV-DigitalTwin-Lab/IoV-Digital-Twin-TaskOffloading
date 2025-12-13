@@ -141,7 +141,14 @@ private:
         // Vehicle state at request
         double vehicle_cpu_available;
         double vehicle_cpu_utilization;
+        double vehicle_mem_available;
         uint32_t vehicle_queue_length;  // Changed from double to uint32_t to match database INTEGER type
+        uint32_t vehicle_processing_count;
+        
+        // Vehicle location
+        double pos_x;
+        double pos_y;
+        double speed;
     };
     
     std::map<std::string, OffloadingRequest> pending_offloading_requests;  // task_id -> request
