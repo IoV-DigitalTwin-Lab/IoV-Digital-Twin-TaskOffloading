@@ -98,42 +98,14 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "sendPayloadMessage") == 0) {
-        std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic payload message..." << std::endl;
-        EV << "PayloadVehicleApp: Sending periodic payload message..." << endl;
+        std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic vehicle status update..." << std::endl;
+        EV << "PayloadVehicleApp: Sending periodic vehicle status update..." << endl;
 
         // Update vehicle data before sending
         updateVehicleData();
-        
-        // Create payload with current vehicle data
-        std::string vehicleDataPayload = createVehicleDataPayload();
-
-        // Find RSU MAC address using modern multi-criteria selection
-        LAddress::L2Type rsuMacAddress = selectBestRSU();
-        
-        // Create DemoSafetyMessage with payload
-        DemoSafetyMessage* wsm = new DemoSafetyMessage();
-        
-        if (rsuMacAddress == 0) {
-            std::cout << "CONSOLE: PayloadVehicleApp - RSU MAC not found, using broadcast" << std::endl;
-            populateWSM(wsm); // fallback broadcast
-        } else {
-            std::cout << "CONSOLE: PayloadVehicleApp - Found RSU MAC: " << rsuMacAddress << ", using unicast" << std::endl;
-            populateWSM(wsm, rsuMacAddress); // force unicast
-        }
-
-        // Set payload using setName as the payload carrier  
-        wsm->setName(vehicleDataPayload.c_str());
-        wsm->setSenderPos(curPosition);
-        wsm->setUserPriority(7);
-
-        // Send the message
-        sendDown(wsm);
-
-        std::cout << "CONSOLE: PayloadVehicleApp - Sent payload message (Recipient: " << wsm->getRecipientAddress() << ")" << std::endl;
-        std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data payload sent: " << vehicleDataPayload << std::endl;
-        EV << "PayloadVehicleApp: Sent vehicle data payload message" << endl;
 
         // Send VehicleResourceStatusMessage to RSU for Digital Twin tracking
+        // This includes position, speed, CPU, memory, and task statistics
         sendVehicleResourceStatus();
 
         // Schedule next periodic update using heartbeatIntervalS parameter
@@ -974,7 +946,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
 }
 
 void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
-    EV_INFO << "📤 Sending task metadata to RSU" << endl;
+    EV_INFO << "📤 [TASK EVENT] Sending task metadata to RSU (triggered by task generation)" << endl;
     
     TaskMetadataMessage* msg = new TaskMetadataMessage();
     msg->setTask_id(task->task_id.c_str());
@@ -991,6 +963,8 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);
         sendDown(msg);
         EV_INFO << "✓ Task metadata sent to RSU (MAC: " << rsuMacAddress << ")" << endl;
+        std::cout << "TASK_METADATA: Vehicle " << task->vehicle_id << " sent task " 
+                  << task->task_id << " metadata to RSU" << std::endl;
     } else {
         EV_INFO << "⚠ RSU not found, broadcasting metadata" << endl;
         populateWSM((BaseFrame1609_4*)msg);

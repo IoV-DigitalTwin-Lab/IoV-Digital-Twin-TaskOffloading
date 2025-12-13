@@ -202,56 +202,9 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
     
     EV << "RSU: Received message from vehicle at time " << simTime() << endl;
-
-    bool parsed_data = false;
-    std::map<std::string, std::string> telemetry_data;
     
-    // Check for VEHICLE_DATA prefix
-    if (!payload.empty() && payload.rfind("VEHICLE_DATA|", 0) == 0) {
-        std::cout << "CONSOLE: MyRSUApp - ✓ Found VEHICLE_DATA prefix, parsing..." << std::endl;
-        
-        std::string body = payload.substr(13);  // strlen("VEHICLE_DATA|") = 13
-        std::istringstream parts(body);
-        std::string token;
-        
-        int field_count = 0;
-        while (std::getline(parts, token, '|')) {
-            auto pos = token.find(':');
-            if (pos != std::string::npos) {
-                std::string k = token.substr(0, pos);
-                std::string v = token.substr(pos + 1);
-                telemetry_data[k] = v;
-                field_count++;
-                std::cout << "CONSOLE: MyRSUApp -   Field[" << field_count 
-                          << "]: " << k << " = " << v << std::endl;
-            }
-        }
-        
-        std::cout << "CONSOLE: MyRSUApp - Parsed " << field_count << " fields" << std::endl;
-
-        if (!telemetry_data.empty()) {
-            // Insert directly to PostgreSQL
-            insertVehicleTelemetry(telemetry_data);
-            parsed_data = true;
-            std::cout << "CONSOLE: MyRSUApp - ✓ Vehicle telemetry inserted to PostgreSQL" << std::endl;
-        }
-        
-    } else {
-        std::cout << "CONSOLE: MyRSUApp - ⚠ No VEHICLE_DATA prefix found" << std::endl;
-    }
-
-    if (!parsed_data) {
-        std::cout << "CONSOLE: MyRSUApp - Creating fallback telemetry record..." << std::endl;
-        
-        // Create minimal telemetry record
-        telemetry_data["PosX"] = std::to_string(dsm->getSenderPos().x);
-        telemetry_data["PosY"] = std::to_string(dsm->getSenderPos().y);
-        telemetry_data["Time"] = std::to_string(simTime().dbl());
-        telemetry_data["raw_payload"] = payload;
-        
-        insertVehicleTelemetry(telemetry_data);
-        std::cout << "CONSOLE: MyRSUApp - ✓ Fallback telemetry inserted to PostgreSQL" << std::endl;
-    }
+    // Note: Vehicle telemetry (position, speed) now comes with VehicleResourceStatusMessage
+    // This onWSM() handler primarily receives regular beacons
     
     std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
 }
@@ -478,7 +431,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
     // Insert into PostgreSQL database
-    insertVehicleResources(msg);
+    insertVehicleStatus(msg);
     
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << twin.cpu_utilization << "%" << endl;
@@ -829,13 +782,13 @@ void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
     PQclear(res);
 }
 
-void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
+void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     PGconn* conn = getDBConnection();
     if (!conn) {
-        return; // Silently skip for resource updates
+        return; // Silently skip for status updates
     }
     
-    // Prepare JSON payload with all resource info
+    // Prepare JSON payload with all status info
     std::ostringstream payload_json;
     payload_json << "{"
                  << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
@@ -848,18 +801,24 @@ void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
                  << "\"cpu_utilization\":" << msg->getCpu_utilization() << ","
                  << "\"mem_total\":" << msg->getMem_total() << ","
                  << "\"mem_available\":" << msg->getMem_available() << ","
-                 << "\"mem_utilization\":" << msg->getMem_utilization()
+                 << "\"mem_utilization\":" << msg->getMem_utilization() << ","
+                 << "\"avg_completion_time\":" << msg->getAvg_completion_time() << ","
+                 << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
                  << "}";
     
-    const char* paramValues[16];
+    const char* paramValues[24];
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string update_time = std::to_string(simTime().dbl());
-    std::string cpu_total = std::to_string(msg->getCpu_total());
+    std::string pos_x = std::to_string(msg->getPos_x());
+    std::string pos_y = std::to_string(msg->getPos_y());
+    std::string speed = std::to_string(msg->getSpeed());
+    std::string heading = "0";
+    std::string cpu_total_str = std::to_string(msg->getCpu_total());
     std::string cpu_allocable = std::to_string(msg->getCpu_allocable());
     std::string cpu_available = std::to_string(msg->getCpu_available());
     std::string cpu_util = std::to_string(msg->getCpu_utilization());
-    std::string mem_total = std::to_string(msg->getMem_total());
+    std::string mem_total_str = std::to_string(msg->getMem_total());
     std::string mem_available = std::to_string(msg->getMem_available());
     std::string mem_util = std::to_string(msg->getMem_utilization());
     std::string queue_len = std::to_string(msg->getCurrent_queue_length());
@@ -869,115 +828,57 @@ void MyRSUApp::insertVehicleResources(const VehicleResourceStatusMessage* msg) {
     std::string tasks_late = std::to_string(msg->getTasks_completed_late());
     std::string tasks_fail = std::to_string(msg->getTasks_failed());
     std::string tasks_reject = std::to_string(msg->getTasks_rejected());
+    std::string avg_comp_time = std::to_string(msg->getAvg_completion_time());
+    std::string deadline_miss = std::to_string(msg->getDeadline_miss_ratio());
     std::string payload = payload_json.str();
     
     paramValues[0] = vehicle_id.c_str();
     paramValues[1] = rsu_id_str.c_str();
     paramValues[2] = update_time.c_str();
-    paramValues[3] = cpu_total.c_str();
-    paramValues[4] = cpu_allocable.c_str();
-    paramValues[5] = cpu_available.c_str();
-    paramValues[6] = cpu_util.c_str();
-    paramValues[7] = mem_total.c_str();
-    paramValues[8] = mem_available.c_str();
-    paramValues[9] = mem_util.c_str();
-    paramValues[10] = queue_len.c_str();
-    paramValues[11] = proc_count.c_str();
-    paramValues[12] = tasks_gen.c_str();
-    paramValues[13] = tasks_ok.c_str();
-    paramValues[14] = tasks_late.c_str();
-    paramValues[15] = payload.c_str();
+    paramValues[3] = pos_x.c_str();
+    paramValues[4] = pos_y.c_str();
+    paramValues[5] = speed.c_str();
+    paramValues[6] = heading.c_str();
+    paramValues[7] = cpu_total_str.c_str();
+    paramValues[8] = cpu_allocable.c_str();
+    paramValues[9] = cpu_available.c_str();
+    paramValues[10] = cpu_util.c_str();
+    paramValues[11] = mem_total_str.c_str();
+    paramValues[12] = mem_available.c_str();
+    paramValues[13] = mem_util.c_str();
+    paramValues[14] = queue_len.c_str();
+    paramValues[15] = proc_count.c_str();
+    paramValues[16] = tasks_gen.c_str();
+    paramValues[17] = tasks_ok.c_str();
+    paramValues[18] = tasks_late.c_str();
+    paramValues[19] = tasks_fail.c_str();
+    paramValues[20] = tasks_reject.c_str();
+    paramValues[21] = avg_comp_time.c_str();
+    paramValues[22] = deadline_miss.c_str();
+    paramValues[23] = payload.c_str();
     
-    const char* query = "INSERT INTO vehicle_resources (vehicle_id, rsu_id, update_time, "
+    const char* query = "INSERT INTO vehicle_status (vehicle_id, rsu_id, update_time, "
+                        "pos_x, pos_y, speed, heading, "
                         "cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
-                        "mem_total, mem_available, mem_utilization, queue_length, processing_count, "
-                        "tasks_generated, tasks_completed_on_time, tasks_completed_late, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)";
+                        "mem_total, mem_available, mem_utilization, "
+                        "queue_length, processing_count, "
+                        "tasks_generated, tasks_completed_on_time, tasks_completed_late, "
+                        "tasks_failed, tasks_rejected, avg_completion_time, deadline_miss_ratio, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, "
+                        "$15, $16, $17, $18, $19, $20, $21, $22, $23, $24::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 16, nullptr, paramValues, nullptr, nullptr, 0);
-    
-    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        // Don't spam warnings for resource updates
-    }
-    
-    PQclear(res);
-}
-
-void MyRSUApp::insertVehicleTelemetry(const std::map<std::string, std::string>& data) {
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        return; // Silently skip if no connection
-    }
-    
-    // Extract fields from map
-    auto get_value = [&data](const std::string& key, const std::string& default_val = "") -> std::string {
-        auto it = data.find(key);
-        return (it != data.end()) ? it->second : default_val;
-    };
-    
-    std::string veh_id_str = get_value("VehID", "-1");
-    std::string sim_time = get_value("Time", std::to_string(simTime().dbl()));
-    std::string floc_hz = get_value("FlocHz", "0");
-    std::string tx_power = get_value("TxPower_mW", "0");
-    std::string speed = get_value("Speed", "0");
-    std::string pos_x = get_value("PosX", "0");
-    std::string pos_y = get_value("PosY", "0");
-    std::string mac = get_value("MAC", "");
-    
-    // Build JSON payload with all data
-    std::ostringstream payload_json;
-    payload_json << "{";
-    bool first = true;
-    for (const auto& kv : data) {
-        if (!first) payload_json << ",";
-        first = false;
-        payload_json << "\"" << kv.first << "\":";
-        
-        // Check if value looks like a number
-        if (kv.first == "MAC" || kv.first == "raw_payload") {
-            // String value - quote it
-            payload_json << "\"" << kv.second << "\"";
-        } else {
-            // Numeric value - no quotes
-            payload_json << kv.second;
-        }
-    }
-    payload_json << ",\"rsu_id\":" << rsu_id;
-    payload_json << ",\"received_time\":" << simTime().dbl();
-    payload_json << "}";
-    
-    std::string payload = payload_json.str();
-    
-    const char* paramValues[9];
-    paramValues[0] = veh_id_str.c_str();
-    paramValues[1] = sim_time.c_str();
-    paramValues[2] = floc_hz.c_str();
-    paramValues[3] = tx_power.c_str();
-    paramValues[4] = speed.c_str();
-    paramValues[5] = pos_x.c_str();
-    paramValues[6] = pos_y.c_str();
-    paramValues[7] = mac.c_str();
-    paramValues[8] = payload.c_str();
-    
-    const char* query = "INSERT INTO vehicle_telemetry (veh_id, sim_time, floc_hz, tx_power_mw, "
-                        "speed, pos_x, pos_y, mac, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)";
-    
-    PGresult* res = PQexecParams(conn, query, 9, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 24, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert vehicle telemetry: " << PQerrorMessage(conn) << endl;
+        EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
     } else {
-        EV_INFO << "✓ Vehicle telemetry inserted (VehID: " << veh_id_str 
-                << ", Time: " << sim_time << ")" << endl;
-        std::cout << "DB_INSERT: Vehicle " << veh_id_str << " telemetry @ " 
-                  << sim_time << "s stored in PostgreSQL" << std::endl;
+        EV_INFO << "✓ Vehicle status inserted (" << vehicle_id << " @ " << update_time << "s)" << endl;
     }
     
     PQclear(res);
 }
 
-}
+}  // namespace complex_network
 
 
 

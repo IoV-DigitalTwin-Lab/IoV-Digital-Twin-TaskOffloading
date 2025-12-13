@@ -1,20 +1,44 @@
--- DB migration for vehicle telemetry
-CREATE TABLE IF NOT EXISTS vehicle_telemetry (
+-- Unified vehicle status table (combines telemetry + resources)
+CREATE TABLE IF NOT EXISTS vehicle_status (
     id BIGSERIAL PRIMARY KEY,
-    veh_id INTEGER,
-    sim_time DOUBLE PRECISION,
-    floc_hz DOUBLE PRECISION,
-    tx_power_mw DOUBLE PRECISION,
-    speed DOUBLE PRECISION,
+    vehicle_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    update_time DOUBLE PRECISION,
+    
+    -- Position and movement
     pos_x DOUBLE PRECISION,
     pos_y DOUBLE PRECISION,
-    mac TEXT,
+    speed DOUBLE PRECISION,
+    heading DOUBLE PRECISION,
+    
+    -- Resource information
+    cpu_total DOUBLE PRECISION,
+    cpu_allocable DOUBLE PRECISION,
+    cpu_available DOUBLE PRECISION,
+    cpu_utilization DOUBLE PRECISION,
+    mem_total DOUBLE PRECISION,
+    mem_available DOUBLE PRECISION,
+    mem_utilization DOUBLE PRECISION,
+    
+    -- Task queue status
+    queue_length INTEGER,
+    processing_count INTEGER,
+    
+    -- Task statistics
+    tasks_generated INTEGER,
+    tasks_completed_on_time INTEGER,
+    tasks_completed_late INTEGER,
+    tasks_failed INTEGER,
+    tasks_rejected INTEGER,
+    avg_completion_time DOUBLE PRECISION,
+    deadline_miss_ratio DOUBLE PRECISION,
+    
     payload JSONB,
     received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_vehicle_telemetry_veh_time ON vehicle_telemetry (veh_id, sim_time);
-CREATE INDEX IF NOT EXISTS idx_vehicle_telemetry_mac_time ON vehicle_telemetry (mac, sim_time);
+CREATE INDEX IF NOT EXISTS idx_vehicle_status_vehicle_time ON vehicle_status (vehicle_id, update_time);
+CREATE INDEX IF NOT EXISTS idx_vehicle_status_rsu ON vehicle_status (rsu_id, update_time);
 
 -- Task metadata table
 CREATE TABLE IF NOT EXISTS task_metadata (
@@ -53,28 +77,4 @@ CREATE TABLE IF NOT EXISTS task_events (
 CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events (task_id);
 CREATE INDEX IF NOT EXISTS idx_task_events_vehicle ON task_events (vehicle_id, completion_time);
 
--- Vehicle resource status updates
-CREATE TABLE IF NOT EXISTS vehicle_resources (
-    id BIGSERIAL PRIMARY KEY,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    update_time DOUBLE PRECISION,
-    cpu_total DOUBLE PRECISION,
-    cpu_allocable DOUBLE PRECISION,
-    cpu_available DOUBLE PRECISION,
-    cpu_utilization DOUBLE PRECISION,
-    mem_total DOUBLE PRECISION,
-    mem_available DOUBLE PRECISION,
-    mem_utilization DOUBLE PRECISION,
-    queue_length INTEGER,
-    processing_count INTEGER,
-    tasks_generated INTEGER,
-    tasks_completed_on_time INTEGER,
-    tasks_completed_late INTEGER,
-    tasks_failed INTEGER,
-    tasks_rejected INTEGER,
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
 
-CREATE INDEX IF NOT EXISTS idx_vehicle_resources_vehicle ON vehicle_resources (vehicle_id, update_time);
