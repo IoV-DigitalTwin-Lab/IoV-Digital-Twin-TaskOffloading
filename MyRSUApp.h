@@ -181,6 +181,11 @@ private:
     void insertTaskCompletion(const TaskCompletionMessage* msg);
     void insertTaskFailure(const TaskFailureMessage* msg);
     void insertVehicleStatus(const VehicleResourceStatusMessage* msg);
+    
+    // Offloading-specific database insertions
+    void insertOffloadingRequest(const OffloadingRequest& request);
+    void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
+    void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
 };
 
 } // namespace complex_network

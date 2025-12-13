@@ -909,6 +909,176 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
 }
 
 // ============================================================================
+// OFFLOADING DATABASE INSERTIONS
+// ============================================================================
+
+void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert offloading request: No database connection" << endl;
+        return;
+    }
+    
+    EV_DEBUG << "📤 Inserting offloading request into PostgreSQL..." << endl;
+    
+    // Prepare JSON payload
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"task_id\":\"" << request.task_id << "\","
+                 << "\"vehicle_id\":\"" << request.vehicle_id << "\","
+                 << "\"local_decision\":\"" << request.local_decision << "\","
+                 << "\"task_size_bytes\":" << request.task_size_bytes << ","
+                 << "\"cpu_cycles\":" << request.cpu_cycles << ","
+                 << "\"deadline_seconds\":" << request.deadline_seconds << ","
+                 << "\"qos_value\":" << request.qos_value
+                 << "}";
+    
+    const char* paramValues[13];
+    std::string task_id = request.task_id;
+    std::string vehicle_id = request.vehicle_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string request_time = std::to_string(request.request_time);
+    std::string task_size = std::to_string(request.task_size_bytes);
+    std::string cpu_cycles = std::to_string(request.cpu_cycles);
+    std::string deadline = std::to_string(request.deadline_seconds);
+    std::string qos = std::to_string(request.qos_value);
+    std::string cpu_avail = std::to_string(request.vehicle_cpu_available);
+    std::string cpu_util = std::to_string(request.vehicle_cpu_utilization);
+    std::string queue_len = std::to_string(request.vehicle_queue_length);
+    std::string local_dec = request.local_decision;
+    std::string payload = payload_json.str();
+    
+    paramValues[0] = task_id.c_str();
+    paramValues[1] = vehicle_id.c_str();
+    paramValues[2] = rsu_id_str.c_str();
+    paramValues[3] = request_time.c_str();
+    paramValues[4] = task_size.c_str();
+    paramValues[5] = cpu_cycles.c_str();
+    paramValues[6] = deadline.c_str();
+    paramValues[7] = qos.c_str();
+    paramValues[8] = cpu_avail.c_str();
+    paramValues[9] = cpu_util.c_str();
+    paramValues[10] = queue_len.c_str();
+    paramValues[11] = local_dec.c_str();
+    paramValues[12] = payload.c_str();
+    
+    const char* query = "INSERT INTO offloading_requests (task_id, vehicle_id, rsu_id, request_time, "
+                        "task_size_bytes, cpu_cycles, deadline_seconds, qos_value, "
+                        "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_queue_length, "
+                        "local_decision, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)";
+    
+    PGresult* res = PQexecParams(conn, query, 13, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Offloading request inserted (Task: " << request.task_id << ")" << endl;
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert offloading decision: No database connection" << endl;
+        return;
+    }
+    
+    EV_DEBUG << "📤 Inserting offloading decision into PostgreSQL..." << endl;
+    
+    // Prepare JSON payload
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"task_id\":\"" << decision->getTask_id() << "\","
+                 << "\"decision_type\":\"" << decision->getDecision_type() << "\","
+                 << "\"confidence_score\":" << decision->getConfidence_score() << ","
+                 << "\"estimated_completion_time\":" << decision->getEstimated_completion_time() << ","
+                 << "\"decision_reason\":\"" << decision->getDecision_reason() << "\""
+                 << "}";
+    
+    const char* paramValues[10];
+    std::string task_id_str = task_id;
+    std::string vehicle_id = decision->getVehicle_id();
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string decision_time = std::to_string(decision->getDecision_time());
+    std::string decision_type = decision->getDecision_type();
+    std::string target_sv = decision->getTarget_service_vehicle_id();
+    std::string confidence = std::to_string(decision->getConfidence_score());
+    std::string est_time = std::to_string(decision->getEstimated_completion_time());
+    std::string reason = decision->getDecision_reason();
+    std::string payload = payload_json.str();
+    
+    paramValues[0] = task_id_str.c_str();
+    paramValues[1] = vehicle_id.c_str();
+    paramValues[2] = rsu_id_str.c_str();
+    paramValues[3] = decision_time.c_str();
+    paramValues[4] = decision_type.c_str();
+    paramValues[5] = target_sv.c_str();
+    paramValues[6] = confidence.c_str();
+    paramValues[7] = est_time.c_str();
+    paramValues[8] = reason.c_str();
+    paramValues[9] = payload.c_str();
+    
+    const char* query = "INSERT INTO offloading_decisions (task_id, vehicle_id, rsu_id, decision_time, "
+                        "decision_type, target_service_vehicle_id, confidence_score, "
+                        "estimated_completion_time, decision_reason, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)";
+    
+    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert offloading decision: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Offloading decision inserted (Task: " << task_id << ")" << endl;
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert task offloading event: No database connection" << endl;
+        return;
+    }
+    
+    EV_DEBUG << "📤 Inserting task offloading event into PostgreSQL..." << endl;
+    
+    const char* paramValues[7];
+    std::string task_id = event->getTask_id();
+    std::string event_type = event->getEvent_type();
+    std::string event_time = std::to_string(event->getEvent_time());
+    std::string source_entity = event->getSource_entity_id();
+    std::string target_entity = event->getTarget_entity_id();
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string event_details = event->getEvent_details();
+    
+    paramValues[0] = task_id.c_str();
+    paramValues[1] = event_type.c_str();
+    paramValues[2] = event_time.c_str();
+    paramValues[3] = source_entity.c_str();
+    paramValues[4] = target_entity.c_str();
+    paramValues[5] = rsu_id_str.c_str();
+    paramValues[6] = event_details.c_str();
+    
+    const char* query = "INSERT INTO task_offloading_events (task_id, event_type, event_time, "
+                        "source_entity_id, target_entity_id, rsu_id, event_details) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)";
+    
+    PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert task offloading event: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Task offloading event inserted (Task: " << task_id << ", Type: " << event_type << ")" << endl;
+    }
+    
+    PQclear(res);
+}
+
+// ============================================================================
 // TASK OFFLOADING ORCHESTRATION IMPLEMENTATION
 // ============================================================================
 
@@ -945,6 +1115,9 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     
     pending_offloading_requests[task_id] = request;
     
+    // Store request in Digital Twin database
+    insertOffloadingRequest(request);
+    
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
     EV_INFO << "  Task Size: " << (request.task_size_bytes / 1024.0) << " KB" << endl;
@@ -960,6 +1133,9 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     veins::OffloadingDecisionMessage* decision = makeOffloadingDecision(request);
     
     if (decision) {
+        // Store decision in Digital Twin database
+        insertOffloadingDecision(task_id, decision);
+        
         // Send decision back to vehicle
         populateWSM(decision, request.vehicle_mac);
         sendDown(decision);
@@ -1172,14 +1348,15 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
     EV_DEBUG << "  Source: " << source << " → Target: " << target << endl;
     EV_DEBUG << "  Time: " << event_time << "s" << endl;
     
-    // TODO: Log to Digital Twin database
-    // INSERT INTO task_offloading_events (task_id, event_type, source_entity_id, ...)
+    // Store event in Digital Twin database
+    insertTaskOffloadingEvent(msg);
     
     std::cout << "RSU_EVENT: " << event_type << " for task " << task_id 
               << " (" << source << " → " << target << ")" << std::endl;
     
     delete msg;
 }
+
 
 }  // namespace complex_network
 

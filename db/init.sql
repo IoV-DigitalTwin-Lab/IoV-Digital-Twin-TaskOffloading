@@ -77,4 +77,79 @@ CREATE TABLE IF NOT EXISTS task_events (
 CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events (task_id);
 CREATE INDEX IF NOT EXISTS idx_task_events_vehicle ON task_events (vehicle_id, completion_time);
 
+-- Offloading request table (Digital Twin tracking)
+CREATE TABLE IF NOT EXISTS offloading_requests (
+    id BIGSERIAL PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    vehicle_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    request_time DOUBLE PRECISION,
+    
+    -- Task characteristics
+    task_size_bytes BIGINT,
+    cpu_cycles BIGINT,
+    deadline_seconds DOUBLE PRECISION,
+    qos_value DOUBLE PRECISION,
+    
+    -- Vehicle state at request time
+    vehicle_cpu_available DOUBLE PRECISION,
+    vehicle_cpu_utilization DOUBLE PRECISION,
+    vehicle_mem_available DOUBLE PRECISION,
+    vehicle_queue_length INTEGER,
+    vehicle_processing_count INTEGER,
+    
+    -- Vehicle location
+    pos_x DOUBLE PRECISION,
+    pos_y DOUBLE PRECISION,
+    speed DOUBLE PRECISION,
+    
+    -- Local decision recommendation
+    local_decision TEXT,
+    
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
 
+CREATE INDEX IF NOT EXISTS idx_offloading_requests_task_id ON offloading_requests (task_id);
+CREATE INDEX IF NOT EXISTS idx_offloading_requests_vehicle ON offloading_requests (vehicle_id, request_time);
+CREATE INDEX IF NOT EXISTS idx_offloading_requests_rsu ON offloading_requests (rsu_id, request_time);
+
+-- Offloading decision table (ML model outputs)
+CREATE TABLE IF NOT EXISTS offloading_decisions (
+    id BIGSERIAL PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    vehicle_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    decision_time DOUBLE PRECISION,
+    
+    -- Decision details
+    decision_type TEXT NOT NULL, -- 'LOCAL', 'RSU', 'SERVICE_VEHICLE', 'REJECT'
+    target_service_vehicle_id TEXT,
+    confidence_score DOUBLE PRECISION,
+    estimated_completion_time DOUBLE PRECISION,
+    decision_reason TEXT,
+    
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_offloading_decisions_task_id ON offloading_decisions (task_id);
+CREATE INDEX IF NOT EXISTS idx_offloading_decisions_vehicle ON offloading_decisions (vehicle_id, decision_time);
+CREATE INDEX IF NOT EXISTS idx_offloading_decisions_type ON offloading_decisions (decision_type, decision_time);
+
+-- Task offloading event table (lifecycle tracking)
+CREATE TABLE IF NOT EXISTS task_offloading_events (
+    id BIGSERIAL PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    event_type TEXT NOT NULL, -- 'REQUEST_SENT', 'DECISION_RECEIVED', 'OFFLOAD_SENT', 'PROCESSING_STARTED', 'RESULT_RECEIVED', 'TIMEOUT', etc.
+    event_time DOUBLE PRECISION,
+    source_entity_id TEXT,
+    target_entity_id TEXT,
+    rsu_id INTEGER,
+    event_details JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_offloading_events_task_id ON task_offloading_events (task_id, event_time);
+CREATE INDEX IF NOT EXISTS idx_task_offloading_events_type ON task_offloading_events (event_type, event_time);
+CREATE INDEX IF NOT EXISTS idx_task_offloading_events_source ON task_offloading_events (source_entity_id, event_time);
