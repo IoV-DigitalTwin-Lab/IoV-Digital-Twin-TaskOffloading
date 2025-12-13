@@ -19,7 +19,7 @@ USERIF_LIBS = $(ALL_ENV_LIBS) # that is, $(QTENV_LIBS) $(CMDENV_LIBS)
 #USERIF_LIBS = $(QTENV_LIBS)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc -I/usr/include/postgresql
+INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
 
 # Additional object and library files to link with
 EXTRA_OBJS =

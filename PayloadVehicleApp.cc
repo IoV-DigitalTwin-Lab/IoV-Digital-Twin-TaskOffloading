@@ -107,8 +107,8 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         // Create payload with current vehicle data
         std::string vehicleDataPayload = createVehicleDataPayload();
 
-        // Find RSU MAC address and ensure correct handling
-        LAddress::L2Type rsuMacAddress = findRSUMacAddress();
+        // Find RSU MAC address using modern multi-criteria selection
+        LAddress::L2Type rsuMacAddress = selectBestRSU();
         
         // Create DemoSafetyMessage with payload
         DemoSafetyMessage* wsm = new DemoSafetyMessage();
@@ -542,6 +542,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
     EV_INFO << "│ Max Queue Size:       " << std::setw(48) << max_queue_size << "      │" << endl;
     EV_INFO << "│ Max Concurrent Tasks: " << std::setw(48) << max_concurrent_tasks << "      │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
+
     
     // Schedule first task generation
     scheduleNextTaskGeneration();
@@ -985,7 +986,7 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
     msg->setQos_value(task->qos_value);
     
     // Find RSU and send
-    LAddress::L2Type rsuMacAddress = findRSUMacAddress();
+    LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);
         sendDown(msg);
@@ -1008,7 +1009,7 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(Task* task) {
     msg->setCompleted_on_time(task->state == COMPLETED_ON_TIME);
     msg->setCpu_allocated(task->cpu_allocated);
     
-    LAddress::L2Type rsuMacAddress = findRSUMacAddress();
+    LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);
         sendDown(msg);
@@ -1028,7 +1029,7 @@ void PayloadVehicleApp::sendTaskFailureToRSU(Task* task, const std::string& reas
     msg->setFailure_reason(reason.c_str());
     msg->setWasted_time((simTime() - task->created_time).dbl());
     
-    LAddress::L2Type rsuMacAddress = findRSUMacAddress();
+    LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);
         sendDown(msg);
@@ -1167,7 +1168,7 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     }
     
     // Find RSU and send
-    LAddress::L2Type rsuMacAddress = findRSUMacAddress();
+    LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM(statusMsg, rsuMacAddress);
         sendDown(statusMsg);
@@ -1183,6 +1184,202 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
 
 void PayloadVehicleApp::sendVehicleResourceStatus() {
     sendResourceStatusToRSU();
+}
+
+// ============================================================================
+// MODERN MULTI-CRITERIA RSU SELECTION IMPLEMENTATION
+// ============================================================================
+
+LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
+    std::cout << "\n🎯 RSU_SELECTION: Starting modern multi-criteria selection..." << std::endl;
+    
+    // Get vehicle position
+    Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        std::cout << "RSU_SELECTION: ERROR - Network module not found!" << std::endl;
+        return 0;
+    }
+    
+    // Update metrics for all RSUs
+    for (int i = 0; i < 3; i++) {
+        cModule* rsuModule = networkModule->getSubmodule("rsu", i);
+        if (rsuModule) {
+            cModule* rsuMobilityModule = rsuModule->getSubmodule("mobility");
+            if (rsuMobilityModule) {
+                double rsuX = rsuMobilityModule->par("x").doubleValue();
+                double rsuY = rsuMobilityModule->par("y").doubleValue();
+                double dx = vehiclePos.x - rsuX;
+                double dy = vehiclePos.y - rsuY;
+                double distance = sqrt(dx * dx + dy * dy);
+                
+                // Initialize or update RSU metrics
+                if (rsuMetrics.find(i) == rsuMetrics.end()) {
+                    rsuMetrics[i] = RSUMetrics();
+                    // Get MAC address from RSU's MAC interface
+                    DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
+                        FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
+                    if (rsuMacInterface) {
+                        rsuMetrics[i].macAddress = rsuMacInterface->getMACAddress();
+                    }
+                }
+                
+                rsuMetrics[i].distance = distance;
+                
+                // Estimate RSSI based on distance (simplified model)
+                // TX power 20mW = 13 dBm, Free space path loss at 5.89GHz
+                double lambda = 3e8 / 5.89e9;  // wavelength
+                double fspl = 20 * log10(distance) + 20 * log10(5.89e9) + 20 * log10(4 * M_PI / 3e8);
+                double estimatedRSSI = 13.0 - fspl;  // Simple estimate
+                
+                // If we don't have a recent RSSI measurement, use estimate
+                if (rsuMetrics[i].lastRSSI < -100) {
+                    rsuMetrics[i].lastRSSI = estimatedRSSI;
+                }
+                
+                std::cout << "RSU_SELECTION: RSU[" << i << "] dist=" << distance 
+                          << "m, estRSSI=" << estimatedRSSI << " dBm" << std::endl;
+            }
+        }
+    }
+    
+    // Filter viable RSUs and calculate scores
+    LAddress::L2Type bestRSU = 0;
+    double bestScore = -999;
+    int bestIndex = -1;
+    
+    for (auto& pair : rsuMetrics) {
+        int rsuIndex = pair.first;
+        RSUMetrics& metrics = pair.second;
+        
+        // Check blacklist condition
+        if (metrics.consecutiveFailures >= failure_blacklist_threshold) {
+            simtime_t timeSinceLastFailure = simTime() - metrics.lastContactTime;
+            if (timeSinceLastFailure < blacklist_duration) {
+                std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] BLACKLISTED (failures=" 
+                          << metrics.consecutiveFailures << ")" << std::endl;
+                continue;  // Skip blacklisted RSU
+            } else {
+                // Reset blacklist after timeout
+                metrics.consecutiveFailures = 0;
+                std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] blacklist expired, reset" << std::endl;
+            }
+        }
+        
+        // Check minimum RSSI threshold
+        if (metrics.lastRSSI < rssi_threshold) {
+            std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] below RSSI threshold ("
+                      << metrics.lastRSSI << " < " << rssi_threshold << " dBm)" << std::endl;
+            continue;  // Skip RSUs with too weak signal
+        }
+        
+        // Calculate multi-criteria score
+        metrics.score = calculateRSUScore(metrics);
+        
+        // Apply hysteresis: favor currently selected RSU
+        if (metrics.macAddress == currentRSU && currentRSU != 0) {
+            metrics.score += 0.1;  // 10% bonus for staying with current RSU
+            std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] is CURRENT, added hysteresis bonus" << std::endl;
+        }
+        
+        std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] SCORE=" << metrics.score 
+                  << " (RSSI=" << metrics.lastRSSI << ", PRR=" << metrics.getPRR() 
+                  << ", dist=" << metrics.distance << "m)" << std::endl;
+        
+        // Track best candidate
+        if (metrics.score > bestScore) {
+            bestScore = metrics.score;
+            bestRSU = metrics.macAddress;
+            bestIndex = rsuIndex;
+        }
+    }
+    
+    // Check if we should switch RSUs (hysteresis)
+    if (bestRSU != 0 && bestRSU != currentRSU && currentRSU != 0) {
+        // Switching to new RSU - check if improvement is significant enough
+        if (bestScore - rsuMetrics[bestIndex].score < 0.15) {  // Need >15% improvement
+            std::cout << "RSU_SELECTION: ⚠️ Hysteresis prevents switch (not enough improvement)" << std::endl;
+            return currentRSU;  // Stay with current RSU
+        }
+    }
+    
+    if (bestRSU != 0) {
+        if (bestRSU != currentRSU) {
+            std::cout << "RSU_SELECTION: ✅ SWITCHING to RSU[" << bestIndex 
+                      << "] MAC=" << bestRSU << " (score=" << bestScore << ")" << std::endl;
+            currentRSU = bestRSU;
+        } else {
+            std::cout << "RSU_SELECTION: ✅ STAYING with RSU[" << bestIndex 
+                      << "] MAC=" << bestRSU << " (score=" << bestScore << ")" << std::endl;
+        }
+        return bestRSU;
+    }
+    
+    std::cout << "RSU_SELECTION: ❌ No viable RSU found, fallback to distance-based" << std::endl;
+    return findRSUMacAddress();  // Fallback to old method
+}
+
+void PayloadVehicleApp::updateRSUMetrics(int rsuIndex, bool messageSuccess, double rssi) {
+    if (rsuMetrics.find(rsuIndex) == rsuMetrics.end()) {
+        rsuMetrics[rsuIndex] = RSUMetrics();
+    }
+    
+    RSUMetrics& metrics = rsuMetrics[rsuIndex];
+    
+    // Update RSSI if provided
+    if (rssi > -999) {
+        metrics.lastRSSI = rssi;
+    }
+    
+    // Update reception history for PRR calculation
+    metrics.receptionHistory.push_back(messageSuccess);
+    if (metrics.receptionHistory.size() > (size_t)prr_window_size) {
+        metrics.receptionHistory.pop_front();  // Keep only recent history
+    }
+    
+    // Update failure tracking
+    if (messageSuccess) {
+        metrics.consecutiveFailures = 0;  // Reset on success
+        metrics.lastContactTime = simTime();
+    } else {
+        metrics.consecutiveFailures++;
+    }
+    
+    std::cout << "RSU_METRICS: RSU[" << rsuIndex << "] updated - success=" << messageSuccess 
+              << ", PRR=" << metrics.getPRR() << ", failures=" << metrics.consecutiveFailures << std::endl;
+}
+
+double PayloadVehicleApp::calculateRSUScore(const RSUMetrics& metrics) {
+    // Multi-criteria weighted scoring (weights sum to 1.0)
+    double score = 0.0;
+    
+    // 1. RSSI component (40% weight) - normalized to 0-1
+    double rssiScore = normalizeValue(metrics.lastRSSI, rssi_threshold, -40.0);
+    score += rssiScore * 0.4;
+    
+    // 2. PRR component (30% weight)
+    double prrScore = metrics.getPRR();
+    score += prrScore * 0.3;
+    
+    // 3. Distance component (20% weight) - closer is better
+    double distScore = normalizeValue(2000.0 - metrics.distance, 0, 2000.0);  // Invert
+    score += distScore * 0.2;
+    
+    // 4. Recency component (10% weight) - recent contact is better
+    double timeSinceContact = (simTime() - metrics.lastContactTime).dbl();
+    double recencyScore = normalizeValue(10.0 - timeSinceContact, 0, 10.0);  // Penalize old contacts
+    score += recencyScore * 0.1;
+    
+    return score;
+}
+
+double PayloadVehicleApp::normalizeValue(double value, double min, double max) {
+    if (max <= min) return 0.0;
+    double normalized = (value - min) / (max - min);
+    // Clamp to [0, 1]
+    if (normalized < 0.0) normalized = 0.0;
+    if (normalized > 1.0) normalized = 1.0;
+    return normalized;
 }
 
 } // namespace complex_network
