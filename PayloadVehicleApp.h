@@ -124,6 +124,48 @@ private:
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
+    
+    // ============================================================================
+    // MODERN RSU SELECTION SYSTEM
+    // ============================================================================
+    
+    // RSU Metrics Structure
+    struct RSUMetrics {
+        veins::LAddress::L2Type macAddress = 0;
+        double lastRSSI = -999.0;                    // Last measured RSSI (dBm)
+        double distance = 0.0;                       // Distance to RSU (meters)
+        std::deque<bool> receptionHistory;           // Recent packet reception success/fail
+        int consecutiveFailures = 0;                 // Count of consecutive failures
+        simtime_t lastContactTime = 0;               // Last successful contact
+        double score = 0.0;                          // Calculated selection score
+        
+        // Calculate Packet Reception Ratio (PRR)
+        double getPRR() const {
+            if (receptionHistory.empty()) return 0.0;
+            int successes = 0;
+            for (bool success : receptionHistory) {
+                if (success) successes++;
+            }
+            return (double)successes / receptionHistory.size();
+        }
+    };
+    
+    // RSU Selection Members
+    std::map<int, RSUMetrics> rsuMetrics;            // Metrics for each RSU (indexed by RSU number)
+    veins::LAddress::L2Type currentRSU = 0;          // Currently selected RSU
+    
+    // RSU Selection Parameters
+    double rssi_threshold = -90.0;                   // Minimum acceptable RSSI (dBm)
+    double hysteresis_margin = 3.0;                  // dB margin for switching
+    int failure_blacklist_threshold = 5;             // Consecutive failures before blacklist
+    simtime_t blacklist_duration = 10.0;             // Seconds to blacklist RSU
+    int prr_window_size = 10;                        // Number of packets to track for PRR
+    
+    // RSU Selection Methods
+    veins::LAddress::L2Type selectBestRSU();         // Modern multi-criteria RSU selection
+    void updateRSUMetrics(int rsuIndex, bool messageSuccess, double rssi = -999.0);
+    double calculateRSUScore(const RSUMetrics& metrics);
+    double normalizeValue(double value, double min, double max);
 };
 
 } // namespace complex_network
