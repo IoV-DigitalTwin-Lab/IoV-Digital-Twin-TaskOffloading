@@ -82,7 +82,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
     // Handle task-related events
     if (strcmp(msg->getName(), "taskGeneration") == 0) {
         generateTask();
-        delete msg;
+        // Don't delete - will be reused by scheduleNextTaskGeneration()
         return;
     }
     else if (strcmp(msg->getName(), "taskCompletion") == 0) {
