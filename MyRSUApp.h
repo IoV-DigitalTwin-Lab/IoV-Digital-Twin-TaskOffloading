@@ -102,6 +102,33 @@ private:
     double processingDelay_ms = 0.0;    // Base processing delay (ms)
     
     // ============================================================================
+    // RSU RESOURCE TRACKING (Dynamic state)
+    // ============================================================================
+    
+    // Dynamic resource state (like vehicles)
+    double rsu_cpu_total = 0.0;         // Total CPU capacity (same as edgeCPU_GHz)
+    double rsu_cpu_available = 0.0;     // Currently available CPU
+    double rsu_memory_total = 0.0;      // Total memory (same as edgeMemory_GB)
+    double rsu_memory_available = 0.0;  // Currently available memory
+    
+    // Task processing state
+    int rsu_queue_length = 0;           // Tasks waiting in queue
+    int rsu_processing_count = 0;       // Currently processing tasks
+    int rsu_max_concurrent = 10;        // Max concurrent tasks
+    
+    // Statistics
+    int rsu_tasks_received = 0;
+    int rsu_tasks_processed = 0;
+    int rsu_tasks_failed = 0;
+    int rsu_tasks_rejected = 0;
+    double rsu_total_processing_time = 0.0;
+    double rsu_total_queue_time = 0.0;
+    
+    // Status update timing
+    double rsu_status_update_interval = 1.0;  // Update every 1 second
+    cMessage* rsu_status_update_timer = nullptr;
+    
+    // ============================================================================
     // DIGITAL TWIN TRACKING SYSTEM
     // ============================================================================
     
@@ -113,6 +140,7 @@ private:
     void handleTaskMetadata(TaskMetadataMessage* msg);
     void handleTaskCompletion(TaskCompletionMessage* msg);
     void handleTaskFailure(TaskFailureMessage* msg);
+    void handleTaskResultWithCompletion(TaskResultMessage* msg);
     void handleVehicleResourceStatus(VehicleResourceStatusMessage* msg);
     
     VehicleDigitalTwin& getOrCreateVehicleTwin(const std::string& vehicle_id);
@@ -141,7 +169,14 @@ private:
         // Vehicle state at request
         double vehicle_cpu_available;
         double vehicle_cpu_utilization;
+        double vehicle_mem_available;
         uint32_t vehicle_queue_length;  // Changed from double to uint32_t to match database INTEGER type
+        uint32_t vehicle_processing_count;
+        
+        // Vehicle location
+        double pos_x;
+        double pos_y;
+        double speed;
     };
     
     std::map<std::string, OffloadingRequest> pending_offloading_requests;  // task_id -> request
@@ -186,6 +221,18 @@ private:
     void insertOffloadingRequest(const OffloadingRequest& request);
     void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
     void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
+    void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
+                                       const std::string& decision_type, const std::string& processor_id,
+                                       double request_time, double decision_time, double start_time, 
+                                       double completion_time, bool success, bool completed_on_time,
+                                       double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                       double qos_value, const std::string& result_data, const std::string& failure_reason);
+    
+    // RSU status and metadata tracking
+    void insertRSUStatus();
+    void insertRSUMetadata();
+    void insertVehicleMetadata(const std::string& vehicle_id);
+    void sendRSUStatusUpdate();
 };
 
 } // namespace complex_network

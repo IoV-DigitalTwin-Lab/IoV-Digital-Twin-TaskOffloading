@@ -25,8 +25,22 @@ void MyRSUApp::initialize(int stage) {
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
         
+        // Initialize RSU resource tracking (dynamic state)
+        rsu_cpu_total = edgeCPU_GHz;
+        rsu_cpu_available = edgeCPU_GHz;  // Initially all available
+        rsu_memory_total = edgeMemory_GB;
+        rsu_memory_available = edgeMemory_GB;
+        rsu_max_concurrent = maxVehicles;  // Use maxVehicles as max concurrent tasks
+        
         // Initialize PostgreSQL database connection
         initDatabase();
+        
+        // Insert RSU metadata (static info) once at initialization
+        insertRSUMetadata();
+        
+        // Start periodic RSU status updates
+        rsu_status_update_timer = new cMessage("rsuStatusUpdate");
+        scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
         
         std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
                   << " initialized with edge resources:" << std::endl;
@@ -69,6 +83,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
         double interval = par("beaconInterval").doubleValue();
         scheduleAt(simTime() + interval, msg);
+        } else if (msg == rsu_status_update_timer) {
+            // Handle RSU status update
+            sendRSUStatusUpdate();
         } else {
             DemoBaseApplLayer::handleSelfMsg(msg);
         }
@@ -123,6 +140,14 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     if (resourceStatus) {
         EV_INFO << "📥 RSU received VehicleResourceStatusMessage" << endl;
         handleVehicleResourceStatus(resourceStatus);
+        return;
+    }
+    
+    // Handle TaskResultMessage with completion timing data
+    TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
+    if (taskResult) {
+        EV_INFO << "📥 RSU received TaskResultMessage with completion data" << endl;
+        handleTaskResultWithCompletion(taskResult);
         return;
     }
     
@@ -223,6 +248,12 @@ void MyRSUApp::finish() {
     if (beaconMsg) {
         cancelAndDelete(beaconMsg);
         beaconMsg = nullptr;
+    }
+    
+    // Cancel and delete RSU status update timer
+    if (rsu_status_update_timer) {
+        cancelAndDelete(rsu_status_update_timer);
+        rsu_status_update_timer = nullptr;
     }
 
     // RSUHttpPoster disabled - using direct PostgreSQL insertion
@@ -460,8 +491,12 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.last_update_time = simTime().dbl();
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
-    // Insert into PostgreSQL database
+    
+    // Insert into PostgreSQL database (real-time status)
     insertVehicleStatus(msg);
+    
+    // Insert/update vehicle metadata (first time or periodic update)
+    insertVehicleMetadata(vehicle_id);
     
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << twin.cpu_utilization << "%" << endl;
@@ -935,7 +970,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
                  << "\"qos_value\":" << request.qos_value
                  << "}";
     
-    const char* paramValues[13];
+    const char* paramValues[18];
     std::string task_id = request.task_id;
     std::string vehicle_id = request.vehicle_id;
     std::string rsu_id_str = std::to_string(rsu_id);
@@ -946,7 +981,12 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     std::string qos = std::to_string(request.qos_value);
     std::string cpu_avail = std::to_string(request.vehicle_cpu_available);
     std::string cpu_util = std::to_string(request.vehicle_cpu_utilization);
+    std::string mem_avail = std::to_string(request.vehicle_mem_available);
     std::string queue_len = std::to_string(request.vehicle_queue_length);
+    std::string proc_count = std::to_string(request.vehicle_processing_count);
+    std::string pos_x = std::to_string(request.pos_x);
+    std::string pos_y = std::to_string(request.pos_y);
+    std::string spd = std::to_string(request.speed);
     std::string local_dec = request.local_decision;
     std::string payload = payload_json.str();
     
@@ -960,17 +1000,23 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     paramValues[7] = qos.c_str();
     paramValues[8] = cpu_avail.c_str();
     paramValues[9] = cpu_util.c_str();
-    paramValues[10] = queue_len.c_str();
-    paramValues[11] = local_dec.c_str();
-    paramValues[12] = payload.c_str();
+    paramValues[10] = mem_avail.c_str();
+    paramValues[11] = queue_len.c_str();
+    paramValues[12] = proc_count.c_str();
+    paramValues[13] = pos_x.c_str();
+    paramValues[14] = pos_y.c_str();
+    paramValues[15] = spd.c_str();
+    paramValues[16] = local_dec.c_str();
+    paramValues[17] = payload.c_str();
     
     const char* query = "INSERT INTO offloading_requests (task_id, vehicle_id, rsu_id, request_time, "
                         "task_size_bytes, cpu_cycles, deadline_seconds, qos_value, "
-                        "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_queue_length, "
-                        "local_decision, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)";
+                        "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_mem_available, "
+                        "vehicle_queue_length, vehicle_processing_count, "
+                        "pos_x, pos_y, speed, local_decision, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 13, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 18, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
@@ -1082,6 +1128,92 @@ void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event
     PQclear(res);
 }
 
+void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
+                                             const std::string& decision_type, const std::string& processor_id,
+                                             double request_time, double decision_time, double start_time,
+                                             double completion_time, bool success, bool completed_on_time,
+                                             double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                             double qos_value, const std::string& result_data, const std::string& failure_reason) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert task completion: No database connection" << endl;
+        std::cout << "WARN: ⚠ Cannot insert task completion: No database connection" << std::endl;
+        return;
+    }
+    
+    EV_INFO << "📊 Inserting offloaded task completion for task " << task_id << endl;
+    std::cout << "INFO: 📊 Inserting offloaded task completion for task " << task_id << std::endl;
+    
+    // Calculate latencies
+    double decision_latency = decision_time - request_time;
+    double processing_latency = completion_time - start_time;
+    double total_latency = completion_time - request_time;
+    
+    std::cout << "INFO: 📈 Task Metrics - Decision: " << decision_latency << "s, Processing: " 
+              << processing_latency << "s, Total: " << total_latency << "s" << std::endl;
+    
+    const char* paramValues[19];
+    std::string tid = task_id;
+    std::string vid = vehicle_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string dec_type = decision_type;
+    std::string proc_id = processor_id;
+    std::string req_time = std::to_string(request_time);
+    std::string dec_time = std::to_string(decision_time);
+    std::string strt_time = std::to_string(start_time);
+    std::string comp_time = std::to_string(completion_time);
+    std::string dec_lat = std::to_string(decision_latency);
+    std::string proc_lat = std::to_string(processing_latency);
+    std::string tot_lat = std::to_string(total_latency);
+    std::string succ = success ? "true" : "false";
+    std::string comp_on_time = completed_on_time ? "true" : "false";
+    std::string deadline = std::to_string(deadline_seconds);
+    std::string tsize = std::to_string(task_size_bytes);
+    std::string cycles = std::to_string(cpu_cycles);
+    std::string qos = std::to_string(qos_value);
+    std::string result = result_data;
+    
+    paramValues[0] = tid.c_str();
+    paramValues[1] = vid.c_str();
+    paramValues[2] = rsu_id_str.c_str();
+    paramValues[3] = dec_type.c_str();
+    paramValues[4] = proc_id.c_str();
+    paramValues[5] = req_time.c_str();
+    paramValues[6] = dec_time.c_str();
+    paramValues[7] = strt_time.c_str();
+    paramValues[8] = comp_time.c_str();
+    paramValues[9] = dec_lat.c_str();
+    paramValues[10] = proc_lat.c_str();
+    paramValues[11] = tot_lat.c_str();
+    paramValues[12] = succ.c_str();
+    paramValues[13] = comp_on_time.c_str();
+    paramValues[14] = deadline.c_str();
+    paramValues[15] = tsize.c_str();
+    paramValues[16] = cycles.c_str();
+    paramValues[17] = qos.c_str();
+    paramValues[18] = result.c_str();
+    
+    const char* query = "INSERT INTO offloaded_task_completions (task_id, vehicle_id, rsu_id, "
+                        "decision_type, processor_id, request_time, decision_time, start_time, completion_time, "
+                        "decision_latency, processing_latency, total_latency, success, completed_on_time, "
+                        "deadline_seconds, task_size_bytes, cpu_cycles, qos_value, result_data) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::boolean, $14::boolean, "
+                        "$15, $16, $17, $18, $19)";
+    
+    PGresult* res = PQexecParams(conn, query, 19, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert task completion: " << PQerrorMessage(conn) << endl;
+        std::cout << "WARN: ✗ Failed to insert task completion: " << PQerrorMessage(conn) << std::endl;
+    } else {
+        EV_INFO << "✓ Task completion inserted successfully" << endl;
+        std::cout << "INFO: ✓ Task completion inserted - Total Latency: " << total_latency 
+                  << "s, Success: " << success << ", On-time: " << completed_on_time << std::endl;
+    }
+    
+    PQclear(res);
+}
+
 // ============================================================================
 // TASK OFFLOADING ORCHESTRATION IMPLEMENTATION
 // ============================================================================
@@ -1118,7 +1250,14 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     // Vehicle state
     request.vehicle_cpu_available = msg->getLocal_cpu_available_ghz();
     request.vehicle_cpu_utilization = msg->getLocal_cpu_utilization();
+    request.vehicle_mem_available = msg->getLocal_mem_available_mb();
     request.vehicle_queue_length = msg->getLocal_queue_length();
+    request.vehicle_processing_count = msg->getLocal_processing_count();
+    
+    // Vehicle location
+    request.pos_x = msg->getPos_x();
+    request.pos_y = msg->getPos_y();
+    request.speed = msg->getSpeed();
     
     pending_offloading_requests[task_id] = request;
     
@@ -1364,6 +1503,309 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
               << " (" << source << " → " << target << ")" << std::endl;
     
     delete msg;
+}
+
+void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
+    std::string task_id = msg->getTask_id();
+    EV_INFO << "📊 RSU received task completion data for " << task_id << endl;
+    
+    // Parse timing JSON from task_output_data field
+    std::string result_data = msg->getTask_output_data();
+    
+    try {
+        // Manual JSON parsing (simple approach)
+        double request_time = 0.0, decision_time = 0.0, start_time = 0.0, completion_time = 0.0;
+        double qos_value = 0.0;
+        uint64_t task_size_bytes = 0, cpu_cycles = 0;
+        bool on_time = false;
+        std::string decision_type, processor_id, result;
+        
+        // Extract values from JSON string (simple parsing)
+        size_t pos = 0;
+        
+        // Helper lambda to extract numeric value
+        auto extractDouble = [&result_data](const std::string& key) -> double {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return 0.0;
+            size_t valueStart = result_data.find(":", keyPos) + 1;
+            size_t valueEnd = result_data.find_first_of(",}", valueStart);
+            std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
+            return std::stod(valueStr);
+        };
+        
+        auto extractUint64 = [&result_data](const std::string& key) -> uint64_t {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return 0;
+            size_t valueStart = result_data.find(":", keyPos) + 1;
+            size_t valueEnd = result_data.find_first_of(",}", valueStart);
+            std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
+            return std::stoull(valueStr);
+        };
+        
+        auto extractString = [&result_data](const std::string& key) -> std::string {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return "";
+            size_t valueStart = result_data.find("\"", keyPos + key.length() + 3) + 1;
+            size_t valueEnd = result_data.find("\"", valueStart);
+            return result_data.substr(valueStart, valueEnd - valueStart);
+        };
+        
+        auto extractBool = [&result_data](const std::string& key) -> bool {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return false;
+            size_t valueStart = result_data.find(":", keyPos) + 1;
+            std::string valueStr = result_data.substr(valueStart, 4);
+            return (valueStr.find("true") != std::string::npos);
+        };
+        
+        // Extract all timing values
+        request_time = extractDouble("request_time");
+        decision_time = extractDouble("decision_time");
+        start_time = extractDouble("start_time");
+        completion_time = extractDouble("completion_time");
+        qos_value = extractDouble("qos_value");
+        task_size_bytes = extractUint64("task_size_bytes");
+        cpu_cycles = extractUint64("cpu_cycles");
+        on_time = extractBool("on_time");
+        decision_type = extractString("decision_type");
+        processor_id = extractString("processor_id");
+        result = extractString("result");
+        
+        bool success = msg->getSuccess();
+        
+        EV_INFO << "Parsed completion data:" << endl;
+        EV_INFO << "  Request time: " << request_time << "s" << endl;
+        EV_INFO << "  Decision time: " << decision_time << "s" << endl;
+        EV_INFO << "  Start time: " << start_time << "s" << endl;
+        EV_INFO << "  Completion time: " << completion_time << "s" << endl;
+        EV_INFO << "  Decision type: " << decision_type << endl;
+        EV_INFO << "  Processor: " << processor_id << endl;
+        EV_INFO << "  Success: " << (success ? "Yes" : "No") << endl;
+        EV_INFO << "  On-time: " << (on_time ? "Yes" : "No") << endl;
+        
+        // Get vehicle and RSU info
+        std::string origin_vehicle_id = msg->getOrigin_vehicle_id();
+        
+        // Calculate deadline from timing
+        double total_latency = completion_time - request_time;
+        double deadline_seconds = total_latency * 1.5;  // Estimate deadline (could be extracted from original request)
+        
+        // Insert into database
+        insertOffloadedTaskCompletion(
+            task_id,
+            origin_vehicle_id,
+            decision_type,
+            processor_id,
+            request_time,
+            decision_time,
+            start_time,
+            completion_time,
+            success,
+            on_time,
+            deadline_seconds,
+            task_size_bytes,
+            cpu_cycles,
+            qos_value,
+            result_data,
+            msg->getFailure_reason()
+        );
+        
+        std::cout << "COMPLETION_DB: Task " << task_id << " completion data inserted - "
+                  << "Total latency: " << total_latency << "s, Success: " << success 
+                  << ", On-time: " << on_time << std::endl;
+        
+    } catch (const std::exception& e) {
+        EV_ERROR << "Failed to parse completion data JSON: " << e.what() << endl;
+        std::cout << "ERROR: Failed to parse completion data for task " << task_id 
+                  << ": " << e.what() << std::endl;
+    }
+    
+    delete msg;
+}
+
+// ============================================================================
+// RSU STATUS AND METADATA TRACKING
+// ============================================================================
+
+void MyRSUApp::sendRSUStatusUpdate() {
+    EV_DEBUG << "📊 RSU: Sending status update to database" << endl;
+    
+    // Update dynamic metrics
+    double cpu_util = (rsu_cpu_total > 0) ? ((rsu_cpu_total - rsu_cpu_available) / rsu_cpu_total) : 0.0;
+    double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
+    double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
+    double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
+    double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    
+    // Insert into database
+    insertRSUStatus();
+    
+    // Reschedule
+    scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
+}
+
+void MyRSUApp::insertRSUStatus() {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+    
+    // Calculate metrics
+    double cpu_util = (rsu_cpu_total > 0) ? ((rsu_cpu_total - rsu_cpu_available) / rsu_cpu_total) : 0.0;
+    double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
+    double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
+    double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
+    double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    int connected_vehicles = vehicle_twins.size();
+    
+    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+    double update_time = simTime().dbl();
+    
+    // Build INSERT query
+    const char* paramValues[20];
+    std::string params[20];
+    
+    params[0] = rsu_id_str;
+    params[1] = std::to_string(update_time);
+    params[2] = std::to_string(rsu_cpu_total);
+    params[3] = std::to_string(rsu_cpu_total);  // cpu_allocable = total for RSU
+    params[4] = std::to_string(rsu_cpu_available);
+    params[5] = std::to_string(cpu_util);
+    params[6] = std::to_string(rsu_memory_total);
+    params[7] = std::to_string(rsu_memory_available);
+    params[8] = std::to_string(mem_util);
+    params[9] = std::to_string(rsu_queue_length);
+    params[10] = std::to_string(rsu_processing_count);
+    params[11] = std::to_string(rsu_max_concurrent);
+    params[12] = std::to_string(rsu_tasks_received);
+    params[13] = std::to_string(rsu_tasks_processed);
+    params[14] = std::to_string(rsu_tasks_failed);
+    params[15] = std::to_string(rsu_tasks_rejected);
+    params[16] = std::to_string(avg_proc_time);
+    params[17] = std::to_string(avg_queue_time);
+    params[18] = std::to_string(success_rate);
+    params[19] = std::to_string(connected_vehicles);
+    
+    for (int i = 0; i < 20; i++) {
+        paramValues[i] = params[i].c_str();
+    }
+    
+    const char* query = 
+        "INSERT INTO rsu_status ("
+        "rsu_id, update_time, cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
+        "memory_total, memory_available, memory_utilization, queue_length, processing_count, "
+        "max_concurrent_tasks, tasks_received, tasks_processed, tasks_failed, tasks_rejected, "
+        "avg_processing_time, avg_queue_time, success_rate, connected_vehicles_count"
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)";
+    
+    PGresult* res = PQexecParams(conn, query, 20, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_ERROR << "RSU status insert failed: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "RSU status inserted - CPU: " << (cpu_util*100) << "%, Mem: " << (mem_util*100) 
+                 << "%, Tasks: " << rsu_processing_count << "/" << rsu_max_concurrent << endl;
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertRSUMetadata() {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+    
+    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+    
+    // Get RSU position from mobility module
+    double pos_x = 0.0, pos_y = 0.0, pos_z = 0.0;
+    cModule* mobilityModule = getParentModule()->getSubmodule("mobility");
+    if (mobilityModule) {
+        pos_x = mobilityModule->par("x").doubleValue();
+        pos_y = mobilityModule->par("y").doubleValue();
+        pos_z = mobilityModule->par("z").doubleValue();
+    }
+    
+    // Build INSERT query with UPSERT (ON CONFLICT UPDATE)
+    const char* paramValues[11];
+    std::string params[11];
+    
+    params[0] = rsu_id_str;
+    params[1] = std::to_string(pos_x);
+    params[2] = std::to_string(pos_y);
+    params[3] = std::to_string(pos_z);
+    params[4] = "300.0";  // Default coverage radius 300m
+    params[5] = std::to_string(edgeCPU_GHz);
+    params[6] = std::to_string(edgeMemory_GB);
+    params[7] = "100.0";  // Default storage 100GB
+    params[8] = "100.0";  // Default bandwidth 100Mbps
+    params[9] = std::to_string(maxVehicles);
+    params[10] = std::to_string(processingDelay_ms);
+    
+    for (int i = 0; i < 11; i++) {
+        paramValues[i] = params[i].c_str();
+    }
+    
+    const char* query = 
+        "INSERT INTO rsu_metadata ("
+        "rsu_id, pos_x, pos_y, pos_z, coverage_radius, cpu_capacity_ghz, memory_capacity_gb, "
+        "storage_capacity_gb, bandwidth_mbps, max_vehicles, base_processing_delay_ms, deployment_time"
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP) "
+        "ON CONFLICT (rsu_id) DO UPDATE SET "
+        "pos_x = EXCLUDED.pos_x, pos_y = EXCLUDED.pos_y, pos_z = EXCLUDED.pos_z, "
+        "updated_at = CURRENT_TIMESTAMP";
+    
+    PGresult* res = PQexecParams(conn, query, 11, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_ERROR << "RSU metadata insert failed: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_INFO << "✓ RSU metadata inserted/updated for " << rsu_id_str << endl;
+        std::cout << "RSU_METADATA: " << rsu_id_str << " @ (" << pos_x << "," << pos_y << ") - " 
+                  << edgeCPU_GHz << " GHz, " << edgeMemory_GB << " GB" << std::endl;
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+    
+    // Get vehicle twin data if available
+    auto it = vehicle_twins.find(vehicle_id);
+    if (it == vehicle_twins.end()) return;
+    
+    const VehicleDigitalTwin& twin = it->second;
+    
+    // Build INSERT query with UPSERT
+    const char* paramValues[6];
+    std::string params[6];
+    
+    params[0] = vehicle_id;
+    params[1] = std::to_string(twin.cpu_total / 1e9);  // Convert Hz to GHz
+    params[2] = std::to_string(twin.mem_total / 1e6);  // Convert bytes to MB
+    params[3] = std::to_string(twin.first_seen_time);
+    params[4] = std::to_string(twin.last_update_time);
+    params[5] = "false";  // Default: not a service vehicle
+    
+    for (int i = 0; i < 6; i++) {
+        paramValues[i] = params[i].c_str();
+    }
+    
+    const char* query = 
+        "INSERT INTO vehicle_metadata ("
+        "vehicle_id, cpu_capacity_ghz, memory_capacity_mb, first_seen_time, last_seen_time, service_vehicle"
+        ") VALUES ($1, $2, $3, $4, $5, $6::boolean) "
+        "ON CONFLICT (vehicle_id) DO UPDATE SET "
+        "last_seen_time = EXCLUDED.last_seen_time, updated_at = CURRENT_TIMESTAMP";
+    
+    PGresult* res = PQexecParams(conn, query, 6, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Vehicle metadata inserted/updated for " << vehicle_id << endl;
+    }
+    
+    PQclear(res);
 }
 
 
