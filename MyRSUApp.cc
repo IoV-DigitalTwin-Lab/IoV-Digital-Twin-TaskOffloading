@@ -126,6 +126,14 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         return;
     }
     
+    // Handle TaskResultMessage with completion timing data
+    TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
+    if (taskResult) {
+        EV_INFO << "📥 RSU received TaskResultMessage with completion data" << endl;
+        handleTaskResultWithCompletion(taskResult);
+        return;
+    }
+    
     // Original DemoSafetyMessage handling
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if(!dsm) {
@@ -1093,6 +1101,92 @@ void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event
     PQclear(res);
 }
 
+void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
+                                             const std::string& decision_type, const std::string& processor_id,
+                                             double request_time, double decision_time, double start_time,
+                                             double completion_time, bool success, bool completed_on_time,
+                                             double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                             double qos_value, const std::string& result_data, const std::string& failure_reason) {
+    PGconn* conn = getDBConnection();
+    if (!conn) {
+        EV_WARN << "⚠ Cannot insert task completion: No database connection" << endl;
+        std::cout << "WARN: ⚠ Cannot insert task completion: No database connection" << std::endl;
+        return;
+    }
+    
+    EV_INFO << "📊 Inserting offloaded task completion for task " << task_id << endl;
+    std::cout << "INFO: 📊 Inserting offloaded task completion for task " << task_id << std::endl;
+    
+    // Calculate latencies
+    double decision_latency = decision_time - request_time;
+    double processing_latency = completion_time - start_time;
+    double total_latency = completion_time - request_time;
+    
+    std::cout << "INFO: 📈 Task Metrics - Decision: " << decision_latency << "s, Processing: " 
+              << processing_latency << "s, Total: " << total_latency << "s" << std::endl;
+    
+    const char* paramValues[19];
+    std::string tid = task_id;
+    std::string vid = vehicle_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string dec_type = decision_type;
+    std::string proc_id = processor_id;
+    std::string req_time = std::to_string(request_time);
+    std::string dec_time = std::to_string(decision_time);
+    std::string strt_time = std::to_string(start_time);
+    std::string comp_time = std::to_string(completion_time);
+    std::string dec_lat = std::to_string(decision_latency);
+    std::string proc_lat = std::to_string(processing_latency);
+    std::string tot_lat = std::to_string(total_latency);
+    std::string succ = success ? "true" : "false";
+    std::string comp_on_time = completed_on_time ? "true" : "false";
+    std::string deadline = std::to_string(deadline_seconds);
+    std::string tsize = std::to_string(task_size_bytes);
+    std::string cycles = std::to_string(cpu_cycles);
+    std::string qos = std::to_string(qos_value);
+    std::string result = result_data;
+    
+    paramValues[0] = tid.c_str();
+    paramValues[1] = vid.c_str();
+    paramValues[2] = rsu_id_str.c_str();
+    paramValues[3] = dec_type.c_str();
+    paramValues[4] = proc_id.c_str();
+    paramValues[5] = req_time.c_str();
+    paramValues[6] = dec_time.c_str();
+    paramValues[7] = strt_time.c_str();
+    paramValues[8] = comp_time.c_str();
+    paramValues[9] = dec_lat.c_str();
+    paramValues[10] = proc_lat.c_str();
+    paramValues[11] = tot_lat.c_str();
+    paramValues[12] = succ.c_str();
+    paramValues[13] = comp_on_time.c_str();
+    paramValues[14] = deadline.c_str();
+    paramValues[15] = tsize.c_str();
+    paramValues[16] = cycles.c_str();
+    paramValues[17] = qos.c_str();
+    paramValues[18] = result.c_str();
+    
+    const char* query = "INSERT INTO offloaded_task_completions (task_id, vehicle_id, rsu_id, "
+                        "decision_type, processor_id, request_time, decision_time, start_time, completion_time, "
+                        "decision_latency, processing_latency, total_latency, success, completed_on_time, "
+                        "deadline_seconds, task_size_bytes, cpu_cycles, qos_value, result_data) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::boolean, $14::boolean, "
+                        "$15, $16, $17, $18, $19)";
+    
+    PGresult* res = PQexecParams(conn, query, 19, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_WARN << "✗ Failed to insert task completion: " << PQerrorMessage(conn) << endl;
+        std::cout << "WARN: ✗ Failed to insert task completion: " << PQerrorMessage(conn) << std::endl;
+    } else {
+        EV_INFO << "✓ Task completion inserted successfully" << endl;
+        std::cout << "INFO: ✓ Task completion inserted - Total Latency: " << total_latency 
+                  << "s, Success: " << success << ", On-time: " << completed_on_time << std::endl;
+    }
+    
+    PQclear(res);
+}
+
 // ============================================================================
 // TASK OFFLOADING ORCHESTRATION IMPLEMENTATION
 // ============================================================================
@@ -1380,6 +1474,124 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
     
     std::cout << "RSU_EVENT: " << event_type << " for task " << task_id 
               << " (" << source << " → " << target << ")" << std::endl;
+    
+    delete msg;
+}
+
+void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
+    std::string task_id = msg->getTask_id();
+    EV_INFO << "📊 RSU received task completion data for " << task_id << endl;
+    
+    // Parse timing JSON from task_output_data field
+    std::string result_data = msg->getTask_output_data();
+    
+    try {
+        // Manual JSON parsing (simple approach)
+        double request_time = 0.0, decision_time = 0.0, start_time = 0.0, completion_time = 0.0;
+        double qos_value = 0.0;
+        uint64_t task_size_bytes = 0, cpu_cycles = 0;
+        bool on_time = false;
+        std::string decision_type, processor_id, result;
+        
+        // Extract values from JSON string (simple parsing)
+        size_t pos = 0;
+        
+        // Helper lambda to extract numeric value
+        auto extractDouble = [&result_data](const std::string& key) -> double {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return 0.0;
+            size_t valueStart = result_data.find(":", keyPos) + 1;
+            size_t valueEnd = result_data.find_first_of(",}", valueStart);
+            std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
+            return std::stod(valueStr);
+        };
+        
+        auto extractUint64 = [&result_data](const std::string& key) -> uint64_t {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return 0;
+            size_t valueStart = result_data.find(":", keyPos) + 1;
+            size_t valueEnd = result_data.find_first_of(",}", valueStart);
+            std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
+            return std::stoull(valueStr);
+        };
+        
+        auto extractString = [&result_data](const std::string& key) -> std::string {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return "";
+            size_t valueStart = result_data.find("\"", keyPos + key.length() + 3) + 1;
+            size_t valueEnd = result_data.find("\"", valueStart);
+            return result_data.substr(valueStart, valueEnd - valueStart);
+        };
+        
+        auto extractBool = [&result_data](const std::string& key) -> bool {
+            size_t keyPos = result_data.find("\"" + key + "\":");
+            if (keyPos == std::string::npos) return false;
+            size_t valueStart = result_data.find(":", keyPos) + 1;
+            std::string valueStr = result_data.substr(valueStart, 4);
+            return (valueStr.find("true") != std::string::npos);
+        };
+        
+        // Extract all timing values
+        request_time = extractDouble("request_time");
+        decision_time = extractDouble("decision_time");
+        start_time = extractDouble("start_time");
+        completion_time = extractDouble("completion_time");
+        qos_value = extractDouble("qos_value");
+        task_size_bytes = extractUint64("task_size_bytes");
+        cpu_cycles = extractUint64("cpu_cycles");
+        on_time = extractBool("on_time");
+        decision_type = extractString("decision_type");
+        processor_id = extractString("processor_id");
+        result = extractString("result");
+        
+        bool success = msg->getSuccess();
+        
+        EV_INFO << "Parsed completion data:" << endl;
+        EV_INFO << "  Request time: " << request_time << "s" << endl;
+        EV_INFO << "  Decision time: " << decision_time << "s" << endl;
+        EV_INFO << "  Start time: " << start_time << "s" << endl;
+        EV_INFO << "  Completion time: " << completion_time << "s" << endl;
+        EV_INFO << "  Decision type: " << decision_type << endl;
+        EV_INFO << "  Processor: " << processor_id << endl;
+        EV_INFO << "  Success: " << (success ? "Yes" : "No") << endl;
+        EV_INFO << "  On-time: " << (on_time ? "Yes" : "No") << endl;
+        
+        // Get vehicle and RSU info
+        std::string origin_vehicle_id = msg->getOrigin_vehicle_id();
+        
+        // Calculate deadline from timing
+        double total_latency = completion_time - request_time;
+        double deadline_seconds = total_latency * 1.5;  // Estimate deadline (could be extracted from original request)
+        
+        // Insert into database
+        insertOffloadedTaskCompletion(
+            task_id,
+            origin_vehicle_id,
+            decision_type,
+            processor_id,
+            request_time,
+            decision_time,
+            start_time,
+            completion_time,
+            success,
+            on_time,
+            deadline_seconds,
+            task_size_bytes,
+            cpu_cycles,
+            qos_value,
+            result_data,
+            msg->getFailure_reason()
+        );
+        
+        std::cout << "COMPLETION_DB: Task " << task_id << " completion data inserted - "
+                  << "Total latency: " << total_latency << "s, Success: " << success 
+                  << ", On-time: " << on_time << std::endl;
+        
+    } catch (const std::exception& e) {
+        EV_ERROR << "Failed to parse completion data JSON: " << e.what() << endl;
+        std::cout << "ERROR: Failed to parse completion data for task " << task_id 
+                  << ": " << e.what() << std::endl;
+    }
     
     delete msg;
 }

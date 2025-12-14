@@ -153,3 +153,48 @@ CREATE TABLE IF NOT EXISTS task_offloading_events (
 CREATE INDEX IF NOT EXISTS idx_task_offloading_events_task_id ON task_offloading_events (task_id, event_time);
 CREATE INDEX IF NOT EXISTS idx_task_offloading_events_type ON task_offloading_events (event_type, event_time);
 CREATE INDEX IF NOT EXISTS idx_task_offloading_events_source ON task_offloading_events (source_entity_id, event_time);
+
+-- Task completion tracking for offloaded tasks
+CREATE TABLE IF NOT EXISTS offloaded_task_completions (
+    id BIGSERIAL PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    vehicle_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    
+    -- Decision details
+    decision_type TEXT NOT NULL, -- 'LOCAL', 'RSU', 'SERVICE_VEHICLE'
+    processor_id TEXT, -- ID of the entity that processed the task
+    
+    -- Timing information
+    request_time DOUBLE PRECISION, -- When offloading request was sent
+    decision_time DOUBLE PRECISION, -- When RSU made decision
+    start_time DOUBLE PRECISION, -- When processing started
+    completion_time DOUBLE PRECISION, -- When task completed
+    
+    -- Latency metrics
+    decision_latency DOUBLE PRECISION, -- decision_time - request_time
+    processing_latency DOUBLE PRECISION, -- completion_time - start_time
+    total_latency DOUBLE PRECISION, -- completion_time - request_time
+    
+    -- Completion status
+    success BOOLEAN, -- Task completed successfully
+    completed_on_time BOOLEAN, -- Met deadline
+    deadline_seconds DOUBLE PRECISION, -- Original deadline
+    
+    -- Task characteristics
+    task_size_bytes BIGINT,
+    cpu_cycles BIGINT,
+    qos_value DOUBLE PRECISION,
+    
+    -- Result info
+    result_data TEXT,
+    failure_reason TEXT,
+    
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_offloaded_completions_task_id ON offloaded_task_completions (task_id);
+CREATE INDEX IF NOT EXISTS idx_offloaded_completions_vehicle ON offloaded_task_completions (vehicle_id, completion_time);
+CREATE INDEX IF NOT EXISTS idx_offloaded_completions_decision ON offloaded_task_completions (decision_type, success);
+CREATE INDEX IF NOT EXISTS idx_offloaded_completions_rsu ON offloaded_task_completions (rsu_id, completion_time);

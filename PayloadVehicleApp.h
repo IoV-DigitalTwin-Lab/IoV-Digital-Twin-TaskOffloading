@@ -160,6 +160,17 @@ private:
     // TASK OFFLOADING DECISION FRAMEWORK
     // ============================================================================
     
+    // Task timing tracking for latency calculations
+    struct TaskTimingInfo {
+        double request_time = 0.0;      // When offloading request was sent
+        double decision_time = 0.0;     // When RSU decision was received
+        double start_time = 0.0;        // When processing started
+        std::string decision_type;      // LOCAL, RSU, SERVICE_VEHICLE
+        std::string processor_id;       // ID of processor
+    };
+    
+    std::map<std::string, TaskTimingInfo> taskTimings;  // task_id -> timing info
+    
     bool offloadingEnabled = false;                        // Enable/disable offloading
     TaskOffloadingDecisionMaker* decisionMaker = nullptr;  // Offloading decision maker
     
@@ -190,6 +201,11 @@ private:
     void handleTaskResult(veins::TaskResultMessage* msg);
     void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType, 
                                   const std::string& sourceEntity, const std::string& targetEntity);
+    void sendTaskCompletionToRSU(Task* task, bool success, const std::string& failureReason = "");
+    void sendTaskCompletionToRSU(const std::string& taskId, double completionTime, 
+                                  bool success, bool onTime, 
+                                  uint64_t taskSizeBytes, uint64_t cpuCycles, 
+                                  double qosValue, const std::string& resultData);
     
     // Service vehicle capability (this vehicle can process tasks for others)
     bool serviceVehicleEnabled = false;

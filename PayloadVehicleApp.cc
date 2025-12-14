@@ -737,6 +737,14 @@ void PayloadVehicleApp::generateTask() {
             EV_INFO << "💻 Local decision is LOCAL - processing immediately (no RSU consultation)" << endl;
             std::cout << "OFFLOAD_LOCAL: Task " << task->task_id << " processing locally (confident)" << std::endl;
             
+            // Track timing for completion report (even though no RSU decision needed)
+            TaskTimingInfo timing;
+            timing.request_time = simTime().dbl();
+            timing.decision_time = simTime().dbl();  // Immediate local decision
+            timing.decision_type = "LOCAL";
+            timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+            taskTimings[task->task_id] = timing;
+            
             // Check if can accept task
             if (!canAcceptTask(task)) {
                 EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
@@ -876,6 +884,12 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     processing_tasks.insert(task);
     task->state = PROCESSING;
     task->processing_start_time = simTime();
+    
+    // Track start time for latency calculation
+    if (taskTimings.find(task->task_id) != taskTimings.end()) {
+        taskTimings[task->task_id].start_time = simTime().dbl();
+        EV_INFO << "Start time tracked for task " << task->task_id << endl;
+    }
     
     // Calculate CPU allocation
     task->cpu_allocated = calculateCPUAllocation(task);
@@ -1094,8 +1108,11 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     
     task->logTaskInfo("Task completed");
     
-    // Send completion notification to RSU
-    sendTaskCompletionToRSU(task);
+    // Send completion notification to RSU with timing data
+    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
+                            true, on_time, 
+                            task->task_size_bytes, task->cpu_cycles, 
+                            task->qos_value, "completed");
     
     // Reallocate CPU to remaining tasks
     reallocateCPUResources();
@@ -1155,6 +1172,12 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     tasks_failed++;
     
     task->logTaskInfo("Task failed - deadline expired");
+    
+    // Send completion report for failed task (for completion rate calculation)
+    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
+                            false, false, 
+                            task->task_size_bytes, task->cpu_cycles, 
+                            task->qos_value, "deadline_missed");
     
     // Send failure notification to RSU
     sendTaskFailureToRSU(task, "DEADLINE_MISSED");
@@ -1861,11 +1884,16 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     // Mark task as awaiting decision
     pendingOffloadingDecisions[task->task_id] = task;
     
+    // Record timing information for latency tracking
+    TaskTimingInfo timing;
+    timing.request_time = simTime().dbl();
+    taskTimings[task->task_id] = timing;
+    
     // Send lifecycle event to RSU for Digital Twin
     sendTaskOffloadingEvent(task->task_id, "REQUEST_SENT", task->vehicle_id, "RSU");
     
     EV_INFO << "Offloading request sent to RSU (MAC: " << rsuMac << ")" << endl;
-    std::cout << "OFFLOAD_REQUEST: Sent to RSU, awaiting ML decision" << std::endl;
+    std::cout << "INFO: Offloading request sent to RSU (MAC: " << rsuMac << ")" << std::endl;
 }
 
 void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg) {
@@ -1873,7 +1901,7 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
     std::string taskId = msg->getTask_id();
     std::string decisionType = msg->getDecision_type();
     
-    std::cout << "OFFLOAD_DECISION: Received decision for task " << taskId 
+    std::cout << "INFO: 📥 Received offloading decision for task " << taskId 
               << ": " << decisionType << std::endl;
     
     // Find the task in pending decisions
@@ -1886,6 +1914,13 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
     
     Task* task = it->second;
     pendingOffloadingDecisions.erase(it);  // Remove from pending
+    
+    // Record decision time for latency tracking
+    if (taskTimings.find(taskId) != taskTimings.end()) {
+        taskTimings[taskId].decision_time = simTime().dbl();
+        taskTimings[taskId].decision_type = decisionType;
+        std::cout << "INFO: 📊 Decision latency: " << (taskTimings[taskId].decision_time - taskTimings[taskId].request_time) << "s" << std::endl;
+    }
     
     // Cancel any timeout message for this task
     // (In production, we'd store timeout message handles to cancel them)
@@ -1916,6 +1951,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
     if (decisionType == "LOCAL") {
         EV_INFO << "💻 Decision: EXECUTE LOCALLY" << endl;
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " executing LOCALLY" << std::endl;
+        
+        // Track processor for completion report
+        if (taskTimings.find(task->task_id) != taskTimings.end()) {
+            taskTimings[task->task_id].processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+        }
         
         // Check if can accept task locally
         if (!canAcceptTask(task)) {
@@ -1948,6 +1988,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         EV_INFO << "🏢 Decision: OFFLOAD TO RSU" << endl;
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " offloading to RSU" << std::endl;
         
+        // Track processor for completion report
+        if (taskTimings.find(task->task_id) != taskTimings.end()) {
+            taskTimings[task->task_id].processor_id = "RSU";
+        }
+        
         sendTaskToRSU(task);
         
         // Track offloaded task
@@ -1973,6 +2018,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id 
                   << " offloading to service vehicle " << serviceVehicleId << std::endl;
+        
+        // Track processor for completion report
+        if (taskTimings.find(task->task_id) != taskTimings.end()) {
+            taskTimings[task->task_id].processor_id = "SV_" + serviceVehicleId;
+        }
         
         if (serviceVehicleMac == 0) {
             EV_ERROR << "Invalid service vehicle MAC address" << endl;
@@ -2120,13 +2170,27 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
     std::cout << "TASK_RESULT: Received result for task " << task_id 
               << " from " << msg->getProcessor_id() << std::endl;
     
-    // TODO: Process result, update statistics, provide feedback to decision maker
-    
-    // Clean up
+    // Process result and send completion report to RSU
     auto it = offloadedTasks.find(task_id);
     if (it != offloadedTasks.end()) {
         Task* task = it->second;
-        tasks_completed_on_time++;  // TODO: Check actual timing
+        bool success = msg->getSuccess();
+        double completion_time = msg->getCompletion_time();
+        bool on_time = completion_time <= task->deadline.dbl();
+        
+        // Send completion report with timing data
+        sendTaskCompletionToRSU(task_id, completion_time, 
+                                success, on_time, 
+                                task->task_size_bytes, task->cpu_cycles, 
+                                task->qos_value, msg->getTask_output_data());
+        
+        if (on_time) {
+            tasks_completed_on_time++;
+        } else {
+            tasks_completed_late++;
+        }
+        
+        // Clean up
         delete task;
         offloadedTasks.erase(it);
         offloadedTaskTargets.erase(task_id);
@@ -2354,6 +2418,76 @@ void PayloadVehicleApp::sendTaskOffloadingEvent(const std::string& taskId, const
         EV_WARN << "No RSU available to send offloading event" << endl;
         delete event;
     }
+}
+
+void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, double completionTime, 
+                                                  bool success, bool onTime, 
+                                                  uint64_t taskSizeBytes, uint64_t cpuCycles, 
+                                                  double qosValue, const std::string& resultData) {
+    EV_INFO << "📤 Sending task completion report to RSU for task: " << taskId << endl;
+    
+    // Find timing info for this task
+    auto it = taskTimings.find(taskId);
+    if (it == taskTimings.end()) {
+        EV_WARN << "No timing info found for task " << taskId << ", cannot send completion report" << endl;
+        return;
+    }
+    
+    const TaskTimingInfo& timing = it->second;
+    
+    // Create TaskResultMessage and repurpose it to carry completion data
+    veins::TaskResultMessage* resultMsg = new veins::TaskResultMessage();
+    resultMsg->setTask_id(taskId.c_str());
+    resultMsg->setSuccess(success);
+    resultMsg->setCompletion_time(completionTime);
+    
+    // Pack timing data into result_data field as JSON
+    std::ostringstream timingJson;
+    timingJson << "{";
+    timingJson << "\"request_time\":" << timing.request_time << ",";
+    timingJson << "\"decision_time\":" << timing.decision_time << ",";
+    timingJson << "\"start_time\":" << timing.start_time << ",";
+    timingJson << "\"completion_time\":" << completionTime << ",";
+    timingJson << "\"decision_type\":\"" << timing.decision_type << "\",";
+    timingJson << "\"processor_id\":\"" << timing.processor_id << "\",";
+    timingJson << "\"on_time\":" << (onTime ? "true" : "false") << ",";
+    timingJson << "\"task_size_bytes\":" << taskSizeBytes << ",";
+    timingJson << "\"cpu_cycles\":" << cpuCycles << ",";
+    timingJson << "\"qos_value\":" << qosValue << ",";
+    timingJson << "\"result\":\"" << resultData << "\"";
+    timingJson << "}";
+    
+    resultMsg->setTask_output_data(timingJson.str().c_str());
+    resultMsg->setOrigin_vehicle_id(("VEHICLE_" + std::to_string(getParentModule()->getIndex())).c_str());
+    resultMsg->setProcessor_id(timing.processor_id.c_str());
+    
+    // Send to RSU
+    LAddress::L2Type rsuMac = selectBestRSU();
+    if (rsuMac != 0) {
+        populateWSM(resultMsg, rsuMac);
+        sendDown(resultMsg);
+        
+        // Calculate and log latencies
+        double decisionLatency = timing.decision_time - timing.request_time;
+        double processingLatency = completionTime - timing.start_time;
+        double totalLatency = completionTime - timing.request_time;
+        
+        EV_INFO << "Task completion report sent:" << endl;
+        EV_INFO << "  • Decision latency: " << decisionLatency << "s" << endl;
+        EV_INFO << "  • Processing latency: " << processingLatency << "s" << endl;
+        EV_INFO << "  • Total latency: " << totalLatency << "s" << endl;
+        EV_INFO << "  • Success: " << (success ? "Yes" : "No") << endl;
+        EV_INFO << "  • On-time: " << (onTime ? "Yes" : "No") << endl;
+        
+        std::cout << "COMPLETION_REPORT: Task " << taskId << " - Total latency: " << totalLatency 
+                  << "s, Success: " << success << ", On-time: " << onTime << std::endl;
+    } else {
+        EV_WARN << "No RSU available to send completion report" << endl;
+        delete resultMsg;
+    }
+    
+    // Clean up timing info
+    taskTimings.erase(taskId);
 }
 
 } // namespace complex_network

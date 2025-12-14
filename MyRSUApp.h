@@ -113,6 +113,7 @@ private:
     void handleTaskMetadata(TaskMetadataMessage* msg);
     void handleTaskCompletion(TaskCompletionMessage* msg);
     void handleTaskFailure(TaskFailureMessage* msg);
+    void handleTaskResultWithCompletion(TaskResultMessage* msg);
     void handleVehicleResourceStatus(VehicleResourceStatusMessage* msg);
     
     VehicleDigitalTwin& getOrCreateVehicleTwin(const std::string& vehicle_id);
@@ -193,6 +194,12 @@ private:
     void insertOffloadingRequest(const OffloadingRequest& request);
     void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
     void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
+    void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
+                                       const std::string& decision_type, const std::string& processor_id,
+                                       double request_time, double decision_time, double start_time, 
+                                       double completion_time, bool success, bool completed_on_time,
+                                       double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                       double qos_value, const std::string& result_data, const std::string& failure_reason);
 };
 
 } // namespace complex_network
