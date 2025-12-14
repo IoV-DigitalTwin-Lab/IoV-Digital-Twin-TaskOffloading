@@ -621,12 +621,40 @@ void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event)
 // ============================================================================
 
 void MyRSUApp::initDatabase() {
-    // Get database connection string from environment or use default
+    // Try to get database connection string from environment variable
     const char* db_env = std::getenv("DATABASE_URL");
+    
     if (db_env) {
         db_conninfo = std::string(db_env);
+        EV_INFO << "Using DATABASE_URL from environment variable" << endl;
     } else {
-        db_conninfo = "host=localhost port=5432 dbname=iov_db user=iov_user password=iov_pass";
+        // Try to read from .env file
+        EV_INFO << "DATABASE_URL not in environment, attempting to read from .env file..." << endl;
+        std::ifstream envFile(".env");
+        bool found = false;
+        
+        if (envFile.is_open()) {
+            std::string line;
+            while (std::getline(envFile, line)) {
+                // Skip comments and empty lines
+                if (line.empty() || line[0] == '#') continue;
+                
+                // Look for DATABASE_URL=
+                if (line.find("DATABASE_URL=") == 0) {
+                    db_conninfo = line.substr(13); // Skip "DATABASE_URL="
+                    found = true;
+                    EV_INFO << "Found DATABASE_URL in .env file" << endl;
+                    break;
+                }
+            }
+            envFile.close();
+        }
+        
+        if (!found) {
+            EV_ERROR << "ERROR: DATABASE_URL not found in environment or .env file!" << endl;
+            EV_ERROR << "Please configure DATABASE_URL in your .env file" << endl;
+            throw cRuntimeError("Missing DATABASE_URL configuration");
+        }
     }
     
     EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;

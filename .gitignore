@@ -48,14 +48,14 @@ results/
 
 .venv/
 
+# Environment variables with sensitive credentials
+.env
+.env.local
+.env.*.local
+
 
 rsu_poster.log
 PROPAGATION_MODELS_EQUATIONS.md
 SIGNAL_FILTERING_DECIDER.md
-TASK_OFFLOADING_DESIGN.md
-OFFLOADING_STATUS.md
-IMPLEMENTATION_STATUS.md
-TASK_OFFLOADING_IMPLEMENTATION_PLAN.md
-LATENCY_TRACKING_SYSTEM.md
 analytics_queries.sql
-LATENCY_TRACKING_FLOW.md
+SYSTEM_DOCUMENTATION.md
