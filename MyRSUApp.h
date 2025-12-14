@@ -23,6 +23,7 @@ struct VehicleDigitalTwin {
     // Latest vehicle state
     double pos_x = 0.0, pos_y = 0.0;
     double speed = 0.0;
+    double heading = 0.0;  // Heading in degrees
     
     // Resource Information
     double cpu_total = 0.0;
@@ -77,6 +78,9 @@ struct TaskRecord {
     double processing_time = 0.0;
     bool completed_on_time = false;
     std::string failure_reason;
+    
+    // Decision tracking (for database polling)
+    bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
 };
 
 class MyRSUApp : public DemoBaseApplLayer {
@@ -94,6 +98,12 @@ private:
     RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};
     // self-message used for periodic beacons; keep as member so we can cancel/delete safely
     omnetpp::cMessage* beaconMsg{nullptr};
+    
+    // Decision polling timer (for reading ML decisions from database)
+    cMessage* checkDecisionMsg = nullptr;
+    
+    // Vehicle MAC address mapping (for sending decisions)
+    std::map<std::string, LAddress::L2Type> vehicle_macs;  // vehicle_id -> MAC address
     
     // Edge server resource parameters (static values)
     double edgeCPU_GHz = 0.0;           // Edge server CPU capacity (GHz)
@@ -177,6 +187,8 @@ private:
         double pos_x;
         double pos_y;
         double speed;
+        double heading;
+        double acceleration;
     };
     
     std::map<std::string, OffloadingRequest> pending_offloading_requests;  // task_id -> request

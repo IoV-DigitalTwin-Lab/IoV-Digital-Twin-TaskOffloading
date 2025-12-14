@@ -1589,6 +1589,8 @@ void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& othe
     this->pos_x = other.pos_x;
     this->pos_y = other.pos_y;
     this->speed = other.speed;
+    this->acceleration = other.acceleration;
+    this->heading = other.heading;
     this->cpu_total = other.cpu_total;
     this->cpu_allocable = other.cpu_allocable;
     this->cpu_available = other.cpu_available;
@@ -1614,6 +1616,8 @@ void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->pos_x);
     doParsimPacking(b,this->pos_y);
     doParsimPacking(b,this->speed);
+    doParsimPacking(b,this->acceleration);
+    doParsimPacking(b,this->heading);
     doParsimPacking(b,this->cpu_total);
     doParsimPacking(b,this->cpu_allocable);
     doParsimPacking(b,this->cpu_available);
@@ -1639,6 +1643,8 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->pos_x);
     doParsimUnpacking(b,this->pos_y);
     doParsimUnpacking(b,this->speed);
+    doParsimUnpacking(b,this->acceleration);
+    doParsimUnpacking(b,this->heading);
     doParsimUnpacking(b,this->cpu_total);
     doParsimUnpacking(b,this->cpu_allocable);
     doParsimUnpacking(b,this->cpu_available);
@@ -1695,6 +1701,26 @@ double VehicleResourceStatusMessage::getSpeed() const
 void VehicleResourceStatusMessage::setSpeed(double speed)
 {
     this->speed = speed;
+}
+
+double VehicleResourceStatusMessage::getAcceleration() const
+{
+    return this->acceleration;
+}
+
+void VehicleResourceStatusMessage::setAcceleration(double acceleration)
+{
+    this->acceleration = acceleration;
+}
+
+double VehicleResourceStatusMessage::getHeading() const
+{
+    return this->heading;
+}
+
+void VehicleResourceStatusMessage::setHeading(double heading)
+{
+    this->heading = heading;
 }
 
 double VehicleResourceStatusMessage::getCpu_total() const
@@ -1866,6 +1892,8 @@ class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_pos_x,
         FIELD_pos_y,
         FIELD_speed,
+        FIELD_acceleration,
+        FIELD_heading,
         FIELD_cpu_total,
         FIELD_cpu_allocable,
         FIELD_cpu_available,
@@ -1948,7 +1976,7 @@ const char *VehicleResourceStatusMessageDescriptor::getProperty(const char *prop
 int VehicleResourceStatusMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 20+base->getFieldCount() : 20;
+    return base ? 22+base->getFieldCount() : 22;
 }
 
 unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field) const
@@ -1964,6 +1992,8 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_pos_x
         FD_ISEDITABLE,    // FIELD_pos_y
         FD_ISEDITABLE,    // FIELD_speed
+        FD_ISEDITABLE,    // FIELD_acceleration
+        FD_ISEDITABLE,    // FIELD_heading
         FD_ISEDITABLE,    // FIELD_cpu_total
         FD_ISEDITABLE,    // FIELD_cpu_allocable
         FD_ISEDITABLE,    // FIELD_cpu_available
@@ -1981,7 +2011,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_avg_completion_time
         FD_ISEDITABLE,    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 20) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 22) ? fieldTypeFlags[field] : 0;
 }
 
 const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) const
@@ -1997,6 +2027,8 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "pos_x",
         "pos_y",
         "speed",
+        "acceleration",
+        "heading",
         "cpu_total",
         "cpu_allocable",
         "cpu_available",
@@ -2014,7 +2046,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "avg_completion_time",
         "deadline_miss_ratio",
     };
-    return (field >= 0 && field < 20) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 22) ? fieldNames[field] : nullptr;
 }
 
 int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) const
@@ -2025,22 +2057,24 @@ int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) con
     if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 1;
     if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 2;
     if (strcmp(fieldName, "speed") == 0) return baseIndex + 3;
-    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 4;
-    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 5;
-    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 6;
-    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 7;
-    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 8;
-    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 9;
-    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 10;
-    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 11;
-    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 12;
-    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 13;
-    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 14;
-    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 15;
-    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 16;
-    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 17;
-    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 18;
-    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "heading") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 13;
+    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 14;
+    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 15;
+    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 16;
+    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 17;
+    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 18;
+    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 21;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -2057,6 +2091,8 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_pos_x
         "double",    // FIELD_pos_y
         "double",    // FIELD_speed
+        "double",    // FIELD_acceleration
+        "double",    // FIELD_heading
         "double",    // FIELD_cpu_total
         "double",    // FIELD_cpu_allocable
         "double",    // FIELD_cpu_available
@@ -2074,7 +2110,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_avg_completion_time
         "double",    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 20) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 22) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **VehicleResourceStatusMessageDescriptor::getFieldPropertyNames(int field) const
@@ -2161,6 +2197,8 @@ std::string VehicleResourceStatusMessageDescriptor::getFieldValueAsString(omnetp
         case FIELD_pos_x: return double2string(pp->getPos_x());
         case FIELD_pos_y: return double2string(pp->getPos_y());
         case FIELD_speed: return double2string(pp->getSpeed());
+        case FIELD_acceleration: return double2string(pp->getAcceleration());
+        case FIELD_heading: return double2string(pp->getHeading());
         case FIELD_cpu_total: return double2string(pp->getCpu_total());
         case FIELD_cpu_allocable: return double2string(pp->getCpu_allocable());
         case FIELD_cpu_available: return double2string(pp->getCpu_available());
@@ -2197,6 +2235,8 @@ void VehicleResourceStatusMessageDescriptor::setFieldValueAsString(omnetpp::any_
         case FIELD_pos_x: pp->setPos_x(string2double(value)); break;
         case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
         case FIELD_speed: pp->setSpeed(string2double(value)); break;
+        case FIELD_acceleration: pp->setAcceleration(string2double(value)); break;
+        case FIELD_heading: pp->setHeading(string2double(value)); break;
         case FIELD_cpu_total: pp->setCpu_total(string2double(value)); break;
         case FIELD_cpu_allocable: pp->setCpu_allocable(string2double(value)); break;
         case FIELD_cpu_available: pp->setCpu_available(string2double(value)); break;
@@ -2231,6 +2271,8 @@ omnetpp::cValue VehicleResourceStatusMessageDescriptor::getFieldValue(omnetpp::a
         case FIELD_pos_x: return pp->getPos_x();
         case FIELD_pos_y: return pp->getPos_y();
         case FIELD_speed: return pp->getSpeed();
+        case FIELD_acceleration: return pp->getAcceleration();
+        case FIELD_heading: return pp->getHeading();
         case FIELD_cpu_total: return pp->getCpu_total();
         case FIELD_cpu_allocable: return pp->getCpu_allocable();
         case FIELD_cpu_available: return pp->getCpu_available();
@@ -2267,6 +2309,8 @@ void VehicleResourceStatusMessageDescriptor::setFieldValue(omnetpp::any_ptr obje
         case FIELD_pos_x: pp->setPos_x(value.doubleValue()); break;
         case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
         case FIELD_speed: pp->setSpeed(value.doubleValue()); break;
+        case FIELD_acceleration: pp->setAcceleration(value.doubleValue()); break;
+        case FIELD_heading: pp->setHeading(value.doubleValue()); break;
         case FIELD_cpu_total: pp->setCpu_total(value.doubleValue()); break;
         case FIELD_cpu_allocable: pp->setCpu_allocable(value.doubleValue()); break;
         case FIELD_cpu_available: pp->setCpu_available(value.doubleValue()); break;

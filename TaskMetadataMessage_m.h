@@ -254,16 +254,18 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
  *     double pos_x;                // Position X
  *     double pos_y;                // Position Y
  *     double speed;                // Current speed
+ *     double acceleration;         // Current acceleration (m/s^2)
+ *     double heading;              // Heading in degrees (0-360)
  * 
  *     // Resource Information
  *     double cpu_total;            // Total CPU capacity (Hz)
  *     double cpu_allocable;        // CPU available for tasks (after reservation)
  *     double cpu_available;        // Currently available CPU (Hz)
- *     double cpu_utilization;      // CPU utilization percentage (0-100)
+ *     double cpu_utilization;      // CPU utilization ratio (0.0-1.0)
  * 
  *     double mem_total;            // Total memory (bytes)
  *     double mem_available;        // Available memory (bytes)
- *     double mem_utilization;      // Memory utilization percentage (0-100)
+ *     double mem_utilization;      // Memory utilization ratio (0.0-1.0)
  * 
  *     // Task Queue Status
  *     uint32_t tasks_generated;    // Total tasks generated
@@ -287,6 +289,8 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
     double pos_x = 0;
     double pos_y = 0;
     double speed = 0;
+    double acceleration = 0;
+    double heading = 0;
     double cpu_total = 0;
     double cpu_allocable = 0;
     double cpu_available = 0;
@@ -330,6 +334,12 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 
     virtual double getSpeed() const;
     virtual void setSpeed(double speed);
+
+    virtual double getAcceleration() const;
+    virtual void setAcceleration(double acceleration);
+
+    virtual double getHeading() const;
+    virtual void setHeading(double heading);
 
     virtual double getCpu_total() const;
     virtual void setCpu_total(double cpu_total);
@@ -384,7 +394,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatus
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:92</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:94</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
@@ -512,7 +522,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:123</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:125</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -603,7 +613,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:145</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:147</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -686,7 +696,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:164</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:166</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -762,7 +772,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:180</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:182</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)

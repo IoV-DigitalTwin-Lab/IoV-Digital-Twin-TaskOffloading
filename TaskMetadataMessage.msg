@@ -61,16 +61,18 @@ packet VehicleResourceStatusMessage extends BaseFrame1609_4 {
     double pos_x;                // Position X
     double pos_y;                // Position Y
     double speed;                // Current speed
+    double acceleration;         // Current acceleration (m/s^2)
+    double heading;              // Heading in degrees (0-360)
     
     // Resource Information
     double cpu_total;            // Total CPU capacity (Hz)
     double cpu_allocable;        // CPU available for tasks (after reservation)
     double cpu_available;        // Currently available CPU (Hz)
-    double cpu_utilization;      // CPU utilization percentage (0-100)
+    double cpu_utilization;      // CPU utilization ratio (0.0-1.0)
     
     double mem_total;            // Total memory (bytes)
     double mem_available;        // Available memory (bytes)
-    double mem_utilization;      // Memory utilization percentage (0-100)
+    double mem_utilization;      // Memory utilization ratio (0.0-1.0)
     
     // Task Queue Status
     uint32_t tasks_generated;    // Total tasks generated
