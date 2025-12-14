@@ -25,8 +25,22 @@ void MyRSUApp::initialize(int stage) {
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
         
+        // Initialize RSU resource tracking (dynamic state)
+        rsu_cpu_total = edgeCPU_GHz;
+        rsu_cpu_available = edgeCPU_GHz;  // Initially all available
+        rsu_memory_total = edgeMemory_GB;
+        rsu_memory_available = edgeMemory_GB;
+        rsu_max_concurrent = maxVehicles;  // Use maxVehicles as max concurrent tasks
+        
         // Initialize PostgreSQL database connection
         initDatabase();
+        
+        // Insert RSU metadata (static info) once at initialization
+        insertRSUMetadata();
+        
+        // Start periodic RSU status updates
+        rsu_status_update_timer = new cMessage("rsuStatusUpdate");
+        scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
         
         std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
                   << " initialized with edge resources:" << std::endl;
@@ -69,6 +83,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
         double interval = par("beaconInterval").doubleValue();
         scheduleAt(simTime() + interval, msg);
+        } else if (msg == rsu_status_update_timer) {
+            // Handle RSU status update
+            sendRSUStatusUpdate();
         } else {
             DemoBaseApplLayer::handleSelfMsg(msg);
         }
@@ -231,6 +248,12 @@ void MyRSUApp::finish() {
     if (beaconMsg) {
         cancelAndDelete(beaconMsg);
         beaconMsg = nullptr;
+    }
+    
+    // Cancel and delete RSU status update timer
+    if (rsu_status_update_timer) {
+        cancelAndDelete(rsu_status_update_timer);
+        rsu_status_update_timer = nullptr;
     }
 
     // RSUHttpPoster disabled - using direct PostgreSQL insertion
@@ -468,8 +491,12 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.last_update_time = simTime().dbl();
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
-    // Insert into PostgreSQL database
+    
+    // Insert into PostgreSQL database (real-time status)
     insertVehicleStatus(msg);
+    
+    // Insert/update vehicle metadata (first time or periodic update)
+    insertVehicleMetadata(vehicle_id);
     
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << twin.cpu_utilization << "%" << endl;
@@ -1594,6 +1621,191 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
     }
     
     delete msg;
+}
+
+// ============================================================================
+// RSU STATUS AND METADATA TRACKING
+// ============================================================================
+
+void MyRSUApp::sendRSUStatusUpdate() {
+    EV_DEBUG << "📊 RSU: Sending status update to database" << endl;
+    
+    // Update dynamic metrics
+    double cpu_util = (rsu_cpu_total > 0) ? ((rsu_cpu_total - rsu_cpu_available) / rsu_cpu_total) : 0.0;
+    double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
+    double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
+    double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
+    double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    
+    // Insert into database
+    insertRSUStatus();
+    
+    // Reschedule
+    scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
+}
+
+void MyRSUApp::insertRSUStatus() {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+    
+    // Calculate metrics
+    double cpu_util = (rsu_cpu_total > 0) ? ((rsu_cpu_total - rsu_cpu_available) / rsu_cpu_total) : 0.0;
+    double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
+    double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
+    double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
+    double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    int connected_vehicles = vehicle_twins.size();
+    
+    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+    double update_time = simTime().dbl();
+    
+    // Build INSERT query
+    const char* paramValues[20];
+    std::string params[20];
+    
+    params[0] = rsu_id_str;
+    params[1] = std::to_string(update_time);
+    params[2] = std::to_string(rsu_cpu_total);
+    params[3] = std::to_string(rsu_cpu_total);  // cpu_allocable = total for RSU
+    params[4] = std::to_string(rsu_cpu_available);
+    params[5] = std::to_string(cpu_util);
+    params[6] = std::to_string(rsu_memory_total);
+    params[7] = std::to_string(rsu_memory_available);
+    params[8] = std::to_string(mem_util);
+    params[9] = std::to_string(rsu_queue_length);
+    params[10] = std::to_string(rsu_processing_count);
+    params[11] = std::to_string(rsu_max_concurrent);
+    params[12] = std::to_string(rsu_tasks_received);
+    params[13] = std::to_string(rsu_tasks_processed);
+    params[14] = std::to_string(rsu_tasks_failed);
+    params[15] = std::to_string(rsu_tasks_rejected);
+    params[16] = std::to_string(avg_proc_time);
+    params[17] = std::to_string(avg_queue_time);
+    params[18] = std::to_string(success_rate);
+    params[19] = std::to_string(connected_vehicles);
+    
+    for (int i = 0; i < 20; i++) {
+        paramValues[i] = params[i].c_str();
+    }
+    
+    const char* query = 
+        "INSERT INTO rsu_status ("
+        "rsu_id, update_time, cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
+        "memory_total, memory_available, memory_utilization, queue_length, processing_count, "
+        "max_concurrent_tasks, tasks_received, tasks_processed, tasks_failed, tasks_rejected, "
+        "avg_processing_time, avg_queue_time, success_rate, connected_vehicles_count"
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)";
+    
+    PGresult* res = PQexecParams(conn, query, 20, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_ERROR << "RSU status insert failed: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "RSU status inserted - CPU: " << (cpu_util*100) << "%, Mem: " << (mem_util*100) 
+                 << "%, Tasks: " << rsu_processing_count << "/" << rsu_max_concurrent << endl;
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertRSUMetadata() {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+    
+    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+    
+    // Get RSU position from mobility module
+    double pos_x = 0.0, pos_y = 0.0, pos_z = 0.0;
+    cModule* mobilityModule = getParentModule()->getSubmodule("mobility");
+    if (mobilityModule) {
+        pos_x = mobilityModule->par("x").doubleValue();
+        pos_y = mobilityModule->par("y").doubleValue();
+        pos_z = mobilityModule->par("z").doubleValue();
+    }
+    
+    // Build INSERT query with UPSERT (ON CONFLICT UPDATE)
+    const char* paramValues[11];
+    std::string params[11];
+    
+    params[0] = rsu_id_str;
+    params[1] = std::to_string(pos_x);
+    params[2] = std::to_string(pos_y);
+    params[3] = std::to_string(pos_z);
+    params[4] = "300.0";  // Default coverage radius 300m
+    params[5] = std::to_string(edgeCPU_GHz);
+    params[6] = std::to_string(edgeMemory_GB);
+    params[7] = "100.0";  // Default storage 100GB
+    params[8] = "100.0";  // Default bandwidth 100Mbps
+    params[9] = std::to_string(maxVehicles);
+    params[10] = std::to_string(processingDelay_ms);
+    
+    for (int i = 0; i < 11; i++) {
+        paramValues[i] = params[i].c_str();
+    }
+    
+    const char* query = 
+        "INSERT INTO rsu_metadata ("
+        "rsu_id, pos_x, pos_y, pos_z, coverage_radius, cpu_capacity_ghz, memory_capacity_gb, "
+        "storage_capacity_gb, bandwidth_mbps, max_vehicles, base_processing_delay_ms, deployment_time"
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP) "
+        "ON CONFLICT (rsu_id) DO UPDATE SET "
+        "pos_x = EXCLUDED.pos_x, pos_y = EXCLUDED.pos_y, pos_z = EXCLUDED.pos_z, "
+        "updated_at = CURRENT_TIMESTAMP";
+    
+    PGresult* res = PQexecParams(conn, query, 11, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_ERROR << "RSU metadata insert failed: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_INFO << "✓ RSU metadata inserted/updated for " << rsu_id_str << endl;
+        std::cout << "RSU_METADATA: " << rsu_id_str << " @ (" << pos_x << "," << pos_y << ") - " 
+                  << edgeCPU_GHz << " GHz, " << edgeMemory_GB << " GB" << std::endl;
+    }
+    
+    PQclear(res);
+}
+
+void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+    
+    // Get vehicle twin data if available
+    auto it = vehicle_twins.find(vehicle_id);
+    if (it == vehicle_twins.end()) return;
+    
+    const VehicleDigitalTwin& twin = it->second;
+    
+    // Build INSERT query with UPSERT
+    const char* paramValues[6];
+    std::string params[6];
+    
+    params[0] = vehicle_id;
+    params[1] = std::to_string(twin.cpu_total / 1e9);  // Convert Hz to GHz
+    params[2] = std::to_string(twin.mem_total / 1e6);  // Convert bytes to MB
+    params[3] = std::to_string(twin.first_seen_time);
+    params[4] = std::to_string(twin.last_update_time);
+    params[5] = "false";  // Default: not a service vehicle
+    
+    for (int i = 0; i < 6; i++) {
+        paramValues[i] = params[i].c_str();
+    }
+    
+    const char* query = 
+        "INSERT INTO vehicle_metadata ("
+        "vehicle_id, cpu_capacity_ghz, memory_capacity_mb, first_seen_time, last_seen_time, service_vehicle"
+        ") VALUES ($1, $2, $3, $4, $5, $6::boolean) "
+        "ON CONFLICT (vehicle_id) DO UPDATE SET "
+        "last_seen_time = EXCLUDED.last_seen_time, updated_at = CURRENT_TIMESTAMP";
+    
+    PGresult* res = PQexecParams(conn, query, 6, nullptr, paramValues, nullptr, nullptr, 0);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
+    } else {
+        EV_DEBUG << "✓ Vehicle metadata inserted/updated for " << vehicle_id << endl;
+    }
+    
+    PQclear(res);
 }
 
 
