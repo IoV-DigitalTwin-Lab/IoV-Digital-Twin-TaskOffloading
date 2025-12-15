@@ -42,6 +42,9 @@ void MyRSUApp::initialize(int stage) {
         rsu_status_update_timer = new cMessage("rsuStatusUpdate");
         scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
         
+        // Initialize decision checker
+        checkDecisionMsg = new cMessage("checkDecision");
+        
         std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
                   << " initialized with edge resources:" << std::endl;
         std::cout << "  - RSU ID: " << rsu_id << std::endl;
@@ -72,7 +75,7 @@ void MyRSUApp::initialize(int stage) {
 }
 
 void MyRSUApp::handleSelfMsg(cMessage* msg) {
-        if(msg == beaconMsg && strcmp(msg->getName(), "sendMessage") == 0) {
+    if (msg == beaconMsg && strcmp(msg->getName(), "sendMessage") == 0) {
         DemoSafetyMessage* wsm = new DemoSafetyMessage();
         populateWSM(wsm);
         wsm->setSenderPos(curPosition);
@@ -83,12 +86,98 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
         double interval = par("beaconInterval").doubleValue();
         scheduleAt(simTime() + interval, msg);
-        } else if (msg == rsu_status_update_timer) {
-            // Handle RSU status update
-            sendRSUStatusUpdate();
+    } 
+    else if (msg == rsu_status_update_timer) {
+        // Handle RSU status update
+        sendRSUStatusUpdate();
+    } 
+    else if (msg == checkDecisionMsg) {
+        // Poll DB for pending decisions from ML model
+        PGconn* conn = getDBConnection();
+        if (conn) {
+            int decisions_found = 0;
+            int decisions_sent = 0;
+            
+            for (auto& pair : task_records) {
+                TaskRecord& record = pair.second;
+                
+                // Only check for tasks that:
+                // 1. Are not completed/failed
+                // 2. Haven't had a decision sent yet
+                if (!record.completed && !record.failed && !record.decision_sent) {
+                    // Query database for decision made by ML model
+                    std::string query = "SELECT decision_type, target_service_vehicle_id, confidence_score "
+                                      "FROM offloading_decisions WHERE task_id = '" + record.task_id + "' LIMIT 1";
+                    PGresult* res = PQexec(conn, query.c_str());
+                    
+                    if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
+                        decisions_found++;
+                        
+                        std::string decision_type = PQgetvalue(res, 0, 0);
+                        std::string target_id = PQgetvalue(res, 0, 1);
+                        std::string confidence_str = PQgetvalue(res, 0, 2);
+                        double confidence = std::stod(confidence_str);
+                        
+                        EV_INFO << "✓ Found ML decision for task " << record.task_id << ": " << decision_type << endl;
+                        std::cout << "ML_DECISION: Task " << record.task_id << " -> " << decision_type 
+                                  << " (confidence: " << confidence << ")" << std::endl;
+                        
+                        // Create decision message
+                        OffloadingDecisionMessage* dMsg = new OffloadingDecisionMessage();
+                        dMsg->setTask_id(record.task_id.c_str());
+                        dMsg->setVehicle_id(record.vehicle_id.c_str());
+                        dMsg->setDecision_type(decision_type.c_str());
+                        dMsg->setTarget_service_vehicle_id(target_id.c_str());
+                        dMsg->setConfidence_score(confidence);
+                        dMsg->setDecision_time(simTime().dbl());
+                        dMsg->setSenderAddress(myId);  // RSU MAC address
+                        
+                        // Set target service vehicle MAC if applicable
+                        if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
+                            if (vehicle_macs.count(target_id)) {
+                                dMsg->setTarget_service_vehicle_mac(vehicle_macs[target_id]);
+                                EV_INFO << "  → Target SV: " << target_id << endl;
+                            } else {
+                                EV_WARN << "  ⚠ Service vehicle " << target_id << " MAC not found" << endl;
+                            }
+                        }
+                        
+                        // Send decision to requesting vehicle
+                        if (vehicle_macs.count(record.vehicle_id)) {
+                            dMsg->setRecipientAddress(vehicle_macs[record.vehicle_id]);
+                            sendDown(dMsg);
+                            
+                            record.decision_sent = true;
+                            decisions_sent++;
+                            
+                            EV_INFO << "✓ Sent ML decision to vehicle " << record.vehicle_id << endl;
+                            std::cout << "RSU_SEND: Decision sent to " << record.vehicle_id 
+                                      << " for task " << record.task_id << std::endl;
+                        } else {
+                            EV_WARN << "⚠ Vehicle " << record.vehicle_id << " MAC not found, cannot send decision" << endl;
+                            std::cout << "RSU_WARN: Cannot send decision - vehicle MAC not found: " 
+                                      << record.vehicle_id << std::endl;
+                            delete dMsg;
+                        }
+                    }
+                    PQclear(res);
+                }
+            }
+            
+            if (decisions_found > 0) {
+                EV_INFO << "📊 Decision poll: " << decisions_found << " found, " 
+                        << decisions_sent << " sent" << endl;
+            }
         } else {
-            DemoBaseApplLayer::handleSelfMsg(msg);
+            EV_WARN << "⚠ Cannot poll decisions: No database connection" << endl;
         }
+        
+        // Reschedule next check
+        scheduleAt(simTime() + 0.1, checkDecisionMsg);
+    }
+    else {
+        DemoBaseApplLayer::handleSelfMsg(msg);
+    }
 }
 
 void MyRSUApp::handleLowerMsg(cMessage* msg) {
@@ -139,6 +228,8 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     VehicleResourceStatusMessage* resourceStatus = dynamic_cast<VehicleResourceStatusMessage*>(wsm);
     if (resourceStatus) {
         EV_INFO << "📥 RSU received VehicleResourceStatusMessage" << endl;
+        std::cout << "RSU_MSG: Received VehicleResourceStatusMessage from vehicle " 
+                  << resourceStatus->getVehicle_id() << std::endl;
         handleVehicleResourceStatus(resourceStatus);
         return;
     }
@@ -255,6 +346,12 @@ void MyRSUApp::finish() {
         cancelAndDelete(rsu_status_update_timer);
         rsu_status_update_timer = nullptr;
     }
+    
+    // Cancel and delete decision checker timer
+    if (checkDecisionMsg) {
+        cancelAndDelete(checkDecisionMsg);
+        checkDecisionMsg = nullptr;
+    }
 
     // RSUHttpPoster disabled - using direct PostgreSQL insertion
     // poster.stop();
@@ -358,6 +455,17 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     
     std::cout << "DT_TASK: RSU received metadata for task " << task_id 
               << " from vehicle " << vehicle_id << std::endl;
+
+    // Schedule a check for decision
+    if (!checkDecisionMsg) {
+        checkDecisionMsg = new cMessage("checkDecision");
+    }
+    // Schedule if not already scheduled (or schedule a new one for this task specifically?)
+    // Better to have a periodic checker or one per task. 
+    // For simplicity, let's just ensure the checker is running.
+    if (!checkDecisionMsg->isScheduled()) {
+        scheduleAt(simTime() + 0.1, checkDecisionMsg);
+    }
 }
 
 void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
@@ -465,6 +573,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.pos_x = msg->getPos_x();
     twin.pos_y = msg->getPos_y();
     twin.speed = msg->getSpeed();
+    twin.heading = msg->getHeading();
     
     // Update resource information
     twin.cpu_total = msg->getCpu_total();
@@ -498,14 +607,17 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     // Insert/update vehicle metadata (first time or periodic update)
     insertVehicleMetadata(vehicle_id);
     
+    // Note: MAC address will be stored when OffloadingRequestMessage arrives
+    // (OffloadingRequestMessage has getSenderAddress() inherited from BaseFrame1609_4)
+    
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
-    EV_INFO << "  CPU Utilization: " << twin.cpu_utilization << "%" << endl;
-    EV_INFO << "  Memory Utilization: " << twin.mem_utilization << "%" << endl;
+    EV_INFO << "  CPU Utilization: " << (twin.cpu_utilization * 100.0) << "%" << endl;
+    EV_INFO << "  Memory Utilization: " << (twin.mem_utilization * 100.0) << "%" << endl;
     EV_INFO << "  Queue Length: " << twin.current_queue_length << endl;
     EV_INFO << "  Processing Count: " << twin.current_processing_count << endl;
     
-    std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << twin.cpu_utilization 
-              << "% Mem:" << twin.mem_utilization << "% Queue:" << twin.current_queue_length << std::endl;
+    std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
+              << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
 }
 
 VehicleDigitalTwin& MyRSUApp::getOrCreateVehicleTwin(const std::string& vehicle_id) {
@@ -662,7 +774,9 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     EV_INFO << "Database: " << db_conninfo << endl;
     
-    db_conn = PQconnectdb(db_conninfo.c_str());
+    // Add connection timeout to prevent hanging
+    std::string conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+    db_conn = PQconnectdb(conninfo_with_timeout.c_str());
     
     if (PQstatus(db_conn) != CONNECTION_OK) {
         EV_WARN << "✗ PostgreSQL connection failed: " << PQerrorMessage(db_conn) << endl;
@@ -691,7 +805,9 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conn) {
             PQfinish(db_conn);
         }
-        db_conn = PQconnectdb(db_conninfo.c_str());
+        // Add connection timeout to prevent hanging
+        std::string conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+        db_conn = PQconnectdb(conninfo_with_timeout.c_str());
         
         if (PQstatus(db_conn) != CONNECTION_OK) {
             EV_WARN << "✗ Reconnection failed: " << PQerrorMessage(db_conn) << endl;
@@ -878,7 +994,9 @@ void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
 void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     PGconn* conn = getDBConnection();
     if (!conn) {
-        return; // Silently skip for status updates
+        std::cout << "DB_WARN: No database connection, skipping vehicle_status insert for " 
+                  << msg->getVehicle_id() << std::endl;
+        return;
     }
     
     // Prepare JSON payload with all status info
@@ -906,7 +1024,8 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     std::string pos_x = std::to_string(msg->getPos_x());
     std::string pos_y = std::to_string(msg->getPos_y());
     std::string speed = std::to_string(msg->getSpeed());
-    std::string heading = "0";
+    std::string acceleration = std::to_string(msg->getAcceleration());
+    std::string heading = std::to_string(msg->getHeading());
     std::string cpu_total_str = std::to_string(msg->getCpu_total());
     std::string cpu_allocable = std::to_string(msg->getCpu_allocable());
     std::string cpu_available = std::to_string(msg->getCpu_available());
@@ -931,41 +1050,46 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     paramValues[3] = pos_x.c_str();
     paramValues[4] = pos_y.c_str();
     paramValues[5] = speed.c_str();
-    paramValues[6] = heading.c_str();
-    paramValues[7] = cpu_total_str.c_str();
-    paramValues[8] = cpu_allocable.c_str();
-    paramValues[9] = cpu_available.c_str();
-    paramValues[10] = cpu_util.c_str();
-    paramValues[11] = mem_total_str.c_str();
-    paramValues[12] = mem_available.c_str();
-    paramValues[13] = mem_util.c_str();
-    paramValues[14] = queue_len.c_str();
-    paramValues[15] = proc_count.c_str();
-    paramValues[16] = tasks_gen.c_str();
-    paramValues[17] = tasks_ok.c_str();
-    paramValues[18] = tasks_late.c_str();
-    paramValues[19] = tasks_fail.c_str();
-    paramValues[20] = tasks_reject.c_str();
-    paramValues[21] = avg_comp_time.c_str();
-    paramValues[22] = deadline_miss.c_str();
-    paramValues[23] = payload.c_str();
+    paramValues[6] = acceleration.c_str();
+    paramValues[7] = heading.c_str();
+    paramValues[8] = cpu_total_str.c_str();
+    paramValues[9] = cpu_allocable.c_str();
+    paramValues[10] = cpu_available.c_str();
+    paramValues[11] = cpu_util.c_str();
+    paramValues[12] = mem_total_str.c_str();
+    paramValues[13] = mem_available.c_str();
+    paramValues[14] = mem_util.c_str();
+    paramValues[15] = queue_len.c_str();
+    paramValues[16] = proc_count.c_str();
+    paramValues[17] = tasks_gen.c_str();
+    paramValues[18] = tasks_ok.c_str();
+    paramValues[19] = tasks_late.c_str();
+    paramValues[20] = tasks_fail.c_str();
+    paramValues[21] = tasks_reject.c_str();
+    paramValues[22] = avg_comp_time.c_str();
+    paramValues[23] = deadline_miss.c_str();
+    paramValues[24] = payload.c_str();
     
     const char* query = "INSERT INTO vehicle_status (vehicle_id, rsu_id, update_time, "
-                        "pos_x, pos_y, speed, heading, "
+                        "pos_x, pos_y, speed, acceleration, heading, "
                         "cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
                         "mem_total, mem_available, mem_utilization, "
                         "queue_length, processing_count, "
                         "tasks_generated, tasks_completed_on_time, tasks_completed_late, "
                         "tasks_failed, tasks_rejected, avg_completion_time, deadline_miss_ratio, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, "
-                        "$15, $16, $17, $18, $19, $20, $21, $22, $23, $24::jsonb)";
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, "
+                        "$16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 24, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 25, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
+        std::cout << "DB_ERROR: Failed to insert vehicle_status for " << vehicle_id 
+                  << ": " << PQerrorMessage(conn) << std::endl;
     } else {
         EV_INFO << "✓ Vehicle status inserted (" << vehicle_id << " @ " << update_time << "s)" << endl;
+        std::cout << "DB_INSERT: vehicle_status for " << vehicle_id 
+                  << " @ t=" << update_time << "s" << std::endl;
     }
     
     PQclear(res);
@@ -1268,6 +1392,10 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     request.vehicle_mac = msg->getSenderAddress();  // Inherited from BaseFrame1609_4
     request.request_time = simTime().dbl();
     request.local_decision = msg->getLocal_decision();
+    
+    // Store vehicle MAC address for later decision sending
+    vehicle_macs[vehicle_id] = request.vehicle_mac;
+    EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
     
     // Task characteristics
     request.task_size_bytes = msg->getTask_size_bytes();
@@ -1795,11 +1923,18 @@ void MyRSUApp::insertRSUMetadata() {
 
 void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
     PGconn* conn = getDBConnection();
-    if (!conn) return;
+    if (!conn) {
+        std::cout << "DB_WARN: No database connection, skipping vehicle_metadata insert for " 
+                  << vehicle_id << std::endl;
+        return;
+    }
     
     // Get vehicle twin data if available
     auto it = vehicle_twins.find(vehicle_id);
-    if (it == vehicle_twins.end()) return;
+    if (it == vehicle_twins.end()) {
+        std::cout << "DB_WARN: No twin data available for " << vehicle_id << std::endl;
+        return;
+    }
     
     const VehicleDigitalTwin& twin = it->second;
     
@@ -1829,8 +1964,11 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
+        std::cout << "DB_ERROR: Failed to insert vehicle_metadata for " << vehicle_id 
+                  << ": " << PQerrorMessage(conn) << std::endl;
     } else {
         EV_DEBUG << "✓ Vehicle metadata inserted/updated for " << vehicle_id << endl;
+        std::cout << "DB_INSERT: vehicle_metadata for " << vehicle_id << std::endl;
     }
     
     PQclear(res);

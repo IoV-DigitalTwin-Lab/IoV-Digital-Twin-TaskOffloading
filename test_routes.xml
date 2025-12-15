@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-12-15 21:35:39 by Eclipse SUMO duarouter Version 1.22.0
+<duarouterConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/duarouterConfiguration.xsd">
+
+    <input>
+        <net-file value="erlangen.net.xml"/>
+        <route-files value="erlangen.rou.xml"/>
+    </input>
+
+    <output>
+        <output-file value="test_routes.xml"/>
+    </output>
+
+    <report>
+        <ignore-errors value="true"/>
+    </report>
+
+</duarouterConfiguration>
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <vType id="vtype0" length="2.50" minGap="2.50" maxSpeed="14.00" accel="2.6" decel="4.5" sigma="0.5"/>
+    <vehicle id="v0" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="red">
+        <route edges="10573414#1 -3998612#2 -3998612#1 -3998612#0 30357194 25472299 30350448 30350449 4400949"/>
+    </vehicle>
+    <vehicle id="v1" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="green">
+        <route edges="113939244#0 113939244#1 113939244#2 -126606716 23339459 30405358#1 85355912 85355911#0"/>
+    </vehicle>
+    <vehicle id="v2" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="blue">
+        <route edges="23805514#0 23805514#1 -4006702#2 -4006702#1 -4006702#0 4319352#1 44069041#0"/>
+    </vehicle>
+    <vehicle id="v3" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="yellow">
+        <route edges="3013106#0 3013106#1 3013106#2 4319352#1 44069041#0 44069041#1 4400949 31982182#0"/>
+    </vehicle>
+    <vehicle id="v4" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="magenta">
+        <route edges="30405358#1 85355912 85355911#0 85355911#1 30405356 5931612 30350450#0 30350450#1"/>
+    </vehicle>
+    <vehicle id="v5" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="cyan">
+        <route edges="4006702#0 4006702#1 4006702#2 -28269598 -4006703#1 4006705#1 -25210699"/>
+    </vehicle>
+    <vehicle id="v6" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,0,0">
+        <route edges="31982182#0 4047241 4797872 4797871"/>
+    </vehicle>
+    <vehicle id="v7" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="0,128,0">
+        <route edges="85355911#0 85355911#1 30405356 5931612 30350450#0 30350450#1 30350450#2"/>
+    </vehicle>
+    <vehicle id="v8" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="0,0,128">
+        <route edges="44069041#0 44069041#1 4400949 31982182#0 4047241 4797872 4797871"/>
+    </vehicle>
+    <vehicle id="v9" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,128,0">
+        <route edges="30350450#0 30350450#1 30350450#2 4006702#0 4006702#1 4006702#2"/>
+    </vehicle>
+    <vehicle id="v10" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,0,128">
+        <route edges="23339459 30405358#1 85355912 85355911#0 85355911#1 30405356"/>
+    </vehicle>
+    <vehicle id="v11" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="0,128,128">
+        <route edges="4319352#1 44069041#0 44069041#1 4400949 31982182#0 4047241"/>
+    </vehicle>
+    <vehicle id="v12" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="192,192,192">
+        <route edges="5931612 30350450#0 30350450#1 30350450#2 4006702#0 4006702#1"/>
+    </vehicle>
+    <vehicle id="v13" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="orange">
+        <route edges="4797872"/>
+    </vehicle>
+    <vehicle id="v14" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="255,0,128">
+        <route edges="126606716 -126606716 23339459 30405358#1 85355912"/>
+    </vehicle>
+    <vehicle id="v15" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,255,0">
+        <route edges="10712011 10712013 3013106#0 3013106#1 3013106#2 4319352#1"/>
+    </vehicle>
+    <vehicle id="v16" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="0,255,128">
+        <route edges="25210699 -25210699 -4006705#1 -4006703#1 -28269598 4006702#2"/>
+    </vehicle>
+    <vehicle id="v17" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,0,255">
+        <route edges="10425128#0 23341293 -8403007 -29900564#1 -8402998#2 -8402998#1 -8402997 32270595 33174302#0 33174302#1 4686970#0 25472257 -30357194 3998612#0 3998612#1 -4006724#2 -4006724#1 -4047378 10573414#1"/>
+    </vehicle>
+    <vehicle id="v18" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="64,64,64">
+        <route edges="23341293 -23341293 23339459 30405358#1 85355912 85355911#0"/>
+    </vehicle>
+    <vehicle id="v19" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="192,64,64">
+        <route edges="28269598 -4006702#2 -4006702#1 -4006702#0 -3013106#2 3998615#0 3998615#1 3998643#2 30350450#2"/>
+    </vehicle>
+    <vehicle id="v20" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="64,192,64">
+        <route edges="15259223 4797871 4797872 4047241 31982182#0 4400949"/>
+    </vehicle>
+    <vehicle id="v21" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="64,64,192">
+        <route edges="23350929 4900041#2 4900041#3 4900041#0 4900041#1 -23350929"/>
+    </vehicle>
+    <vehicle id="v22" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="192,192,64">
+        <route edges="29900561#0 29900561#1 29900564#0 29900564#1 29900564#2 29900564#3"/>
+    </vehicle>
+    <vehicle id="v23" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="192,64,192">
+        <route edges="31241816#0 31241816#1 -31241848 31241834#1"/>
+    </vehicle>
+    <vehicle id="v24" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="64,192,192">
+        <route edges="30405352 19796637 122161381 30350448 8364476 30350450#0 30350450#1"/>
+    </vehicle>
+    <vehicle id="v25" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="255,192,128">
+        <route edges="25472079 30405352 19796637 122161390 25472299"/>
+    </vehicle>
+    <vehicle id="v26" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,255,192">
+        <route edges="28613727#0 28631632"/>
+    </vehicle>
+    <vehicle id="v27" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="192,128,255">
+        <route edges="31241835#0 31241835#1 31241838#0 31241838#1 31241848"/>
+    </vehicle>
+    <vehicle id="v28" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="255,255,128">
+        <route edges="113939242#0 113939242#1 113939244#1"/>
+    </vehicle>
+    <vehicle id="v29" type="vtype0" depart="0.00" departLane="random" departPos="random" departSpeed="random" color="128,255,255">
+        <route edges="23605595 23605600#0 23605600#1 23605600#2 -23605600#2"/>
+    </vehicle>
+</routes>

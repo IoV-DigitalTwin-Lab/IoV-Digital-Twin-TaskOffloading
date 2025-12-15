@@ -42,6 +42,9 @@ void PayloadVehicleApp::initialize(int stage) {
             // Initialize position and speed
             pos = mobility->getPositionAt(simTime());
             speed = mobility->getSpeed();
+            prev_speed = speed;
+            acceleration = 0.0;
+            last_speed_update = simTime();
         }
 
         EV_INFO << "PayloadVehicleApp: Initialized with vehicle data" << endl;
@@ -52,10 +55,10 @@ void PayloadVehicleApp::initialize(int stage) {
         // ===== INITIALIZE TASK PROCESSING SYSTEM =====
         initializeTaskSystem();
         
-        // Schedule message sending after 10 seconds
+        // Schedule immediate message sending (0.1s to allow full initialization)
         cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
-        scheduleAt(simTime() + 10, sendMsgEvent);
-        std::cout << "CONSOLE: PayloadVehicleApp - Scheduled to send payload message at time " << (simTime() + 10) << std::endl;
+        scheduleAt(simTime() + 1, sendMsgEvent);
+        std::cout << "CONSOLE: PayloadVehicleApp - Scheduled to send payload message at time " << (simTime() + 0.1) << std::endl;
         
         // Schedule periodic position monitoring for shadowing analysis
         cMessage* monitorEvent = new cMessage("monitorPosition");
@@ -412,7 +415,19 @@ void PayloadVehicleApp::updateVehicleData() {
     // Update live kinematics snapshot from mobility
     if (mobility) {
         pos = mobility->getPositionAt(simTime());
-        speed = mobility->getSpeed();
+        double current_speed = mobility->getSpeed();
+        
+        // Calculate acceleration
+        simtime_t time_delta = simTime() - last_speed_update;
+        if (time_delta > 0) {
+            acceleration = (current_speed - prev_speed) / time_delta.dbl();
+        } else {
+            acceleration = 0.0;
+        }
+        
+        prev_speed = speed;
+        speed = current_speed;
+        last_speed_update = simTime();
     }
     
     // Update CPU availability with dynamic variation model
@@ -519,7 +534,19 @@ void PayloadVehicleApp::receiveSignal(cComponent* src, simsignal_t id, cObject* 
     if (mobility && id == mobility->mobilityStateChangedSignal) {
         // Update position and speed when mobility changes
         pos = mobility->getPositionAt(simTime());
-        speed = mobility->getSpeed();
+        double current_speed = mobility->getSpeed();
+        
+        // Calculate acceleration
+        simtime_t time_delta = simTime() - last_speed_update;
+        if (time_delta > 0) {
+            acceleration = (current_speed - prev_speed) / time_delta.dbl();
+        } else {
+            acceleration = 0.0;
+        }
+        
+        prev_speed = speed;
+        speed = current_speed;
+        last_speed_update = simTime();
     }
     
     DemoBaseApplLayer::receiveSignal(src, id, obj, details);
@@ -1471,7 +1498,19 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     // Update position and speed
     if (mobility) {
         pos = mobility->getPositionAt(simTime());
-        speed = mobility->getSpeed();
+        double current_speed = mobility->getSpeed();
+        
+        // Calculate acceleration
+        simtime_t time_delta = simTime() - last_speed_update;
+        if (time_delta > 0) {
+            acceleration = (current_speed - prev_speed) / time_delta.dbl();
+        } else {
+            acceleration = 0.0;
+        }
+        
+        prev_speed = speed;
+        speed = current_speed;
+        last_speed_update = simTime();
     }
     
     // Create VehicleResourceStatusMessage
@@ -1486,17 +1525,22 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setPos_x(pos.x);
     statusMsg->setPos_y(pos.y);
     statusMsg->setSpeed(speed);
+    statusMsg->setAcceleration(acceleration);
+    double heading = mobility ? mobility->getHeading().getRad() * 180.0 / M_PI : 0.0;
+    statusMsg->setHeading(heading);
     
     // Resource information
     statusMsg->setCpu_total(cpu_total);
     statusMsg->setCpu_allocable(cpu_allocable);
     statusMsg->setCpu_available(cpu_available);
-    double cpu_util = ((cpu_allocable - cpu_available) / cpu_allocable) * 100.0;
+    // Store as ratio (0.0-1.0) not percentage
+    double cpu_util = (cpu_allocable > 0) ? ((cpu_allocable - cpu_available) / cpu_allocable) : 0.0;
     statusMsg->setCpu_utilization(cpu_util);
     
     statusMsg->setMem_total(memory_total);
     statusMsg->setMem_available(memory_available);
-    double mem_util = ((memory_total - memory_available) / memory_total) * 100.0;
+    // Store as ratio (0.0-1.0) not percentage
+    double mem_util = (memory_total > 0) ? ((memory_total - memory_available) / memory_total) : 0.0;
     statusMsg->setMem_utilization(mem_util);
     
     // Task statistics
@@ -1529,8 +1573,8 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
         sendDown(statusMsg);
         EV_INFO << "✓ Vehicle resource status sent to RSU (MAC: " << rsuMacAddress << ")" << endl;
         std::cout << "RESOURCE_UPDATE: Vehicle " << getParentModule()->getIndex() 
-                  << " sent resource status to RSU - CPU:" << cpu_util 
-                  << "% Mem:" << mem_util << "% Queue:" << pending_tasks.size() << std::endl;
+                  << " sent resource status to RSU - CPU:" << (cpu_util * 100.0) 
+                  << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
     } else {
         EV_WARN << "⚠ RSU not found, cannot send resource status" << endl;
         delete statusMsg;

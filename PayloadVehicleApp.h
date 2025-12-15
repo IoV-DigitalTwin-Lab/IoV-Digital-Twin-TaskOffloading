@@ -34,6 +34,9 @@ private:
     double flocHz_available = 0.0;   // Current available CPU capacity (Hz)
     double txPower_mW = 0.0;         // mW
     double speed = 0.0;              // Vehicle speed
+    double prev_speed = 0.0;         // Previous speed for acceleration calculation
+    double acceleration = 0.0;       // Current acceleration (m/s^2)
+    simtime_t last_speed_update;     // Last time speed was updated
     veins::Coord pos;                // Vehicle position
     veins::TraCIMobility* mobility = nullptr;  // Mobility module
     
