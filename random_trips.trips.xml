@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-12-15 21:37:02.255557 by randomTrips.py v1_22_0+0002-63e50f52594
+<configuration>
+    <net-file value="erlangen.net.xml"/>
+    <output-trip-file value="random_trips.trips.xml"/>
+    <trip-attributes value="departLane=&quot;random&quot; departSpeed=&quot;random&quot; departPos=&quot;random&quot;"/>
+    <min-distance value="200.0"/>
+    <validate value="True"/>
+    <end value="0.0"/>
+    <period value="0.1"/>
+</configuration>
+-->
+
+<!-- generated on 2025-12-15 21:37:02 by Eclipse SUMO duarouter Version 1.22.0
+<duarouterConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/duarouterConfiguration.xsd">
+
+    <input>
+        <net-file value="erlangen.net.xml"/>
+        <route-files value="random_trips.trips.xml"/>
+    </input>
+
+    <output>
+        <output-file value="random_trips.trips.xml.tmp"/>
+        <alternatives-output value="NUL"/>
+        <write-trips value="true"/>
+    </output>
+
+    <time>
+        <begin value="0.0"/>
+        <end value="0.0"/>
+    </time>
+
+    <report>
+        <no-warnings value="true"/>
+        <ignore-errors value="true"/>
+        <no-step-log value="true"/>
+    </report>
+
+</duarouterConfiguration>
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd"/>

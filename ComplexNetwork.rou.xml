@@ -1,34 +1,193 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-09-12 19:32:14 by Eclipse SUMO netedit Version 1.22.0
--->
+<!-- Each vehicle starts from a unique edge for maximum distribution -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
-    <!-- Routes -->
-    <route id="r_1" edges="E0 E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18 E19"/>
-    <route id="r_1_rev" edges="-E19 -E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1 -E0"/>
-    <!-- Vehicles, persons and containers (sorted by depart) -->
-    <trip id="t_0" depart="0.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_1" depart="5.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_2" depart="10.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_3" depart="15.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_4" depart="20.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_5" depart="25.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_6" depart="30.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_7" depart="35.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_8" depart="40.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_9" depart="45.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-    <trip id="t_10" depart="50.00" from="E0" to="E19" via="E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E18"/>
-
-    <trip id="t_r0" depart="55.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r1" depart="60.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r2" depart="65.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r3" depart="70.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r4" depart="75.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r5" depart="80.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r6" depart="85.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r7" depart="90.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r8" depart="95.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
-    <trip id="t_r9" depart="100.00" color="0,15,255" from="-E19" to="-E0" via="-E18 -E10 -E9 -E8 -E7 -E6 -E5 -E4 -E3 -E2 -E1"/>
+    
+    <!-- 30 vehicles, each starting from a DIFFERENT edge with random departure times -->
+    <vehicle id="v_0" depart="1.23" departLane="random" departSpeed="random" departPos="random" color="255,0,0">
+        <route edges="E0 E1 E2 E3 E4 E5"/>
+    </vehicle>
+    
+    <vehicle id="v_1" depart="5.67" departLane="random" departSpeed="random" departPos="random" color="0,255,0">
+        <route edges="E1 E2 E3 E4 E5 E6 E7"/>
+    </vehicle>
+    
+    <vehicle id="v_2" depart="2.45" departLane="random" departSpeed="random" departPos="random" color="0,0,255">
+        <route edges="E2 E3 E4 E5 E6"/>
+    </vehicle>
+    
+    <vehicle id="v_3" depart="8.78" departLane="random" departSpeed="random" departPos="random" color="255,255,0">
+        <route edges="E3 E4 E5 E6 E7 E8"/>
+    </vehicle>
+    
+    <vehicle id="v_4" depart="3.34" departLane="random" departSpeed="random" departPos="random" color="255,0,255">
+        <route edges="E4 E5 E6 E7 E8"/>
+    </vehicle>
+    
+    <vehicle id="v_5" depart="11.89" departLane="random" departSpeed="random" departPos="random" color="0,255,255">
+        <route edges="E5 E6 E7 E8 E9 E10"/>
+    </vehicle>
+    
+    <vehicle id="v_6" depart="6.12" departLane="random" departSpeed="random" departPos="random" color="128,0,0">
+        <route edges="E6 E7 E8 E9 E10 E11"/>
+    </vehicle>
+    
+    <vehicle id="v_7" depart="14.56" departLane="random" departSpeed="random" departPos="random" color="0,128,0">
+        <route edges="E7 E8 E9 E10 E11 E0"/>
+    </vehicle>
+    
+    <vehicle id="v_8" depart="4.91" departLane="random" departSpeed="random" departPos="random" color="0,0,128">
+        <route edges="E8 E9 E10 E18 E12"/>
+    </vehicle>
+    
+    <vehicle id="v_9" depart="17.23" departLane="random" departSpeed="random" departPos="random" color="128,128,0">
+        <route edges="E9 E10 E11 E0 E1"/>
+    </vehicle>
+    
+    <vehicle id="v_10" depart="9.67" departLane="random" departSpeed="random" departPos="random" color="128,0,128">
+        <route edges="E10 E11 E0 E1 E2"/>
+    </vehicle>
+    
+    <vehicle id="v_11" depart="20.45" departLane="random" departSpeed="random" departPos="random" color="0,128,128">
+        <route edges="E11 E0 E1 E12 E13 E14"/>
+    </vehicle>
+    
+    <vehicle id="v_12" depart="7.34" departLane="random" departSpeed="random" departPos="random" color="192,192,192">
+        <route edges="E12 E13 E14 E7 E8"/>
+    </vehicle>
+    
+    <vehicle id="v_13" depart="23.78" departLane="random" departSpeed="random" departPos="random" color="255,128,0">
+        <route edges="E13 E14 E7 E8 E9"/>
+    </vehicle>
+    
+    <vehicle id="v_14" depart="12.89" departLane="random" departSpeed="random" departPos="random" color="255,0,128">
+        <route edges="E14 E7 E8 E9 E10"/>
+    </vehicle>
+    
+    <vehicle id="v_15" depart="26.12" departLane="random" departSpeed="random" departPos="random" color="128,255,0">
+        <route edges="E15 E16 E17 E6 E7"/>
+    </vehicle>
+    
+    <vehicle id="v_16" depart="10.56" departLane="random" departSpeed="random" departPos="random" color="0,255,128">
+        <route edges="E16 E17 E6 E7 E8 E9"/>
+    </vehicle>
+    
+    <vehicle id="v_17" depart="29.91" departLane="random" departSpeed="random" departPos="random" color="128,0,255">
+        <route edges="E17 E6 E7 E8 E9"/>
+    </vehicle>
+    
+    <vehicle id="v_18" depart="15.23" departLane="random" departSpeed="random" departPos="random" color="64,64,64">
+        <route edges="E18 E19 E20 E4 E5 E6"/>
+    </vehicle>
+    
+    <vehicle id="v_19" depart="32.67" departLane="random" departSpeed="random" departPos="random" color="192,64,64">
+        <route edges="E19 E20 E4 E5 E6 E7"/>
+    </vehicle>
+    
+    <vehicle id="v_20" depart="18.45" departLane="random" departSpeed="random" departPos="random" color="64,192,64">
+        <route edges="E20 E4 E5 E6 E7 E8"/>
+    </vehicle>
+    
+    <vehicle id="v_21" depart="35.34" departLane="random" departSpeed="random" departPos="random" color="64,64,192">
+        <route edges="E21 E22 E23 E5 E6 E7"/>
+    </vehicle>
+    
+    <vehicle id="v_22" depart="21.78" departLane="random" departSpeed="random" departPos="random" color="192,192,64">
+        <route edges="E22 E23 E5 E6 E7"/>
+    </vehicle>
+    
+    <vehicle id="v_23" depart="38.89" departLane="random" departSpeed="random" departPos="random" color="192,64,192">
+        <route edges="E23 E5 E6 E7 E8 E9"/>
+    </vehicle>
+    
+    <!-- Additional vehicles from reverse edges for more diversity -->
+    <vehicle id="v_24" depart="13.12" departLane="random" departSpeed="random" departPos="random" color="64,192,192">
+        <route edges="-E0 -E11 -E10 -E9 -E8"/>
+    </vehicle>
+    
+    <vehicle id="v_25" depart="42.56" departLane="random" departSpeed="random" departPos="random" color="255,192,128">
+        <route edges="-E1 -E0 -E11 -E10 -E21"/>
+    </vehicle>
+    
+    <vehicle id="v_26" depart="24.23" departLane="random" departSpeed="random" departPos="random" color="128,255,192">
+        <route edges="-E2 -E1 -E0 -E11 -E10"/>
+    </vehicle>
+    
+    <vehicle id="v_27" depart="45.67" departLane="random" departSpeed="random" departPos="random" color="192,128,255">
+        <route edges="-E3 -E2 -E1 -E12 -E18"/>
+    </vehicle>
+    
+    <vehicle id="v_28" depart="16.91" departLane="random" departSpeed="random" departPos="random" color="255,255,128">
+        <route edges="-E4 -E3 -E2 -E15 -E19"/>
+    </vehicle>
+    
+    <vehicle id="v_29" depart="48.34" departLane="random" departSpeed="random" departPos="random" color="128,255,255">
+        <route edges="-E5 -E4 -E3 -E2 -E1"/>
+    </vehicle>
+    
+    <!-- Starting from BOTTOM-RIGHT (J15, J5, J6, J7 area) -->
+    <vehicle id="v_30" depart="29.45" departLane="random" departSpeed="random" color="128,255,128">
+        <route edges="E4 E5 E6 E7 E8"/>
+    </vehicle>
+    <vehicle id="v_31" depart="72.78" departLane="random" departSpeed="random" color="100,255,128">
+        <route edges="E5 E6 E7 E8 E9 E10"/>
+    </vehicle>
+    <vehicle id="v_32" depart="58.23" departLane="random" departSpeed="random" color="150,255,128">
+        <route edges="E6 E7 E8 E9 E10 E11"/>
+    </vehicle>
+    <vehicle id="v_33" depart="11.89" departLane="random" departSpeed="random" color="128,255,100">
+        <route edges="E23 E5 E6 E7 E6 E17"/>
+    </vehicle>
+    <vehicle id="v_34" depart="82.56" departLane="random" departSpeed="random" color="128,255,150">
+        <route edges="E22 E23 E5 E6 E7"/>
+    </vehicle>
+    <vehicle id="v_35" depart="66.34" departLane="random" departSpeed="random" color="128,200,128">
+        <route edges="E17 E6 E7 E8 E9"/>
+    </vehicle>
+    
+    <!-- Additional vehicles for better distribution -->
+    <vehicle id="v_36" depart="75.67" departLane="random" departSpeed="random" color="192,192,64">
+        <route edges="E0 E1 E15 E16 E23 E5"/>
+    </vehicle>
+    <vehicle id="v_37" depart="19.12" departLane="random" departSpeed="random" color="192,64,192">
+        <route edges="E3 E4 E5 E6 E7 E8 E9"/>
+    </vehicle>
+    <vehicle id="v_38" depart="88.45" departLane="random" departSpeed="random" color="64,192,192">
+        <route edges="E11 E0 E1 E2 E3 E4"/>
+    </vehicle>
+    <vehicle id="v_39" depart="33.91" departLane="random" departSpeed="random" color="192,192,192">
+        <route edges="E10 E18 E12 E13 E14"/>
+    </vehicle>
+    <vehicle id="v_40" depart="92.34" departLane="random" departSpeed="random" color="64,64,192">
+        <route edges="E16 E17 E6 E5 E4 E3"/>
+    </vehicle>
+    <vehicle id="v_41" depart="14.78" departLane="random" departSpeed="random" color="192,64,64">
+        <route edges="E20 E4 E3 E2 E1 E0"/>
+    </vehicle>
+    <vehicle id="v_42" depart="48.23" departLane="random" departSpeed="random" color="64,192,64">
+        <route edges="E19 E15 E2 E3 E4"/>
+    </vehicle>
+    <vehicle id="v_43" depart="81.67" departLane="random" departSpeed="random" color="128,192,64">
+        <route edges="E21 E13 E12 E19 E20"/>
+    </vehicle>
+    <vehicle id="v_44" depart="25.45" departLane="random" departSpeed="random" color="64,128,192">
+        <route edges="E22 E23 E5 E4 E3"/>
+    </vehicle>
+    <vehicle id="v_45" depart="96.89" departLane="random" departSpeed="random" color="192,128,64">
+        <route edges="E9 E10 E21 E22 E17"/>
+    </vehicle>
+    <vehicle id="v_46" depart="69.12" departLane="random" departSpeed="random" color="128,64,192">
+        <route edges="E1 E12 E18 E11 E10"/>
+    </vehicle>
+    <vehicle id="v_47" depart="39.56" departLane="random" departSpeed="random" color="64,128,128">
+        <route edges="E15 E16 E17 E7 E14"/>
+    </vehicle>
+    <vehicle id="v_48" depart="85.91" departLane="random" departSpeed="random" color="128,128,192">
+        <route edges="E2 E15 E19 E12 E13"/>
+    </vehicle>
+    <vehicle id="v_49" depart="56.34" departLane="random" departSpeed="random" color="192,128,128">
+        <route edges="E4 E20 E19 E15 E1"/>
+    </vehicle>
 
 </routes>

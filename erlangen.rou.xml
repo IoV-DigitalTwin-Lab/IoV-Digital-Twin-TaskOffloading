@@ -1,62 +1,128 @@
 <?xml version="1.0"?>
 
 <!--
-// Copyright (C) 2011 Christoph Sommer <sommer@ccs-labs.org>
-//
-// Documentation for these modules is at http://veins.car2x.org/
-//
-// SPDX-License-Identifier: (GPL-2.0-or-later OR CC-BY-SA-4.0)
-//
-// This program is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation; either version 2 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-//
-// -
-//
-// At your option, you can also redistribute and/or modify this file
-// under a
-// Creative Commons Attribution-ShareAlike 4.0 International License.
-//
-// You should have received a copy of the license along with this
-// work.  If not, see <http://creativecommons.org/licenses/by-sa/4.0/>.
--->
-
-<!--
-30 Cars from 3 different starting points, each following specific paths
-Flow 0: North route (tertiary road) - 10 vehicles (RED)
-Flow 1: Central route (main corridor) - 10 vehicles (GREEN)
-Flow 2: West route (western side) - 10 vehicles (BLUE)
+30 vehicles distributed across 3 main routes with random positions
+Each vehicle starts at a different position on its route edge
 -->
 
 <routes>
    <!-- Vehicle type definition -->
-   <vType id="vtype0" accel="2.6" decel="4.5" sigma="0.5" length="2.5" minGap="2.5" maxSpeed="14" color="1,1,0"/>
+   <vType id="vtype0" accel="2.6" decel="4.5" sigma="0.5" length="2.5" minGap="2.5" maxSpeed="14"/>
    
-   <!-- Route 0: North route - starts from tertiary road, goes through city -->
-   <route id="route0" edges="-10573414#1 10573414#1 3013106#0 3013106#1 3013106#2 4319352#1 44069041#0 44069041#1 4400949 31982182#0 4047241 4797872 4797871 -15259223"/>
+   <!-- Routes generated from diverse starting points across the entire network -->
+   <route id="route0" edges="29900567 31401017#0 31401017#1 -8402998#3"/>
+   <route id="route1" edges="94344941 94344940#0 94344940#2 -94344940#2 67076129 -67076129 -94344940#0 28768072"/>
+   <route id="route2" edges="28768072 -28613737 28613737 -28613737 28613737"/>
+   <route id="route3" edges="30405358#0 30405358#1 85355912 85355911#0 25472101"/>
+   <route id="route4" edges="4099309 -4900739#0 4900739#0 -4900739#0 4900739#0"/>
+   <route id="route5" edges="4006726#0 -4006726#0 3998615#1 -3998615#1 -3998615#0 3998615#0"/>
+   <route id="route6" edges="29900565#0 4006691 29900564#3 -29900564#3 -29900564#2 -29900564#1 -29900564#0"/>
+   <route id="route7" edges="4006694 4006693#4 --5558 -5558 4006690 -29900564#5"/>
+   <route id="route8" edges="4900739#0 4900739#1 4900739#2 4900741 -31777493#1 31270441"/>
+   <route id="route9" edges="32270592#0 -4006675 4006675 32270592#1 4047532"/>
+   <route id="route10" edges="33174302#1 -33174302#1 -33174302#0 -32270595 -29900561#1 9643180 -8402998#1 8402998#1"/>
+   <route id="route11" edges="25398494#0 -25398494#0 25398494#0 113939242#2 113939244#0 -25398494#0 -31401017#2"/>
+   <route id="route12" edges="4006688#4 -4006688#4 4006688#4 -8403001"/>
+   <route id="route13" edges="4006705#0 4006703#1 -4006703#1 -4006703#0"/>
+   <route id="route14" edges="29900564#3 -29900564#3 -29900564#2 29900564#2"/>
+   <route id="route15" edges="32271499 -32271499 32271499 41973977 -41973977 -32271499"/>
+   <route id="route16" edges="8403007 -23341293 23341293 -23341293 10425128#1 29900564#4 -29900564#4"/>
+   <route id="route17" edges="25472129 31982182#0 4047241 4797872 4797871 -15259223"/>
+   <route id="route18" edges="4319351 4319352#0 -3013106#2 3013106#2 4006702#0 4006702#1"/>
+   <route id="route19" edges="4872369 -4872369 4006724#2 -4006724#2 -4006724#1 4006724#1"/>
+   <route id="route20" edges="32270595 33174302#0 33174302#1 4686970#0"/>
    
-   <!-- Route 1: Central route - main corridor through Erlangen -->
-   <route id="route1" edges="-113939241 113939244#0 113939244#1 113939244#2 -126606716 23339459 30405358#1 85355912 85355911#0 85355911#1 30405356 5931612 30350450#0 30350450#1 30350450#2 4006702#0 4006702#1 4006702#2 -28269598 -4006703#1 4006705#1 -25210699"/>
+   <!-- 51 vehicles distributed across 21 diverse routes with highly random positions -->
+   <!-- Route 0 vehicles -->
+   <vehicle id="v0" type="vtype0" route="route0" depart="0.0" departLane="random" departSpeed="random" departPos="5" color="255,0,0"/>
+   <vehicle id="v1" type="vtype0" route="route0" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="255,30,0"/>
    
-   <!-- Route 2: West route - from western side through city -->
-   <route id="route2" edges="-23805514#0 23805514#0 23805514#1 -4006702#2 -4006702#1 -4006702#0 4319352#1 44069041#0 44069041#1 4400949 31982182#0 4047241 4797872 4797871 4006668 126606716 -126606716"/>
+   <!-- Route 1 vehicles -->
+   <vehicle id="v2" type="vtype0" route="route1" depart="0.0" departLane="random" departSpeed="random" departPos="8" color="0,255,0"/>
+   <vehicle id="v3" type="vtype0" route="route1" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="30,255,0"/>
    
-   <!-- Flow 0: 10 vehicles starting at t=0, one every 3 seconds (RED) -->
-   <flow id="flow0" type="vtype0" route="route0" begin="0" period="3" number="10" color="1,0,0"/>
+   <!-- Route 2 vehicles -->
+   <vehicle id="v4" type="vtype0" route="route2" depart="0.0" departLane="random" departSpeed="random" departPos="12" color="0,0,255"/>
+   <vehicle id="v5" type="vtype0" route="route2" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="30,0,255"/>
    
-   <!-- Flow 1: 10 vehicles starting at t=0, one every 3 seconds (GREEN) -->
-   <flow id="flow1" type="vtype0" route="route1" begin="0" period="3" number="10" color="0,1,0"/>
+   <!-- Route 3 vehicles -->
+   <vehicle id="v6" type="vtype0" route="route3" depart="0.0" departLane="random" departSpeed="random" departPos="3" color="255,255,0"/>
+   <vehicle id="v7" type="vtype0" route="route3" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="255,255,50"/>
+   <vehicle id="v8" type="vtype0" route="route3" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="255,255,100"/>
    
-   <!-- Flow 2: 10 vehicles starting at t=0, one every 3 seconds (BLUE) -->
-   <flow id="flow2" type="vtype0" route="route2" begin="0" period="3" number="10" color="0,0,1"/>
+   <!-- Route 4 vehicles -->
+   <vehicle id="v9" type="vtype0" route="route4" depart="0.0" departLane="random" departSpeed="random" departPos="7" color="255,0,255"/>
+   <vehicle id="v10" type="vtype0" route="route4" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="255,50,255"/>
+   
+   <!-- Route 5 vehicles -->
+   <vehicle id="v11" type="vtype0" route="route5" depart="0.0" departLane="random" departSpeed="random" departPos="15" color="0,255,255"/>
+   <vehicle id="v12" type="vtype0" route="route5" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="50,255,255"/>
+   <vehicle id="v13" type="vtype0" route="route5" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="100,255,255"/>
+   
+   <!-- Route 6 vehicles -->
+   <vehicle id="v14" type="vtype0" route="route6" depart="0.0" departLane="random" departSpeed="random" departPos="4" color="128,0,0"/>
+   <vehicle id="v15" type="vtype0" route="route6" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="178,0,0"/>
+   <vehicle id="v16" type="vtype0" route="route6" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="228,0,0"/>
+   
+   <!-- Route 7 vehicles -->
+   <vehicle id="v17" type="vtype0" route="route7" depart="0.0" departLane="random" departSpeed="random" departPos="20" color="0,128,0"/>
+   <vehicle id="v18" type="vtype0" route="route7" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="0,178,0"/>
+   
+   <!-- Route 8 vehicles -->
+   <vehicle id="v19" type="vtype0" route="route8" depart="0.0" departLane="random" departSpeed="random" departPos="6" color="0,0,128"/>
+   <vehicle id="v20" type="vtype0" route="route8" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="0,0,178"/>
+   <vehicle id="v21" type="vtype0" route="route8" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="0,0,228"/>
+   
+   <!-- Route 9 vehicles -->
+   <vehicle id="v22" type="vtype0" route="route9" depart="0.0" departLane="random" departSpeed="random" departPos="9" color="128,128,0"/>
+   <vehicle id="v23" type="vtype0" route="route9" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="178,178,0"/>
+   
+   <!-- Route 10 vehicles -->
+   <vehicle id="v24" type="vtype0" route="route10" depart="0.0" departLane="random" departSpeed="random" departPos="11" color="128,0,128"/>
+   <vehicle id="v25" type="vtype0" route="route10" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="178,0,178"/>
+   <vehicle id="v26" type="vtype0" route="route10" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="228,0,228"/>
+   
+   <!-- Route 11 vehicles -->
+   <vehicle id="v27" type="vtype0" route="route11" depart="0.0" departLane="random" departSpeed="random" departPos="13" color="200,100,50"/>
+   <vehicle id="v28" type="vtype0" route="route11" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="220,120,70"/>
+   
+   <!-- Route 12 vehicles -->
+   <vehicle id="v29" type="vtype0" route="route12" depart="0.0" departLane="random" departSpeed="random" departPos="17" color="50,200,100"/>
+   <vehicle id="v30" type="vtype0" route="route12" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="70,220,120"/>
+   
+   <!-- Route 13 vehicles -->
+   <vehicle id="v31" type="vtype0" route="route13" depart="0.0" departLane="random" departSpeed="random" departPos="10" color="100,50,200"/>
+   <vehicle id="v32" type="vtype0" route="route13" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="120,70,220"/>
+   
+   <!-- Route 14 vehicles -->
+   <vehicle id="v33" type="vtype0" route="route14" depart="0.0" departLane="random" departSpeed="random" departPos="19" color="200,200,100"/>
+   <vehicle id="v34" type="vtype0" route="route14" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="220,220,120"/>
+   <vehicle id="v35" type="vtype0" route="route14" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="240,240,140"/>
+   
+   <!-- Route 15 vehicles -->
+   <vehicle id="v36" type="vtype0" route="route15" depart="0.0" departLane="random" departSpeed="random" departPos="22" color="100,200,200"/>
+   <vehicle id="v37" type="vtype0" route="route15" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="120,220,220"/>
+   
+   <!-- Route 16 vehicles -->
+   <vehicle id="v38" type="vtype0" route="route16" depart="0.0" departLane="random" departSpeed="random" departPos="14" color="200,100,200"/>
+   <vehicle id="v39" type="vtype0" route="route16" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="220,120,220"/>
+   
+   <!-- Route 17 vehicles -->
+   <vehicle id="v40" type="vtype0" route="route17" depart="0.0" departLane="random" departSpeed="random" departPos="16" color="150,100,50"/>
+   <vehicle id="v41" type="vtype0" route="route17" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="170,120,70"/>
+   <vehicle id="v42" type="vtype0" route="route17" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="190,140,90"/>
+   
+   <!-- Route 18 vehicles -->
+   <vehicle id="v43" type="vtype0" route="route18" depart="0.0" departLane="random" departSpeed="random" departPos="25" color="50,150,100"/>
+   <vehicle id="v44" type="vtype0" route="route18" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="70,170,120"/>
+   
+   <!-- Route 19 vehicles -->
+   <vehicle id="v45" type="vtype0" route="route19" depart="0.0" departLane="random" departSpeed="random" departPos="18" color="100,50,150"/>
+   <vehicle id="v46" type="vtype0" route="route19" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="120,70,170"/>
+   <vehicle id="v47" type="vtype0" route="route19" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="140,90,190"/>
+   
+   <!-- Route 20 vehicles -->
+   <vehicle id="v48" type="vtype0" route="route20" depart="0.0" departLane="random" departSpeed="random" departPos="21" color="150,150,100"/>
+   <vehicle id="v49" type="vtype0" route="route20" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="170,170,120"/>
+   <vehicle id="v50" type="vtype0" route="route20" depart="0.0" departLane="random" departSpeed="random" departPos="random" color="190,190,140"/>
 </routes>

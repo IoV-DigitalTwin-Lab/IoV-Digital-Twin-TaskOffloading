@@ -774,7 +774,9 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     EV_INFO << "Database: " << db_conninfo << endl;
     
-    db_conn = PQconnectdb(db_conninfo.c_str());
+    // Add connection timeout to prevent hanging
+    std::string conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+    db_conn = PQconnectdb(conninfo_with_timeout.c_str());
     
     if (PQstatus(db_conn) != CONNECTION_OK) {
         EV_WARN << "✗ PostgreSQL connection failed: " << PQerrorMessage(db_conn) << endl;
@@ -803,7 +805,9 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conn) {
             PQfinish(db_conn);
         }
-        db_conn = PQconnectdb(db_conninfo.c_str());
+        // Add connection timeout to prevent hanging
+        std::string conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+        db_conn = PQconnectdb(conninfo_with_timeout.c_str());
         
         if (PQstatus(db_conn) != CONNECTION_OK) {
             EV_WARN << "✗ Reconnection failed: " << PQerrorMessage(db_conn) << endl;

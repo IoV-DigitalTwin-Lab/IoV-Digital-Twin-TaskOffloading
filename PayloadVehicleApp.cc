@@ -57,7 +57,7 @@ void PayloadVehicleApp::initialize(int stage) {
         
         // Schedule immediate message sending (0.1s to allow full initialization)
         cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
-        scheduleAt(simTime() + 0.1, sendMsgEvent);
+        scheduleAt(simTime() + 1, sendMsgEvent);
         std::cout << "CONSOLE: PayloadVehicleApp - Scheduled to send payload message at time " << (simTime() + 0.1) << std::endl;
         
         // Schedule periodic position monitoring for shadowing analysis
