@@ -35,6 +35,23 @@ void MyRSUApp::initialize(int stage) {
         // Initialize PostgreSQL database connection
         initDatabase();
         
+        // Initialize Redis Digital Twin
+        use_redis = par("useRedis").boolValue();
+        if (use_redis) {
+            redis_host = par("redisHost").stdstringValue();
+            redis_port = par("redisPort").intValue();
+            redis_twin = new RedisDigitalTwin(redis_host, redis_port);
+            if (redis_twin->isConnected()) {
+                EV_INFO << "✓ Redis Digital Twin connected at " << redis_host << ":" << redis_port << std::endl;
+                std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected" << std::endl;
+            } else {
+                EV_WARN << "✗ Redis connection failed, continuing without digital twin" << std::endl;
+                std::cerr << "⚠ RSU[" << rsu_id << "] Redis connection failed" << std::endl;
+                delete redis_twin;
+                redis_twin = nullptr;
+            }
+        }
+        
         // Insert RSU metadata (static info) once at initialization
         insertRSUMetadata();
         
@@ -331,6 +348,14 @@ void MyRSUApp::finish() {
     // Log final Digital Twin statistics
     logDigitalTwinState();
     
+    // Close Redis connection
+    if (redis_twin) {
+        EV_INFO << "Closing Redis Digital Twin connection..." << endl;
+        delete redis_twin;
+        redis_twin = nullptr;
+        std::cout << "✓ RSU[" << rsu_id << "] Redis connection closed" << std::endl;
+    }
+    
     // Close PostgreSQL connection
     closeDatabase();
     
@@ -450,6 +475,16 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     
     logTaskRecord(record, "METADATA_RECEIVED");
     
+    // Update Redis with task state
+    if (redis_twin && use_redis) {
+        redis_twin->createTask(
+            task_id,
+            vehicle_id,
+            record.created_time,
+            record.deadline_seconds
+        );
+    }
+    
     // Insert into PostgreSQL database
     insertTaskMetadata(msg);
     
@@ -494,6 +529,14 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
         EV_INFO << "  CPU allocated: " << (msg->getCpu_allocated() / 1e9) << " GHz" << endl;
         
         logTaskRecord(record, record.completed_on_time ? "COMPLETED_ON_TIME" : "COMPLETED_LATE");
+        
+        // Update Redis task status
+        if (redis_twin && use_redis) {
+            redis_twin->updateTaskStatus(
+                task_id,
+                record.completed_on_time ? "COMPLETED_ON_TIME" : "COMPLETED_LATE"
+            );
+        }
         
         // Insert into PostgreSQL database
         insertTaskCompletion(msg);
@@ -541,6 +584,16 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
         EV_INFO << "  Wasted time: " << msg->getWasted_time() << " sec" << endl;
         
         logTaskRecord(record, "FAILED_" + reason);
+        
+        // Update Redis task status
+        if (redis_twin && use_redis) {
+            redis_twin->updateTaskStatus(
+                task_id,
+                "FAILED",
+                "",
+                reason
+            );
+        }
         
         // Insert into PostgreSQL database
         insertTaskFailure(msg);
@@ -600,6 +653,18 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.last_update_time = simTime().dbl();
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
+    
+    // Update Redis Digital Twin (instant, for ML queries)
+    if (redis_twin && use_redis) {
+        redis_twin->updateVehicleState(
+            vehicle_id,
+            twin.pos_x, twin.pos_y, twin.speed, twin.heading,
+            twin.cpu_available, twin.cpu_utilization,
+            twin.mem_available, twin.mem_utilization,
+            twin.current_queue_length, twin.current_processing_count,
+            simTime().dbl()
+        );
+    }
     
     // Insert into PostgreSQL database (real-time status)
     insertVehicleStatus(msg);
@@ -1792,6 +1857,19 @@ void MyRSUApp::sendRSUStatusUpdate() {
     double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
     double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
     double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    
+    // Update Redis with RSU state
+    if (redis_twin && use_redis) {
+        std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+        redis_twin->updateRSUResources(
+            rsu_id_str,
+            rsu_cpu_available,
+            rsu_memory_available,
+            rsu_queue_length,
+            rsu_processing_count,
+            simTime().dbl()
+        );
+    }
     
     // Insert into database
     insertRSUStatus();

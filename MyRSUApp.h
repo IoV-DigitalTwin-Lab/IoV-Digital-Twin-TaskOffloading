@@ -5,6 +5,7 @@
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
 #include "rsu_http_poster.h"
 #include "TaskMetadataMessage_m.h"
+#include "RedisDigitalTwin.h"
 #include <map>
 #include <vector>
 #include <string>
@@ -219,6 +220,15 @@ private:
     PGconn* db_conn = nullptr;
     std::string db_conninfo;
     int rsu_id = 0;
+    
+    // ============================================================================
+    // REDIS DIGITAL TWIN INTEGRATION
+    // ============================================================================
+    
+    RedisDigitalTwin* redis_twin = nullptr;
+    bool use_redis = true;  // Config parameter
+    std::string redis_host = "127.0.0.1";
+    int redis_port = 6379;
     
     void initDatabase();
     void closeDatabase();
