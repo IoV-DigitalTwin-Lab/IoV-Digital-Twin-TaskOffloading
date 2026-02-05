@@ -25,7 +25,7 @@ INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D)
+LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lhiredis -lpq
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -36,6 +36,7 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 OBJS = \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
+    $O/RedisDigitalTwin.o \
     $O/rsu_http_poster.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
