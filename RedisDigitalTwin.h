@@ -52,6 +52,19 @@ public:
     void deleteTask(const std::string& task_id);
     std::map<std::string, std::string> getTaskState(const std::string& task_id);
     
+    // Offloading Request Queue (for ML model)
+    void pushOffloadingRequest(const std::string& task_id,
+                              const std::string& vehicle_id,
+                              const std::string& rsu_id,
+                              double task_size_bytes,
+                              double cpu_cycles,
+                              double deadline_seconds,
+                              double qos_value,
+                              double request_time);
+    
+    // Get ML decision from Redis
+    std::map<std::string, std::string> getDecision(const std::string& task_id);
+    
     // RSU Resource State
     void updateRSUResources(const std::string& rsu_id,
                            double cpu_available, double memory_available,

@@ -109,84 +109,106 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         sendRSUStatusUpdate();
     } 
     else if (msg == checkDecisionMsg) {
-        // Poll DB for pending decisions from ML model
-        PGconn* conn = getDBConnection();
-        if (conn) {
-            int decisions_found = 0;
-            int decisions_sent = 0;
+        // Poll Redis first (fast), fallback to PostgreSQL if needed
+        int decisions_found = 0;
+        int decisions_sent = 0;
+        
+        for (auto& pair : task_records) {
+            TaskRecord& record = pair.second;
             
-            for (auto& pair : task_records) {
-                TaskRecord& record = pair.second;
+            // Only check for tasks that:
+            // 1. Are not completed/failed
+            // 2. Haven't had a decision sent yet
+            if (!record.completed && !record.failed && !record.decision_sent) {
+                std::string decision_type;
+                std::string target_id;
+                double confidence = 0.8;  // Default confidence
+                bool found_decision = false;
                 
-                // Only check for tasks that:
-                // 1. Are not completed/failed
-                // 2. Haven't had a decision sent yet
-                if (!record.completed && !record.failed && !record.decision_sent) {
-                    // Query database for decision made by ML model
-                    std::string query = "SELECT decision_type, target_service_vehicle_id, confidence_score "
-                                      "FROM offloading_decisions WHERE task_id = '" + record.task_id + "' LIMIT 1";
-                    PGresult* res = PQexec(conn, query.c_str());
+                // Try Redis first (fast)
+                if (redis_twin && use_redis) {
+                    auto decision_data = redis_twin->getDecision(record.task_id);
                     
-                    if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
-                        decisions_found++;
+                    // Check if decision exists in Redis
+                    if (!decision_data.empty() && decision_data.count("decision_type")) {
+                        decision_type = decision_data["decision_type"];
+                        target_id = decision_data.count("target_id") ? decision_data["target_id"] : "";
+                        found_decision = true;
                         
-                        std::string decision_type = PQgetvalue(res, 0, 0);
-                        std::string target_id = PQgetvalue(res, 0, 1);
-                        std::string confidence_str = PQgetvalue(res, 0, 2);
-                        double confidence = std::stod(confidence_str);
+                        EV_INFO << "✓ Found ML decision in Redis for task " << record.task_id 
+                                << ": " << decision_type << endl;
+                        std::cout << "ML_DECISION_REDIS: Task " << record.task_id << " -> " 
+                                  << decision_type << std::endl;
+                    }
+                }
+                
+                // Fallback to PostgreSQL if not in Redis
+                if (!found_decision) {
+                    PGconn* conn = getDBConnection();
+                    if (conn) {
+                        std::string query = "SELECT decision_type, target_service_vehicle_id, confidence_score "
+                                          "FROM offloading_decisions WHERE task_id = '" + record.task_id + "' LIMIT 1";
+                        PGresult* res = PQexec(conn, query.c_str());
                         
-                        EV_INFO << "✓ Found ML decision for task " << record.task_id << ": " << decision_type << endl;
-                        std::cout << "ML_DECISION: Task " << record.task_id << " -> " << decision_type 
-                                  << " (confidence: " << confidence << ")" << std::endl;
-                        
-                        // Create decision message
-                        OffloadingDecisionMessage* dMsg = new OffloadingDecisionMessage();
-                        dMsg->setTask_id(record.task_id.c_str());
-                        dMsg->setVehicle_id(record.vehicle_id.c_str());
-                        dMsg->setDecision_type(decision_type.c_str());
-                        dMsg->setTarget_service_vehicle_id(target_id.c_str());
-                        dMsg->setConfidence_score(confidence);
-                        dMsg->setDecision_time(simTime().dbl());
-                        dMsg->setSenderAddress(myId);  // RSU MAC address
-                        
-                        // Set target service vehicle MAC if applicable
-                        if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
-                            if (vehicle_macs.count(target_id)) {
-                                dMsg->setTarget_service_vehicle_mac(vehicle_macs[target_id]);
-                                EV_INFO << "  → Target SV: " << target_id << endl;
-                            } else {
-                                EV_WARN << "  ⚠ Service vehicle " << target_id << " MAC not found" << endl;
-                            }
+                        if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
+                            decision_type = PQgetvalue(res, 0, 0);
+                            target_id = PQgetvalue(res, 0, 1);
+                            confidence = std::stod(PQgetvalue(res, 0, 2));
+                            found_decision = true;
+                            
+                            EV_INFO << "✓ Found ML decision in PostgreSQL for task " << record.task_id 
+                                    << ": " << decision_type << endl;
                         }
-                        
-                        // Send decision to requesting vehicle
-                        if (vehicle_macs.count(record.vehicle_id)) {
-                            dMsg->setRecipientAddress(vehicle_macs[record.vehicle_id]);
-                            sendDown(dMsg);
-                            
-                            record.decision_sent = true;
-                            decisions_sent++;
-                            
-                            EV_INFO << "✓ Sent ML decision to vehicle " << record.vehicle_id << endl;
-                            std::cout << "RSU_SEND: Decision sent to " << record.vehicle_id 
-                                      << " for task " << record.task_id << std::endl;
+                        PQclear(res);
+                    }
+                }
+                
+                // Send decision if found
+                if (found_decision) {
+                    decisions_found++;
+                    
+                    // Create decision message
+                    OffloadingDecisionMessage* dMsg = new OffloadingDecisionMessage();
+                    dMsg->setTask_id(record.task_id.c_str());
+                    dMsg->setVehicle_id(record.vehicle_id.c_str());
+                    dMsg->setDecision_type(decision_type.c_str());
+                    dMsg->setTarget_service_vehicle_id(target_id.c_str());
+                    dMsg->setConfidence_score(confidence);
+                    dMsg->setDecision_time(simTime().dbl());
+                    dMsg->setSenderAddress(myId);  // RSU MAC address
+                    
+                    // Set target service vehicle MAC if applicable
+                    if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
+                        if (vehicle_macs.count(target_id)) {
+                            dMsg->setTarget_service_vehicle_mac(vehicle_macs[target_id]);
+                            EV_INFO << "  → Target SV: " << target_id << endl;
                         } else {
-                            EV_WARN << "⚠ Vehicle " << record.vehicle_id << " MAC not found, cannot send decision" << endl;
-                            std::cout << "RSU_WARN: Cannot send decision - vehicle MAC not found: " 
-                                      << record.vehicle_id << std::endl;
-                            delete dMsg;
+                            EV_WARN << "  ⚠ Service vehicle " << target_id << " MAC not found" << endl;
                         }
                     }
-                    PQclear(res);
+                    
+                    // Send decision to requesting vehicle
+                    if (vehicle_macs.count(record.vehicle_id)) {
+                        dMsg->setRecipientAddress(vehicle_macs[record.vehicle_id]);
+                        sendDown(dMsg);
+                        
+                        record.decision_sent = true;
+                        decisions_sent++;
+                        
+                        EV_INFO << "✓ Sent ML decision to vehicle " << record.vehicle_id << endl;
+                        std::cout << "RSU_SEND: Decision sent to " << record.vehicle_id 
+                                  << " for task " << record.task_id << std::endl;
+                    } else {
+                        EV_WARN << "⚠ Vehicle " << record.vehicle_id << " MAC not found, cannot send decision" << endl;
+                        delete dMsg;
+                    }
                 }
             }
-            
-            if (decisions_found > 0) {
-                EV_INFO << "📊 Decision poll: " << decisions_found << " found, " 
-                        << decisions_sent << " sent" << endl;
-            }
-        } else {
-            EV_WARN << "⚠ Cannot poll decisions: No database connection" << endl;
+        }
+        
+        if (decisions_found > 0) {
+            EV_INFO << "📊 Decision poll: " << decisions_found << " found, " 
+                    << decisions_sent << " sent" << endl;
         }
         
         // Reschedule next check
@@ -475,17 +497,32 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     
     logTaskRecord(record, "METADATA_RECEIVED");
     
-    // Update Redis with task state
+    // Update Redis with task state and push to request queue for ML model
     if (redis_twin && use_redis) {
+        // Create task state
         redis_twin->createTask(
             task_id,
             vehicle_id,
             record.created_time,
             record.deadline_seconds
         );
+        
+        // Push offloading request to queue for ML model to process (fast Redis queue)
+        redis_twin->pushOffloadingRequest(
+            task_id,
+            vehicle_id,
+            "RSU_" + std::to_string(rsu_id),
+            record.task_size_bytes,
+            record.cpu_cycles,
+            record.deadline_seconds,
+            record.qos_value,
+            record.created_time
+        );
+        
+        std::cout << "REDIS_PUSH: Task " << task_id << " pushed to ML request queue" << std::endl;
     }
     
-    // Insert into PostgreSQL database
+    // IMPORTANT: Always insert into PostgreSQL for dashboard and historical data
     insertTaskMetadata(msg);
     
     std::cout << "DT_TASK: RSU received metadata for task " << task_id 

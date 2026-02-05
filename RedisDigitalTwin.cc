@@ -231,6 +231,85 @@ std::map<std::string, std::string> RedisDigitalTwin::getTaskState(const std::str
     return state;
 }
 
+void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
+                                            const std::string& vehicle_id,
+                                            const std::string& rsu_id,
+                                            double task_size_bytes,
+                                            double cpu_cycles,
+                                            double deadline_seconds,
+                                            double qos_value,
+                                            double request_time)
+{
+    if (!redis_ctx || !is_connected) return;
+    
+    // Store request data in hash
+    std::string request_key = "task:" + task_id + ":request";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s "
+        "task_id %s "
+        "vehicle_id %s "
+        "rsu_id %s "
+        "task_size_bytes %.0f "
+        "cpu_cycles %.0f "
+        "deadline_seconds %.2f "
+        "qos_value %.2f "
+        "request_time %.6f",
+        request_key.c_str(),
+        task_id.c_str(),
+        vehicle_id.c_str(),
+        rsu_id.c_str(),
+        task_size_bytes,
+        cpu_cycles,
+        deadline_seconds,
+        qos_value,
+        request_time
+    );
+    
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis request hash error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+    
+    // Set TTL on request data
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", request_key.c_str(), task_ttl);
+    if (reply) freeReplyObject(reply);
+    
+    // Push task_id to offloading request queue (for ML model to pop)
+    reply = (redisReply*)redisCommand(redis_ctx,
+        "RPUSH offloading_requests:queue %s", task_id.c_str()
+    );
+    
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis queue push error: " << reply->str << std::endl;
+        } else {
+            EV_INFO << "✓ Pushed offloading request to Redis queue: " << task_id << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+std::map<std::string, std::string> RedisDigitalTwin::getDecision(const std::string& task_id) {
+    std::map<std::string, std::string> decision;
+    if (!redis_ctx || !is_connected) return decision;
+    
+    std::string decision_key = "task:" + task_id + ":decision";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", decision_key.c_str());
+    
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i < reply->elements; i += 2) {
+            if (i + 1 < reply->elements) {
+                decision[reply->element[i]->str] = reply->element[i+1]->str;
+            }
+        }
+    }
+    
+    if (reply) freeReplyObject(reply);
+    return decision;
+}
+
 void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
                                          double cpu_available, double memory_available,
                                          int queue_length, int processing_count,
