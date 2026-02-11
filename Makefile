@@ -1,13 +1,13 @@
 #
-# OMNeT++/OMNEST Makefile for complex-network
+# OMNeT++/OMNEST Makefile for IoV-Digital-Twin-TaskOffloading
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=../veins -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\)
+#  opp_makemake -f --deep -O out -KINET_PROJ=/home/mjavin/omnet-workspaces/inet4.5 -KVEINS_PROJ=/home/mjavin/omnet-workspaces/veins-5.3.1 -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\)
 #
 
 # Name of target to be created (-o option)
 TARGET_DIR = .
-TARGET_NAME = complex-network$(D)
+TARGET_NAME = IoV-Digital-Twin-TaskOffloading$(D)
 TARGET = $(TARGET_NAME)$(EXE_SUFFIX)
 TARGET_IMPLIB = $(TARGET_NAME)$(IMPLIB_SUFFIX)
 TARGET_IMPDEF = $(TARGET_NAME)$(IMPDEF_SUFFIX)
@@ -19,13 +19,13 @@ USERIF_LIBS = $(ALL_ENV_LIBS) # that is, $(QTENV_LIBS) $(CMDENV_LIBS)
 #USERIF_LIBS = $(QTENV_LIBS)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
+INCLUDE_PATH = -I. -I$(INET_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
 
 # Additional object and library files to link with
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lhiredis -lpq
+LIBS = $(LDFLAG_LIBPATH)$(INET_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D)
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -54,8 +54,8 @@ MSGFILES = \
 SMFILES =
 
 # Other makefile variables (-K)
-INET4_5_PROJ=../inet4.5
-VEINS_PROJ=../veins
+INET_PROJ=/home/mjavin/omnet-workspaces/inet4.5
+VEINS_PROJ=/home/mjavin/omnet-workspaces/veins-5.3.1
 
 #------------------------------------------------------------------------------
 
@@ -76,7 +76,7 @@ include $(CONFIGFILE)
 # Simulation kernel and user interface libraries
 OMNETPP_LIBS = $(OPPMAIN_LIB) $(USERIF_LIBS) $(KERNEL_LIBS) $(SYS_LIBS)
 ifneq ($(PLATFORM),win32)
-LIBS += -Wl,-rpath,$(abspath $(INET4_5_PROJ)/src) -Wl,-rpath,$(abspath $(VEINS_PROJ)/src)
+LIBS += -Wl,-rpath,$(abspath $(INET_PROJ)/src) -Wl,-rpath,$(abspath $(VEINS_PROJ)/src)
 endif
 
 COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DINET_IMPORT -DVEINS_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
