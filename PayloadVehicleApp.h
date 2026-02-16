@@ -239,7 +239,6 @@ private:
 
     // Energy and metrics
     EnergyCalculator energyCalculator;
-
     // Service vehicle capability (this vehicle can process tasks for others)
     bool serviceVehicleEnabled = false;
     int maxConcurrentServiceTasks = 3;

@@ -185,6 +185,27 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         delete msg;
         return;
     }
+    else if (strcmp(msg->getName(), "offloadedTaskTimeout") == 0) {
+        Task* task = (Task*)msg->getContextPointer();
+        auto it = offloadedTasks.find(task->task_id);
+        if (it != offloadedTasks.end()) {
+            offloadedTasks.erase(it);
+            offloadedTaskTargets.erase(task->task_id);
+
+            task->state = FAILED;
+            tasks_failed++;
+
+            double latency = (simTime() - task->created_time).dbl();
+            if (task->is_profile_task) {
+                MetricsManager::getInstance().recordTaskFailed(task->type, latency);
+            }
+
+            sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
+            delete task;
+        }
+        delete msg;
+        return;
+    }
     else if (strcmp(msg->getName(), "sendPayloadMessage") == 0) {
         std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic vehicle status update..." << std::endl;
         EV << "PayloadVehicleApp: Sending periodic vehicle status update..." << endl;

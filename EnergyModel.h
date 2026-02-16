@@ -36,7 +36,7 @@ namespace EnergyConstants {
     constexpr double IDLE_POWER = 0.2;           // Watts
     
     // Frequency scaling (affects energy quadratically in RADiT model)
-    // Typical: 1.0 GHz to 1.5 GHz for Jetson Nano   
+    // Typical: 1.0 GHz to 1.5 GHz for Jetson Nano
     constexpr double FREQ_NOMINAL = 1.0e9;       // Hz (1.0 GHz)
     constexpr double FREQ_MAX = 1.5e9;           // Hz (1.5 GHz, boost)
     constexpr double FREQ_MIN = 0.5e9;           // Hz (0.5 GHz, power-save)

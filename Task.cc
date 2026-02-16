@@ -233,7 +233,6 @@ Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
     EV_INFO << "║ State:            " << std::setw(48) << "CREATED" << "║" << endl;
     EV_INFO << "╚════════════════════════════════════════════════════════════════════╝" << endl;
 }
-
 Task* Task::createFromProfile(TaskType task_type, const std::string& vid, uint64_t seq_num) {
     const auto& profile = TaskProfileDatabase::getInstance().getProfile(task_type);
     return new Task(
