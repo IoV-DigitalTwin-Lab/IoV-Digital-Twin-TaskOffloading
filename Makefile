@@ -1,13 +1,13 @@
 #
-# OMNeT++/OMNEST Makefile for complex-network
+# OMNeT++/OMNEST Makefile for IoV-Digital-Twin-TaskOffloading
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=../veins -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\)
+#  opp_makemake -f --deep -O out -KINET4_5_PROJ=/home/mjavin/omnet-workspaces/inet4.5 -KVEINS_PROJ=/home/mjavin/omnet-workspaces/veins-5.3.1 -DINET_IMPORT -DVEINS_IMPORT -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc -L$(INET4_5_PROJ)/src -L$(VEINS_PROJ)/src -lINET$(D) -lveins$(D) -lhiredis -lpq -lcurl
 #
 
 # Name of target to be created (-o option)
 TARGET_DIR = .
-TARGET_NAME = complex-network$(D)
+TARGET_NAME = IoV-Digital-Twin-TaskOffloading$(D)
 TARGET = $(TARGET_NAME)$(EXE_SUFFIX)
 TARGET_IMPLIB = $(TARGET_NAME)$(IMPLIB_SUFFIX)
 TARGET_IMPDEF = $(TARGET_NAME)$(IMPDEF_SUFFIX)
@@ -25,7 +25,7 @@ INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lhiredis -lpq
+LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lhiredis -lpq -lcurl
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -34,6 +34,8 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
 OBJS = \
+    $O/EnergyModel.o \
+    $O/MetricsManager.o \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
     $O/RedisDigitalTwin.o \
@@ -42,6 +44,7 @@ OBJS = \
     $O/SingleMessageVehicleApp.o \
     $O/Task.o \
     $O/TaskOffloadingDecision.o \
+    $O/TaskProfile.o \
     $O/UnicastVisualizer.o \
     $O/VehicleApp.o \
     $O/TaskMetadataMessage_m.o
@@ -54,8 +57,8 @@ MSGFILES = \
 SMFILES =
 
 # Other makefile variables (-K)
-INET4_5_PROJ=../inet4.5
-VEINS_PROJ=../veins
+INET4_5_PROJ=/home/mjavin/omnet-workspaces/inet4.5
+VEINS_PROJ=/home/mjavin/omnet-workspaces/veins-5.3.1
 
 #------------------------------------------------------------------------------
 

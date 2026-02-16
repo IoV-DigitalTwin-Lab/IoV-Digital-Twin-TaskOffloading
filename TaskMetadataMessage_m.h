@@ -20,6 +20,7 @@
 namespace veins {
 
 class TaskMetadataMessage;
+class ObjectDetectionDataMessage;
 class TaskCompletionMessage;
 class TaskFailureMessage;
 class VehicleResourceStatusMessage;
@@ -121,6 +122,60 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskMetadataMessage& obj)
  * Class generated from <tt>TaskMetadataMessage.msg:34</tt> by opp_msgtool.
  * <pre>
  * //
+ * // Object Detection Data Message - Vehicle → Vehicle broadcast (cooperative perception)
+ * //
+ * packet ObjectDetectionDataMessage extends BaseFrame1609_4
+ * {
+ *     string vehicle_id;           // Sender vehicle ID
+ *     double timestamp;            // When detection was produced
+ *     uint64_t data_size_bytes;    // Size of object list payload
+ *     string payload_tag;          // Lightweight tag for tracing (no raw data)
+ * }
+ * </pre>
+ */
+class ObjectDetectionDataMessage : public ::veins::BaseFrame1609_4
+{
+  protected:
+    ::omnetpp::opp_string vehicle_id;
+    double timestamp = 0;
+    uint64_t data_size_bytes = 0;
+    ::omnetpp::opp_string payload_tag;
+
+  private:
+    void copy(const ObjectDetectionDataMessage& other);
+
+  protected:
+    bool operator==(const ObjectDetectionDataMessage&) = delete;
+
+  public:
+    ObjectDetectionDataMessage(const char *name=nullptr, short kind=0);
+    ObjectDetectionDataMessage(const ObjectDetectionDataMessage& other);
+    virtual ~ObjectDetectionDataMessage();
+    ObjectDetectionDataMessage& operator=(const ObjectDetectionDataMessage& other);
+    virtual ObjectDetectionDataMessage *dup() const override {return new ObjectDetectionDataMessage(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const char * getVehicle_id() const;
+    virtual void setVehicle_id(const char * vehicle_id);
+
+    virtual double getTimestamp() const;
+    virtual void setTimestamp(double timestamp);
+
+    virtual uint64_t getData_size_bytes() const;
+    virtual void setData_size_bytes(uint64_t data_size_bytes);
+
+    virtual const char * getPayload_tag() const;
+    virtual void setPayload_tag(const char * payload_tag);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const ObjectDetectionDataMessage& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, ObjectDetectionDataMessage& obj) {obj.parsimUnpack(b);}
+
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:44</tt> by opp_msgtool.
+ * <pre>
+ * //
  * // Task Completion Message - Sent from vehicle to RSU when task completes
  * //
  * packet TaskCompletionMessage extends BaseFrame1609_4
@@ -182,7 +237,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskCompletionMessage
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskCompletionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:46</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:56</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Failure Message - Sent from vehicle to RSU when task fails/is rejected
@@ -241,7 +296,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskFailureMessage& o
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:57</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:67</tt> by opp_msgtool.
  * <pre>
  * //
  * // Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
@@ -394,7 +449,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatus
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:94</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:104</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
@@ -522,7 +577,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:125</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:135</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -613,7 +668,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:147</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:157</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -696,7 +751,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:166</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:176</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -772,7 +827,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:182</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:192</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
@@ -842,6 +897,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj)
 namespace omnetpp {
 
 template<> inline veins::TaskMetadataMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskMetadataMessage*>(ptr.get<cObject>()); }
+template<> inline veins::ObjectDetectionDataMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::ObjectDetectionDataMessage*>(ptr.get<cObject>()); }
 template<> inline veins::TaskCompletionMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskCompletionMessage*>(ptr.get<cObject>()); }
 template<> inline veins::TaskFailureMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskFailureMessage*>(ptr.get<cObject>()); }
 template<> inline veins::VehicleResourceStatusMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::VehicleResourceStatusMessage*>(ptr.get<cObject>()); }

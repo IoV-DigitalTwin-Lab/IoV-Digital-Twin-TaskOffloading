@@ -1119,7 +1119,7 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
                  << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
                  << "}";
     
-    const char* paramValues[24];
+    const char* paramValues[25];
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string update_time = std::to_string(simTime().dbl());
