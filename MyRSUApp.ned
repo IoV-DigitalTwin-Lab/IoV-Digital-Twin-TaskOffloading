@@ -32,6 +32,11 @@ simple MyRSUApp like IBaseApplLayer
         double edgeMemory_GB;            // Memory capacity in GB  
         int maxVehicles;                 // Max concurrent vehicles
         double processingDelay_ms;       // Base processing delay in ms
+
+        // Digital Twin (Redis) parameters
+        bool useRedis = default(false);  // Enable Redis Digital Twin
+        string redisHost = default("127.0.0.1");
+        int redisPort = default(6379);
     
     gates:
         input lowerLayerIn;

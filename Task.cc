@@ -5,17 +5,19 @@
 namespace complex_network {
 
 Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cycles, 
-           double deadline_sec, double qos) 
-    : vehicle_id(vid),
-      task_size_bytes(size),
-      cpu_cycles(cycles),
-      relative_deadline(deadline_sec),
-      qos_value(qos),
-      state(CREATED),
-      cpu_cycles_executed(0),
-      cpu_allocated(0.0),
-      completion_event(nullptr),
-      deadline_event(nullptr)
+                     double deadline_sec, double qos) 
+        : vehicle_id(vid),
+            task_size_bytes(size),
+            cpu_cycles(cycles),
+            input_size_bytes(size),
+            output_size_bytes(0),
+            relative_deadline(deadline_sec),
+            qos_value(qos),
+            state(CREATED),
+            cpu_cycles_executed(0),
+            cpu_allocated(0.0),
+            completion_event(nullptr),
+            deadline_event(nullptr)
 {
     // Generate unique task ID
     std::ostringstream oss;
@@ -40,6 +42,61 @@ Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cyc
     EV_INFO << "║ CPU Cycles:       " << std::setw(38) << (cycles / 1e9) << " G      ║" << endl;
     EV_INFO << "║ Deadline:         " << std::setw(38) << deadline_sec << " sec    ║" << endl;
     EV_INFO << "║ QoS Value:        " << std::setw(38) << qos_value << "        ║" << endl;
+    EV_INFO << "║ Created at:       " << std::setw(38) << created_time.dbl() << " sec    ║" << endl;
+    EV_INFO << "║ Absolute Deadline:" << std::setw(38) << deadline.dbl() << " sec    ║" << endl;
+    EV_INFO << "║ State:            " << std::setw(48) << "CREATED" << "║" << endl;
+    EV_INFO << "╚════════════════════════════════════════════════════════════════════╝" << endl;
+}
+
+Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
+           uint64_t input_size, uint64_t output_size, uint64_t cycles,
+           double deadline_sec, double qos, PriorityLevel task_priority,
+           bool offloadable, bool safety_critical)
+    : vehicle_id(vid),
+      type(task_type),
+      is_profile_task(true),
+      task_size_bytes(input_size),
+      cpu_cycles(cycles),
+      input_size_bytes(input_size),
+      output_size_bytes(output_size),
+      relative_deadline(deadline_sec),
+      qos_value(qos),
+      priority(task_priority),
+      is_offloadable(offloadable),
+      is_safety_critical(safety_critical),
+      state(CREATED),
+      cpu_cycles_executed(0),
+      cpu_allocated(0.0),
+      completion_event(nullptr),
+      deadline_event(nullptr)
+{
+    // Generate unique task ID
+    std::ostringstream oss;
+    oss << "V" << vid << "_T" << seq_num << "_" << std::fixed << std::setprecision(6) 
+        << simTime().dbl();
+    task_id = oss.str();
+    
+    // Initialize timing
+    created_time = simTime();
+    deadline = created_time + SimTime(deadline_sec);
+    received_time = SimTime(0);
+    processing_start_time = SimTime(0);
+    completion_time = SimTime(0);
+    
+    EV_INFO << "╔════════════════════════════════════════════════════════════════════╗" << endl;
+    EV_INFO << "║                    TASK CREATED (PROFILE)                           ║" << endl;
+    EV_INFO << "╠════════════════════════════════════════════════════════════════════╣" << endl;
+    EV_INFO << "║ Task ID:          " << std::left << std::setw(48) << task_id << "║" << endl;
+    EV_INFO << "║ Vehicle ID:       " << std::setw(48) << vehicle_id << "║" << endl;
+    EV_INFO << "║ Task Type:        " << std::setw(48) << TaskProfileDatabase::getTaskTypeName(type) << "║" << endl;
+    EV_INFO << "║ Input Size:       " << std::setw(38) << (input_size / 1024.0) << " KB    ║" << endl;
+    EV_INFO << "║ Output Size:      " << std::setw(38) << (output_size / 1024.0) << " KB    ║" << endl;
+    EV_INFO << "║ CPU Cycles:       " << std::setw(38) << (cycles / 1e9) << " G      ║" << endl;
+    EV_INFO << "║ Deadline:         " << std::setw(38) << deadline_sec << " sec    ║" << endl;
+    EV_INFO << "║ QoS Value:        " << std::setw(38) << qos_value << "        ║" << endl;
+    EV_INFO << "║ Priority:         " << std::setw(48) << static_cast<int>(priority) << "║" << endl;
+    EV_INFO << "║ Offloadable:      " << std::setw(48) << (is_offloadable ? "YES" : "NO") << "║" << endl;
+    EV_INFO << "║ Safety Critical:  " << std::setw(48) << (is_safety_critical ? "YES" : "NO") << "║" << endl;
     EV_INFO << "║ Created at:       " << std::setw(38) << created_time.dbl() << " sec    ║" << endl;
     EV_INFO << "║ Absolute Deadline:" << std::setw(38) << deadline.dbl() << " sec    ║" << endl;
     EV_INFO << "║ State:            " << std::setw(48) << "CREATED" << "║" << endl;
@@ -120,6 +177,23 @@ void Task::logTaskInfo(const std::string& prefix) const {
         EV_INFO << "│ Total Time:       " << std::setw(38) << total_time << " sec    │" << endl;
     }
     EV_INFO << "└────────────────────────────────────────────────────────────────────┘" << endl;
+}
+
+Task* Task::createFromProfile(TaskType task_type, const std::string& vid, uint64_t seq_num) {
+    const auto& profile = TaskProfileDatabase::getInstance().getProfile(task_type);
+    return new Task(
+        profile.type,
+        vid,
+        seq_num,
+        profile.computation.input_size_bytes,
+        profile.computation.output_size_bytes,
+        profile.computation.cpu_cycles,
+        profile.timing.deadline_seconds,
+        profile.timing.qos_value,
+        profile.timing.priority,
+        profile.offloading.is_offloadable,
+        profile.offloading.is_safety_critical
+    );
 }
 
 } // namespace complex_network

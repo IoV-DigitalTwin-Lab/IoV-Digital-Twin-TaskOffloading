@@ -29,6 +29,16 @@ packet TaskMetadataMessage extends BaseFrame1609_4 {
 }
 
 //
+// Object Detection Data Message - Vehicle → Vehicle broadcast (cooperative perception)
+//
+packet ObjectDetectionDataMessage extends BaseFrame1609_4 {
+    string vehicle_id;           // Sender vehicle ID
+    double timestamp;            // When detection was produced
+    uint64_t data_size_bytes;    // Size of object list payload
+    string payload_tag;          // Lightweight tag for tracing (no raw data)
+}
+
+//
 // Task Completion Message - Sent from vehicle to RSU when task completes
 //
 packet TaskCompletionMessage extends BaseFrame1609_4 {

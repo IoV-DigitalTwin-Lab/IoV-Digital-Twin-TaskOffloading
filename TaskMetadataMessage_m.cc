@@ -658,6 +658,424 @@ void TaskMetadataMessageDescriptor::setFieldStructValuePointer(omnetpp::any_ptr 
     }
 }
 
+Register_Class(ObjectDetectionDataMessage)
+
+ObjectDetectionDataMessage::ObjectDetectionDataMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+ObjectDetectionDataMessage::ObjectDetectionDataMessage(const ObjectDetectionDataMessage& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+ObjectDetectionDataMessage::~ObjectDetectionDataMessage()
+{
+}
+
+ObjectDetectionDataMessage& ObjectDetectionDataMessage::operator=(const ObjectDetectionDataMessage& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void ObjectDetectionDataMessage::copy(const ObjectDetectionDataMessage& other)
+{
+    this->vehicle_id = other.vehicle_id;
+    this->timestamp = other.timestamp;
+    this->data_size_bytes = other.data_size_bytes;
+    this->payload_tag = other.payload_tag;
+}
+
+void ObjectDetectionDataMessage::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->vehicle_id);
+    doParsimPacking(b,this->timestamp);
+    doParsimPacking(b,this->data_size_bytes);
+    doParsimPacking(b,this->payload_tag);
+}
+
+void ObjectDetectionDataMessage::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->vehicle_id);
+    doParsimUnpacking(b,this->timestamp);
+    doParsimUnpacking(b,this->data_size_bytes);
+    doParsimUnpacking(b,this->payload_tag);
+}
+
+const char * ObjectDetectionDataMessage::getVehicle_id() const
+{
+    return this->vehicle_id.c_str();
+}
+
+void ObjectDetectionDataMessage::setVehicle_id(const char * vehicle_id)
+{
+    this->vehicle_id = vehicle_id;
+}
+
+double ObjectDetectionDataMessage::getTimestamp() const
+{
+    return this->timestamp;
+}
+
+void ObjectDetectionDataMessage::setTimestamp(double timestamp)
+{
+    this->timestamp = timestamp;
+}
+
+uint64_t ObjectDetectionDataMessage::getData_size_bytes() const
+{
+    return this->data_size_bytes;
+}
+
+void ObjectDetectionDataMessage::setData_size_bytes(uint64_t data_size_bytes)
+{
+    this->data_size_bytes = data_size_bytes;
+}
+
+const char * ObjectDetectionDataMessage::getPayload_tag() const
+{
+    return this->payload_tag.c_str();
+}
+
+void ObjectDetectionDataMessage::setPayload_tag(const char * payload_tag)
+{
+    this->payload_tag = payload_tag;
+}
+
+class ObjectDetectionDataMessageDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_vehicle_id,
+        FIELD_timestamp,
+        FIELD_data_size_bytes,
+        FIELD_payload_tag,
+    };
+  public:
+    ObjectDetectionDataMessageDescriptor();
+    virtual ~ObjectDetectionDataMessageDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(ObjectDetectionDataMessageDescriptor)
+
+ObjectDetectionDataMessageDescriptor::ObjectDetectionDataMessageDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::ObjectDetectionDataMessage)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+ObjectDetectionDataMessageDescriptor::~ObjectDetectionDataMessageDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool ObjectDetectionDataMessageDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<ObjectDetectionDataMessage *>(obj)!=nullptr;
+}
+
+const char **ObjectDetectionDataMessageDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *ObjectDetectionDataMessageDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int ObjectDetectionDataMessageDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 4+base->getFieldCount() : 4;
+}
+
+unsigned int ObjectDetectionDataMessageDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,    // FIELD_vehicle_id
+        FD_ISEDITABLE,    // FIELD_timestamp
+        FD_ISEDITABLE,    // FIELD_data_size_bytes
+        FD_ISEDITABLE,    // FIELD_payload_tag
+    };
+    return (field >= 0 && field < 4) ? fieldTypeFlags[field] : 0;
+}
+
+const char *ObjectDetectionDataMessageDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "vehicle_id",
+        "timestamp",
+        "data_size_bytes",
+        "payload_tag",
+    };
+    return (field >= 0 && field < 4) ? fieldNames[field] : nullptr;
+}
+
+int ObjectDetectionDataMessageDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "timestamp") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "data_size_bytes") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "payload_tag") == 0) return baseIndex + 3;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *ObjectDetectionDataMessageDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "string",    // FIELD_vehicle_id
+        "double",    // FIELD_timestamp
+        "uint64_t",    // FIELD_data_size_bytes
+        "string",    // FIELD_payload_tag
+    };
+    return (field >= 0 && field < 4) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **ObjectDetectionDataMessageDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *ObjectDetectionDataMessageDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int ObjectDetectionDataMessageDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void ObjectDetectionDataMessageDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'ObjectDetectionDataMessage'", field);
+    }
+}
+
+const char *ObjectDetectionDataMessageDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string ObjectDetectionDataMessageDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
+        case FIELD_timestamp: return double2string(pp->getTimestamp());
+        case FIELD_data_size_bytes: return uint642string(pp->getData_size_bytes());
+        case FIELD_payload_tag: return oppstring2string(pp->getPayload_tag());
+        default: return "";
+    }
+}
+
+void ObjectDetectionDataMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: pp->setVehicle_id((value)); break;
+        case FIELD_timestamp: pp->setTimestamp(string2double(value)); break;
+        case FIELD_data_size_bytes: pp->setData_size_bytes(string2uint64(value)); break;
+        case FIELD_payload_tag: pp->setPayload_tag((value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'ObjectDetectionDataMessage'", field);
+    }
+}
+
+omnetpp::cValue ObjectDetectionDataMessageDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: return pp->getVehicle_id();
+        case FIELD_timestamp: return pp->getTimestamp();
+        case FIELD_data_size_bytes: return (omnetpp::intval_t)(pp->getData_size_bytes());
+        case FIELD_payload_tag: return pp->getPayload_tag();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'ObjectDetectionDataMessage' as cValue -- field index out of range?", field);
+    }
+}
+
+void ObjectDetectionDataMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: pp->setVehicle_id(value.stringValue()); break;
+        case FIELD_timestamp: pp->setTimestamp(value.doubleValue()); break;
+        case FIELD_data_size_bytes: pp->setData_size_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_payload_tag: pp->setPayload_tag(value.stringValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'ObjectDetectionDataMessage'", field);
+    }
+}
+
+const char *ObjectDetectionDataMessageDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr ObjectDetectionDataMessageDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void ObjectDetectionDataMessageDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    ObjectDetectionDataMessage *pp = omnetpp::fromAnyPtr<ObjectDetectionDataMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'ObjectDetectionDataMessage'", field);
+    }
+}
+
 Register_Class(TaskCompletionMessage)
 
 TaskCompletionMessage::TaskCompletionMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)

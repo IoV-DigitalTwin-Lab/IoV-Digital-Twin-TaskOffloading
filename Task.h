@@ -3,6 +3,7 @@
 
 #include <string>
 #include <omnetpp.h>
+#include "TaskProfile.h"
 
 using namespace omnetpp;
 
@@ -32,10 +33,14 @@ public:
     // Task Identification
     std::string task_id;              // Format: "V{vehicle_id}_T{sequence_num}_{timestamp}"
     std::string vehicle_id;           // Originating vehicle identifier
+    TaskType type = TaskType::LOCAL_OBJECT_DETECTION; // Task type (from TaskProfile)
+    bool is_profile_task = false;     // True if created from TaskProfile
     
     // Task Characteristics
     uint64_t task_size_bytes;         // Memory footprint (D_task)
     uint64_t cpu_cycles;              // Required CPU cycles (C_task)
+    uint64_t input_size_bytes;        // Input size (bytes)
+    uint64_t output_size_bytes;       // Output size (bytes)
     
     // Timing Information
     simtime_t created_time;           // When task was generated
@@ -47,6 +52,9 @@ public:
     
     // QoS and Priority
     double qos_value;                 // Quality of Service (0.0 - 1.0)
+    PriorityLevel priority = PriorityLevel::MEDIUM; // Priority mapping
+    bool is_offloadable = true;       // Can this task be offloaded?
+    bool is_safety_critical = false;  // Safety-critical tasks should stay local
     
     // Processing State
     TaskState state;                  // Current task state
@@ -60,6 +68,10 @@ public:
     // Constructor
     Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cycles, 
          double deadline_sec, double qos);
+        Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
+            uint64_t input_size, uint64_t output_size, uint64_t cycles,
+            double deadline_sec, double qos, PriorityLevel task_priority,
+            bool offloadable, bool safety_critical);
     
     // Destructor
     ~Task();
@@ -70,6 +82,9 @@ public:
     double getRemainingDeadline(simtime_t current_time) const;
     bool isDeadlineMissed(simtime_t current_time) const;
     void logTaskInfo(const std::string& prefix) const;
+
+    // Factory for TaskProfile-based tasks
+    static Task* createFromProfile(TaskType task_type, const std::string& vid, uint64_t seq_num);
 };
 
 /**
