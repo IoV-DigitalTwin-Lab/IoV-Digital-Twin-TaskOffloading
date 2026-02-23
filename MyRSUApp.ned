@@ -32,6 +32,9 @@ simple MyRSUApp like IBaseApplLayer
         double edgeMemory_GB;            // Memory capacity in GB  
         int maxVehicles;                 // Max concurrent vehicles
         double processingDelay_ms;       // Base processing delay in ms
+        bool useRedis = default(false);  // Enable Redis for real-time state
+        string redisHost = default("localhost");  // Redis server host
+        int redisPort = default(6379);   // Redis server port
     
     gates:
         input lowerLayerIn;

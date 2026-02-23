@@ -5,21 +5,14 @@ echo "=================================================="
 echo "Redis Digital Twin Installation"
 echo "=================================================="
 
-# Check if running as root
-if [ "$EUID" -eq 0 ]; then 
-    SUDO=""
-else
-    SUDO="sudo"
-fi
-
 # Install Redis server
 echo ""
 echo "1. Installing Redis server..."
 if command -v apt-get &> /dev/null; then
-    $SUDO apt-get update
-    $SUDO apt-get install -y redis-server
+    apt-get update
+    apt-get install -y redis-server
 elif command -v yum &> /dev/null; then
-    $SUDO yum install -y redis
+    yum install -y redis
 elif command -v brew &> /dev/null; then
     brew install redis
 else
@@ -31,9 +24,9 @@ fi
 echo ""
 echo "2. Installing hiredis library..."
 if command -v apt-get &> /dev/null; then
-    $SUDO apt-get install -y libhiredis-dev
+    apt-get install -y libhiredis-dev
 elif command -v yum &> /dev/null; then
-    $SUDO yum install -y hiredis-devel
+    yum install -y hiredis-devel
 elif command -v brew &> /dev/null; then
     brew install hiredis
 else
@@ -45,8 +38,8 @@ fi
 echo ""
 echo "3. Starting Redis service..."
 if command -v systemctl &> /dev/null; then
-    $SUDO systemctl start redis
-    $SUDO systemctl enable redis
+    systemctl start redis
+    systemctl enable redis
     echo "Redis service started and enabled on boot"
 elif command -v brew &> /dev/null; then
     brew services start redis
@@ -99,7 +92,7 @@ echo "  - Check status: redis-cli ping"
 echo "  - Monitor activity: redis-cli monitor"
 echo "  - View all keys: redis-cli KEYS '*'"
 echo "  - Flush database: redis-cli FLUSHALL"
-echo "  - Stop Redis: sudo systemctl stop redis (or brew services stop redis)"
+echo "  - Stop Redis: systemctl stop redis (or brew services stop redis)"
 echo ""
 echo "Next steps:"
 echo "  1. Rebuild the simulation: make clean && make"
