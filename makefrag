@@ -1,7 +1,18 @@
 ## Project make fragment to ensure extra linker flags are included for all build systems
 # Ensure libcurl is linked (needed by rsu_http_poster)
-LIBS += -lcurl
+LIBS += -L/lib/x86_64-linux-gnu -l:libcurl.so.4
 
 # PostgreSQL support (needed by MyRSUApp)
-CFLAGS += -I/usr/include/postgresql
+CFLAGS += -I/home/mihiraja/.local/include
+INCLUDE_PATH += -I/home/mihiraja/postgres/src/include
 LIBS += -lpq
+
+# Hiredis (Redis C client) installed in user-local prefix
+INCLUDE_PATH += -I/home/mihiraja/.local/include
+LIBS += $(LDFLAG_LIBPATH)/home/mihiraja/.local/lib -lhiredis
+
+# Add runtime library search path so executable can find libraries
+# Use same pattern as INET/VEINS rpath in main Makefile
+ifneq ($(PLATFORM),win32)
+LIBS += -Wl,-rpath,/home/mihiraja/.local/lib
+endif

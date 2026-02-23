@@ -1,0 +1,14 @@
+#!/bin/bash
+# Environment setup for IoV-Digital-Twin-TaskOffloading project
+# This file is sourced by OMNeT++ IDE when running simulations
+
+# Add locally installed libraries (hiredis, etc.) to library path
+export LD_LIBRARY_PATH=/home/mihiraja/.local/lib:$LD_LIBRARY_PATH
+
+# Set SUMO environment for TraCI/VEINS integration
+export SUMO_HOME=/usr/share/sumo
+export PATH=$SUMO_HOME/bin:$PATH
+
+echo "IoV-Digital-Twin-TaskOffloading environment loaded"
+echo "LD_LIBRARY_PATH includes: /home/mihiraja/.local/lib"
+echo "SUMO_HOME set to: $SUMO_HOME"
