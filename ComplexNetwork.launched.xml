@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <launch>
+    <basedir path="/opt/omnet/omnetpp-6.1/workspace/IoV-Digital-Twin-TaskOffloading"/>
     <copy file="erlangen.net.xml" />
     <copy file="erlangen.rou.xml" />
     <copy file="erlangen.poly.xml" />

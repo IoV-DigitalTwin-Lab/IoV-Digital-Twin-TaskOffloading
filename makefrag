@@ -23,10 +23,11 @@ MSGCOPTS += -I$(VEINS_PROJ)/src
 LIBS += $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src -lveins$(D)
 
 # Ensure libcurl is linked (needed by rsu_http_poster)
-LIBS += -lcurl
+LIBS += -L/lib/x86_64-linux-gnu -l:libcurl.so.4
 
 # PostgreSQL support (needed by MyRSUApp)
-CFLAGS += -I/usr/include/postgresql
+CFLAGS += -I/home/mihiraja/.local/include
+INCLUDE_PATH += -I/home/mihiraja/postgres/src/include
 LIBS += -lpq
 
 # Redis support (needed by RedisDigitalTwin)

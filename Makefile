@@ -55,7 +55,6 @@ MSGFILES = \
 
 # SM files
 SMFILES =
-
 #------------------------------------------------------------------------------
 
 # Pull in OMNeT++ configuration (Makefile.inc)

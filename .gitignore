@@ -48,6 +48,9 @@ results/
 
 .venv/
 
+# Environment files with credentials
+.env
+
 # Environment variables with sensitive credentials
 .env
 .env.local
@@ -63,3 +66,7 @@ ML_DECISION_INTEGRATION.md
 APPENDIX_REAL_DATA.md
 REDIS_DIGITAL_TWIN.md
 REDIS_GUIDE.md
+/.metadata/
+inet4.5/
+RUNTIME_FIXES.md
+QUICKSTART.md

@@ -1038,7 +1038,20 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "Database: " << db_conninfo << endl;
     
     // Add connection timeout to prevent hanging
-    std::string conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+    std::string conninfo_with_timeout;
+    if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
+        // URL format - add timeout as query parameter
+        conninfo_with_timeout = db_conninfo;
+        if (db_conninfo.find("?") != std::string::npos) {
+            conninfo_with_timeout += "&connect_timeout=5";
+        } else {
+            conninfo_with_timeout += "?connect_timeout=5";
+        }
+    } else {
+        // Key-value format - add timeout as space-separated parameter
+        conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+    }
+    
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
     
     if (PQstatus(db_conn) != CONNECTION_OK) {
@@ -1069,7 +1082,19 @@ PGconn* MyRSUApp::getDBConnection() {
             PQfinish(db_conn);
         }
         // Add connection timeout to prevent hanging
-        std::string conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+        std::string conninfo_with_timeout;
+        if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
+            // URL format - add timeout as query parameter
+            conninfo_with_timeout = db_conninfo;
+            if (db_conninfo.find("?") != std::string::npos) {
+                conninfo_with_timeout += "&connect_timeout=5";
+            } else {
+                conninfo_with_timeout += "?connect_timeout=5";
+            }
+        } else {
+            // Key-value format - add timeout as space-separated parameter
+            conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+        }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());
         
         if (PQstatus(db_conn) != CONNECTION_OK) {
