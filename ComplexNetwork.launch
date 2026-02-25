@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.omnetpp.ide.run.launchConfigurationType">
+<stringAttribute key="bad_container_name" value="/IoV-Digital-Twin-TaskOffloading/.launche"/>
+<stringAttribute key="org.omnetpp.ide.run.CONFIGURATION_TO_RUN" value="General"/>
+<booleanAttribute key="org.omnetpp.ide.run.DEBUGGER_ATTACH_ON_STARTUP" value="false"/>
+<stringAttribute key="org.omnetpp.ide.run.EXE_FILENAME" value="IoV-Digital-Twin-TaskOffloading"/>
+<booleanAttribute key="org.omnetpp.ide.run.EXE_IN_PROJECT_ROOT" value="false"/>
+<stringAttribute key="org.omnetpp.ide.run.EXTRA_ARGS" value=""/>
+<stringAttribute key="org.omnetpp.ide.run.INI_FILENAME" value="omnetpp.ini"/>
+<booleanAttribute key="org.omnetpp.ide.run.INI_IN_PROJECT_ROOT" value="true"/>
+<stringAttribute key="org.omnetpp.ide.run.LIBRARIES_TO_LOAD" value="${workspace_loc:/inet}/src/INET ${workspace_loc:/veins}/src/veins"/>
+<stringAttribute key="org.omnetpp.ide.run.NED_EXCLUSIONS" value=""/>
+<stringAttribute key="org.omnetpp.ide.run.NED_FOLDERS" value=". ${workspace_loc:/inet}/src ${workspace_loc:/veins}/src/veins"/>
+<stringAttribute key="org.omnetpp.ide.run.NED_PACKAGE_EXCLUSIONS" value=""/>
+<booleanAttribute key="org.omnetpp.ide.run.STOP_BATCH_ON_ERROR" value="true"/>
+<stringAttribute key="org.omnetpp.ide.run.USER_INTERFACE" value="Qtenv"/>
+<stringAttribute key="org.omnetpp.ide.run.WORKING_DIRECTORY" value="${project_loc}"/>
+<stringAttribute key="org.eclipse.cdt.debug.mi.core.DEBUG_LOG" value="debug.log"/>
+<stringAttribute key="process_factory_id" value="org.eclipse.cdt.dsf.gdb.GdbProcessFactory"/>
+</launchConfiguration>

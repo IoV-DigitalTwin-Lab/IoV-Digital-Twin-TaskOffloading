@@ -538,6 +538,8 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     if (!checkDecisionMsg->isScheduled()) {
         scheduleAt(simTime() + 0.1, checkDecisionMsg);
     }
+
+    delete msg;
 }
 
 void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
@@ -594,6 +596,8 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
+
+    delete msg;
 }
 
 void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
@@ -651,6 +655,8 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
+
+    delete msg;
 }
 
 void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
@@ -717,6 +723,8 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     EV_INFO << "  Memory Utilization: " << (twin.mem_utilization * 100.0) << "%" << endl;
     EV_INFO << "  Queue Length: " << twin.current_queue_length << endl;
     EV_INFO << "  Processing Count: " << twin.current_processing_count << endl;
+
+    delete msg;
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;

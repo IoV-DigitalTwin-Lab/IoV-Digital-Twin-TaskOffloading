@@ -133,8 +133,8 @@ namespace TaskPeriods {
     constexpr double LOCAL_OBJECT_DETECTION = 0.050;      // 50ms (20 Hz)
     constexpr double COOPERATIVE_PERCEPTION = 0.100;      // 100ms (10 Hz)
     constexpr double ROUTE_OPTIMIZATION = 0.500;          // 500ms (2 Hz)
-    constexpr double SENSOR_HEALTH_CHECK = 10.0;          // 10s
-    constexpr double FLEET_TRAFFIC_BATCH = 60.0;          // 60s batch
+    constexpr double SENSOR_HEALTH_CHECK = 2.0;           // 2s (0.5 Hz) - increased from 10s
+    constexpr double FLEET_TRAFFIC_BATCH = 15.0;          // 15s batch (increased from 60s)
 }
 
 // Poisson task rates (tasks/second, lambda parameter)

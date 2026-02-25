@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for IoV-Digital-Twin-TaskOffloading
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KINET4_5_PROJ=/home/mjavin/omnet-workspaces/inet4.5 -KVEINS_PROJ=/home/mjavin/omnet-workspaces/veins-5.3.1 -DINET_IMPORT -DVEINS_IMPORT -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc -L$(INET4_5_PROJ)/src -L$(VEINS_PROJ)/src -lINET$(D) -lveins$(D) -lhiredis -lpq -lcurl
+#  opp_makemake -f --deep -O out -I. -I/home/mjavin/omnet-workspaces/inet4.5/src -I/home/mjavin/omnet-workspaces/veins-5.3.1/src -L../../inet4.5/src -L../../veins-5.3.1/src -lINET -lveins
 #
 
 # Name of target to be created (-o option)
@@ -19,13 +19,13 @@ USERIF_LIBS = $(ALL_ENV_LIBS) # that is, $(QTENV_LIBS) $(CMDENV_LIBS)
 #USERIF_LIBS = $(QTENV_LIBS)
 
 # C++ include paths (with -I)
-INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
+INCLUDE_PATH = -I. -I/home/mjavin/omnet-workspaces/inet4.5/src -I/home/mjavin/omnet-workspaces/veins-5.3.1/src
 
 # Additional object and library files to link with
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lhiredis -lpq -lcurl
+LIBS = $(LDFLAG_LIBPATH)../../inet4.5/src $(LDFLAG_LIBPATH)../../veins-5.3.1/src  -lINET -lveins
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -56,10 +56,6 @@ MSGFILES = \
 # SM files
 SMFILES =
 
-# Other makefile variables (-K)
-INET4_5_PROJ=/home/mjavin/omnet-workspaces/inet4.5
-VEINS_PROJ=/home/mjavin/omnet-workspaces/veins-5.3.1
-
 #------------------------------------------------------------------------------
 
 # Pull in OMNeT++ configuration (Makefile.inc)
@@ -79,10 +75,10 @@ include $(CONFIGFILE)
 # Simulation kernel and user interface libraries
 OMNETPP_LIBS = $(OPPMAIN_LIB) $(USERIF_LIBS) $(KERNEL_LIBS) $(SYS_LIBS)
 ifneq ($(PLATFORM),win32)
-LIBS += -Wl,-rpath,$(abspath $(INET4_5_PROJ)/src) -Wl,-rpath,$(abspath $(VEINS_PROJ)/src)
+LIBS += -Wl,-rpath,$(abspath ../../inet4.5/src) -Wl,-rpath,$(abspath ../../veins-5.3.1/src)
 endif
 
-COPTS = $(CFLAGS) $(IMPORT_DEFINES) -DINET_IMPORT -DVEINS_IMPORT $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
+COPTS = $(CFLAGS) $(IMPORT_DEFINES)  $(INCLUDE_PATH) -I$(OMNETPP_INCL_DIR)
 MSGCOPTS = $(INCLUDE_PATH)
 SMCOPTS =
 
