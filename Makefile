@@ -25,7 +25,7 @@ INCLUDE_PATH = -I. -I$(INET4_5_PROJ)/src -I$(VEINS_PROJ)/src -Isrc
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lhiredis -lpq
+LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D)
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -42,6 +42,7 @@ OBJS = \
     $O/SingleMessageVehicleApp.o \
     $O/Task.o \
     $O/TaskOffloadingDecision.o \
+    $O/TaskProfile.o \
     $O/UnicastVisualizer.o \
     $O/VehicleApp.o \
     $O/TaskMetadataMessage_m.o

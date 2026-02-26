@@ -14,6 +14,10 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
 
         // ---- Heartbeat (continuous vehicle telemetry) ----
         double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz
+        double firstStatusDelayS @unit(s) = default(0s);     // delay before first status, allow t=0
+
+        // First task generation minimum delay
+        double firstTaskDelayS @unit(s) = default(0.2s);      // ensure tasks start after initial heartbeats
 
         // ============================================================================
         // TASK PROCESSING SYSTEM PARAMETERS (Digital Twin Design)
@@ -44,6 +48,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         
         // Offloading Control
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
+        bool force_offload = default(false);                  // Force all tasks to be offloaded
         double rsuDecisionTimeout @unit(s) = default(1.0s);   // Timeout for RSU decision response
         double offloadedTaskTimeout @unit(s) = default(5.0s); // Timeout for task execution result
         

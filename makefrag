@@ -5,3 +5,6 @@ LIBS += -lcurl
 # PostgreSQL support (needed by MyRSUApp)
 CFLAGS += -I/usr/include/postgresql
 LIBS += -lpq
+
+# Redis support (needed by RedisDigitalTwin)
+LIBS += -lhiredis

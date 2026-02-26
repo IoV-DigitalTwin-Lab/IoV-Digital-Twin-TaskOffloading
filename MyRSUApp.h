@@ -72,6 +72,16 @@ struct TaskRecord {
     double received_time;
     double qos_value;
     
+    // Task Profile fields (populated from TaskMetadataMessage when is_profile_task=true)
+    bool is_profile_task = false;
+    std::string task_type_name;          // e.g. "LOCAL_OBJECT_DETECTION"
+    int task_type_id = 0;
+    uint64_t input_size_bytes = 0;
+    uint64_t output_size_bytes = 0;
+    bool is_offloadable = true;
+    bool is_safety_critical = false;
+    int priority_level = 2;
+    
     // Completion/failure info (if received)
     bool completed = false;
     bool failed = false;
@@ -204,9 +214,19 @@ private:
     std::string selectBestServiceVehicle(const OffloadingRequest& request);
     
     // RSU task processing (edge server)
+    // Tracks tasks currently being processed on the RSU edge server.
+    struct PendingRSUTask {
+        std::string vehicle_id;
+        LAddress::L2Type vehicle_mac = 0;
+        uint64_t cpu_cycles = 0;          // cycles required for this task instance
+        double exec_time_s = 0.0;         // computed execution time (seconds)
+        double scheduled_at = 0.0;        // simTime when task was accepted
+    };
+    std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
+
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
-    void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id, 
-                                  LAddress::L2Type vehicle_mac, bool success);
+    void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
+                                  LAddress::L2Type vehicle_mac, bool success, double processing_time);
     
     // Configuration parameters
     bool mlModelEnabled = false;

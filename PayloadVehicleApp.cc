@@ -55,10 +55,13 @@ void PayloadVehicleApp::initialize(int stage) {
         // ===== INITIALIZE TASK PROCESSING SYSTEM =====
         initializeTaskSystem();
         
-        // Schedule immediate message sending (0.1s to allow full initialization)
+        // Schedule first periodic vehicle status update
+        // Allow configuration; default is t=0 so Redis sees vehicles immediately
+        double firstStatusDelay = par("firstStatusDelayS").doubleValue();
         cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
-        scheduleAt(simTime() + 1, sendMsgEvent);
-        std::cout << "CONSOLE: PayloadVehicleApp - Scheduled to send payload message at time " << (simTime() + 0.1) << std::endl;
+        scheduleAt(simTime() + firstStatusDelay, sendMsgEvent);
+        std::cout << "CONSOLE: PayloadVehicleApp - Scheduled first payload message at time "
+              << (simTime() + firstStatusDelay) << std::endl;
         
         // Schedule periodic position monitoring for shadowing analysis
         cMessage* monitorEvent = new cMessage("monitorPosition");
@@ -82,10 +85,35 @@ void PayloadVehicleApp::initialize(int stage) {
 }
 
 void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
-    // Handle task-related events
-    if (strcmp(msg->getName(), "taskGeneration") == 0) {
-        generateTask();
-        // Don't delete - will be reused by scheduleNextTaskGeneration()
+    // Handle per-type profile-based task generation events
+    if (strcmp(msg->getName(), "taskGenLocalObjDet") == 0) {
+        generateTask(TaskType::LOCAL_OBJECT_DETECTION);
+        scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, msg);
+        return;
+    }
+    else if (strcmp(msg->getName(), "taskGenCoopPercep") == 0) {
+        generateTask(TaskType::COOPERATIVE_PERCEPTION);
+        scheduleNextTaskGeneration(TaskType::COOPERATIVE_PERCEPTION, msg);
+        return;
+    }
+    else if (strcmp(msg->getName(), "taskGenRouteOpt") == 0) {
+        generateTask(TaskType::ROUTE_OPTIMIZATION);
+        scheduleNextTaskGeneration(TaskType::ROUTE_OPTIMIZATION, msg);
+        return;
+    }
+    else if (strcmp(msg->getName(), "taskGenFleetForecast") == 0) {
+        generateTask(TaskType::FLEET_TRAFFIC_FORECAST);
+        scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST, msg);
+        return;
+    }
+    else if (strcmp(msg->getName(), "taskGenVoiceCommand") == 0) {
+        generateTask(TaskType::VOICE_COMMAND_PROCESSING);
+        scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, msg);
+        return;
+    }
+    else if (strcmp(msg->getName(), "taskGenSensorHealth") == 0) {
+        generateTask(TaskType::SENSOR_HEALTH_CHECK);
+        scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK, msg);
         return;
     }
     else if (strcmp(msg->getName(), "taskCompletion") == 0) {
@@ -109,6 +137,50 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
     else if (strcmp(msg->getName(), "serviceTaskDeadline") == 0) {
         Task* task = (Task*)msg->getContextPointer();
         handleServiceTaskDeadline(task);
+        delete msg;
+        return;
+    }
+    else if (strcmp(msg->getName(), "rsuDecisionTimeout") == 0) {
+        // Handle timeout waiting for RSU offloading decision
+        Task* task = (Task*)msg->getContextPointer();
+        EV_WARN << "⏱️ RSU decision timeout for task " << task->task_id << " - falling back to local execution" << endl;
+        std::cout << "TIMEOUT: Task " << task->task_id << " - no RSU decision received, executing locally" << std::endl;
+        
+        // Remove from pending decisions and timeout map
+        auto it = pendingOffloadingDecisions.find(task->task_id);
+        if (it != pendingOffloadingDecisions.end()) {
+            pendingOffloadingDecisions.erase(it);
+        }
+        pendingDecisionTimeouts.erase(task->task_id);
+        
+        // Execute locally as fallback
+        // Ensure taskTimings entry exists so completion reports can be sent
+        if (taskTimings.find(task->task_id) == taskTimings.end()) {
+            TaskTimingInfo timing;
+            timing.request_time = simTime().dbl();
+            timing.decision_time = simTime().dbl();
+            timing.decision_type = "LOCAL";
+            timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+            taskTimings[task->task_id] = timing;
+        }
+
+        if (canAcceptTask(task)) {
+            if (canStartProcessing(task)) {
+                EV_INFO << "✓ Starting task locally after timeout" << endl;
+                allocateResourcesAndStart(task);
+            } else {
+                EV_INFO << "⏸ Queuing task locally after timeout" << endl;
+                task->state = QUEUED;
+                pending_tasks.push(task);
+            }
+        } else {
+            EV_WARN << "❌ Cannot accept task locally - rejecting after timeout" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "TIMEOUT_AND_QUEUE_FULL");
+            delete task;
+        }
+        
         delete msg;
         return;
     }
@@ -318,6 +390,15 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
     if (resultMsg) {
         EV_INFO << "Received TaskResultMessage" << endl;
         handleTaskResult(resultMsg);
+        return;
+    }
+
+    // ========================================================================
+    // HANDLE OBJECT DETECTION DATA (COOPERATIVE PERCEPTION)
+    // ========================================================================
+    veins::ObjectDetectionDataMessage* odMsg = dynamic_cast<veins::ObjectDetectionDataMessage*>(msg);
+    if (odMsg) {
+        handleObjectDetectionDataMessage(odMsg);
         return;
     }
     
@@ -608,16 +689,47 @@ void PayloadVehicleApp::initializeTaskSystem() {
     EV_INFO << "│ Max Concurrent Tasks: " << std::setw(48) << max_concurrent_tasks << "      │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
 
-    
-    // Schedule first task generation
-    scheduleNextTaskGeneration();
-    
+    // Data sharing freshness window for cooperative perception
+    objectDetectionTtlSec = TaskPeriods::LOCAL_OBJECT_DETECTION * 4.0;
+
+    // Schedule per-task generation based on TaskProfile
+    if (localObjDetEvent == nullptr) {
+        localObjDetEvent = new cMessage("taskGenLocalObjDet");
+    }
+    if (coopPercepEvent == nullptr) {
+        coopPercepEvent = new cMessage("taskGenCoopPercep");
+    }
+    if (routeOptEvent == nullptr) {
+        routeOptEvent = new cMessage("taskGenRouteOpt");
+    }
+    if (fleetForecastEvent == nullptr) {
+        fleetForecastEvent = new cMessage("taskGenFleetForecast");
+    }
+    if (voiceCommandEvent == nullptr) {
+        voiceCommandEvent = new cMessage("taskGenVoiceCommand");
+    }
+    if (sensorHealthEvent == nullptr) {
+        sensorHealthEvent = new cMessage("taskGenSensorHealth");
+    }
+    scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, localObjDetEvent);
+    scheduleNextTaskGeneration(TaskType::COOPERATIVE_PERCEPTION, coopPercepEvent);
+    scheduleNextTaskGeneration(TaskType::ROUTE_OPTIMIZATION, routeOptEvent);
+    scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST, fleetForecastEvent);
+    scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, voiceCommandEvent);
+    scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK, sensorHealthEvent);
+
     // ============================================================================
     // INITIALIZE OFFLOADING DECISION FRAMEWORK
     // ============================================================================
     
     // Check if offloading is enabled
     offloadingEnabled = par("offloadingEnabled").boolValue();
+    forceOffload = par("force_offload").boolValue();
+    if (forceOffload) {
+        EV_INFO << "⚡ Force-offload mode ENABLED - all tasks will be sent to RSU/SV" << endl;
+        std::cout << "OFFLOADING: Force-offload mode ON for vehicle "
+                  << getParentModule()->getIndex() << std::endl;
+    }
     
     if (offloadingEnabled) {
         // Initialize decision maker
@@ -653,40 +765,109 @@ void PayloadVehicleApp::initializeTaskSystem() {
               << " with " << (cpu_allocable/1e9) << " GHz allocable CPU" << std::endl;
 }
 
-void PayloadVehicleApp::scheduleNextTaskGeneration() {
-    // Poisson process: exponential inter-arrival time
-    double next_arrival = exponential(task_arrival_mean);
-    
-    if (taskGenerationEvent == nullptr) {
-        taskGenerationEvent = new cMessage("taskGeneration");
+void PayloadVehicleApp::scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg) {
+    const auto& profile = TaskProfileDatabase::getInstance().getProfile(type);
+    double next_arrival = 0.0;
+
+    if (profile.generation.pattern == GenerationPattern::PERIODIC) {
+        double jitter = profile.generation.period_seconds * profile.generation.period_jitter_ratio;
+        next_arrival = profile.generation.period_seconds + uniform(-jitter, jitter);
+    } else if (profile.generation.pattern == GenerationPattern::POISSON) {
+        if (profile.generation.lambda > 0.0) {
+            next_arrival = exponential(1.0 / profile.generation.lambda);
+        } else {
+            next_arrival = 1.0; // fallback
+        }
+    } else if (profile.generation.pattern == GenerationPattern::BATCH) {
+        next_arrival = profile.generation.batch_interval_seconds;
     }
-    
-    scheduleAt(simTime() + next_arrival, taskGenerationEvent);
-    
-    EV_INFO << "⏰ Next task generation scheduled in " << next_arrival << " seconds (at " 
+
+    if (next_arrival < 0.001) {
+        next_arrival = 0.001;
+    }
+
+    scheduleAt(simTime() + next_arrival, eventMsg);
+
+    EV_INFO << "⏰ Next " << TaskProfileDatabase::getTaskTypeName(type)
+            << " task scheduled in " << next_arrival << " seconds (at "
             << (simTime() + next_arrival).dbl() << ")" << endl;
 }
 
-void PayloadVehicleApp::generateTask() {
+void PayloadVehicleApp::generateTask(TaskType type) {
     EV_INFO << "\n" << endl;
     EV_INFO << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
     EV_INFO << "                         GENERATING NEW TASK                                " << endl;
     EV_INFO << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
-    
-    // Generate random task characteristics
-    uint64_t task_size = (uint64_t)uniform(task_size_min, task_size_max);
-    double cpu_per_byte = uniform(cpu_per_byte_min, cpu_per_byte_max);
-    uint64_t cpu_cycles = (uint64_t)(task_size * cpu_per_byte);
-    double deadline = uniform(deadline_min, deadline_max);
-    double qos = uniform(0.0, 1.0);
-    
-    // Create task
+
+    // Create task from TaskProfile (nominal values)
     std::string vehicle_id = std::to_string(getParentModule()->getIndex());
-    Task* task = new Task(vehicle_id, task_sequence_number++, task_size, cpu_cycles, deadline, qos);
+    Task* task = Task::createFromProfile(type, vehicle_id, task_sequence_number++);
+
+    // -------------------------------------------------------------------------
+    // Per-instance variation: sample each attribute uniformly from the profile's
+    // [min, max] range.  This ensures no two tasks of the same type carry
+    // identical metadata, which would be unrealistic in a real IoV network.
+    // -------------------------------------------------------------------------
+    const auto& profile = TaskProfileDatabase::getInstance().getProfile(type);
+
+    uint64_t sampled_cycles = static_cast<uint64_t>(
+        uniform(static_cast<double>(profile.computation.cpu_cycles),
+                static_cast<double>(profile.computation.cpu_cycles_max)));
+    uint64_t sampled_input = static_cast<uint64_t>(
+        uniform(static_cast<double>(profile.computation.input_size_bytes),
+                static_cast<double>(profile.computation.input_size_bytes_max)));
+    double sampled_deadline = uniform(profile.timing.deadline_seconds,
+                                      profile.timing.deadline_seconds_max);
+
+    task->cpu_cycles       = sampled_cycles;
+    task->input_size_bytes = sampled_input;
+    task->task_size_bytes  = sampled_input;   // task_size tracks the transmission payload
+    task->relative_deadline = sampled_deadline;
+    task->deadline = task->created_time + SimTime(sampled_deadline);
+
+    EV_INFO << "  [Sampled] cycles=" << (sampled_cycles/1e9) << "G"
+            << " input=" << (sampled_input/1024.0) << "KB"
+            << " deadline=" << sampled_deadline << "s" << endl;
+
+    // For COOPERATIVE_PERCEPTION: scale input further by available neighbour data
+    if (type == TaskType::COOPERATIVE_PERCEPTION) {
+        const auto& localProfile = TaskProfileDatabase::getInstance().getProfile(TaskType::LOCAL_OBJECT_DETECTION);
+        uint64_t local_output_size = localProfile.computation.output_size_bytes;
+        bool local_fresh = (simTime() - localObjectDetection.timestamp).dbl() <= objectDetectionTtlSec;
+        uint32_t neighbor_count = countFreshNeighborDetections();
+
+        uint64_t input_size = (local_fresh ? local_output_size : 0) +
+                              (static_cast<uint64_t>(neighbor_count) * local_output_size);
+        if (input_size == 0) {
+            input_size = local_output_size;
+        }
+
+        uint64_t base_input = task->input_size_bytes;
+        if (input_size < base_input) {
+            input_size = base_input;
+        }
+
+        double scale = static_cast<double>(input_size) / static_cast<double>(base_input);
+        if (scale < 0.5) scale = 0.5;
+        if (scale > 2.0) scale = 2.0;
+
+        task->input_size_bytes = input_size;
+        task->task_size_bytes = input_size;
+        task->cpu_cycles = static_cast<uint64_t>(task->cpu_cycles * scale);
+
+        EV_INFO << "COOP_PERCEP input size set to " << (input_size / 1024.0) << " KB"
+                << " (neighbors=" << neighbor_count << ", local_fresh="
+                << (local_fresh ? "YES" : "NO") << ")" << endl;
+    }
+
     tasks_generated++;
     
-    EV_INFO << "Task generated: ID=" << task->task_id << " Size=" << (task_size/1024.0) << "KB "
-            << "Cycles=" << (cpu_cycles/1e9) << "G QoS=" << qos << " Deadline=" << deadline << "s" << endl;
+    EV_INFO << "Task generated: ID=" << task->task_id
+            << " Type=" << TaskProfileDatabase::getTaskTypeName(type)
+            << " Input=" << (task->input_size_bytes/1024.0) << "KB"
+            << " Cycles=" << (task->cpu_cycles/1e9) << "G"
+            << " QoS=" << task->qos_value
+            << " Deadline=" << task->relative_deadline << "s" << endl;
     
     // Send metadata to RSU (non-blocking)
     sendTaskMetadataToRSU(task);
@@ -696,7 +877,15 @@ void PayloadVehicleApp::generateTask() {
     // OFFLOADING DECISION INTEGRATION
     // ============================================================================
     
-    if (offloadingEnabled && decisionMaker) {
+    if (!task->is_offloadable) {
+        // Task is marked as local-only (e.g. LOCAL_OBJECT_DETECTION).
+        // Skip RSU path entirely and execute on vehicle.
+        EV_INFO << "💻 Task is_offloadable=false → forcing local execution" << endl;
+        std::cout << "LOCAL_ONLY: Task " << task->task_id
+                  << " is non-offloadable, processing locally" << std::endl;
+    }
+    
+    if (offloadingEnabled && decisionMaker && task->is_offloadable) {
         EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
         
         // Build decision context for the decision maker
@@ -780,7 +969,6 @@ void PayloadVehicleApp::generateTask() {
                 sendTaskFailureToRSU(task, "LOCAL_REJECTED");
                 delete task;
                 logTaskStatistics();
-                scheduleNextTaskGeneration();
                 return;
             }
             
@@ -796,7 +984,6 @@ void PayloadVehicleApp::generateTask() {
             }
             
             logResourceState("After task generation (local processing)");
-            scheduleNextTaskGeneration();
             return;
         }
         
@@ -817,8 +1004,10 @@ void PayloadVehicleApp::generateTask() {
         timeoutMsg->setContextPointer(task);
         scheduleAt(simTime() + rsuDecisionTimeout, timeoutMsg);
         
+        // Store timeout message so we can cancel it if decision arrives
+        pendingDecisionTimeouts[task->task_id] = timeoutMsg;
+        
         logResourceState("After task generation (awaiting offload decision)");
-        scheduleNextTaskGeneration();
         return;  // Don't process yet - wait for RSU decision
     }
     
@@ -834,10 +1023,9 @@ void PayloadVehicleApp::generateTask() {
         sendTaskFailureToRSU(task, "REJECTED");
         delete task;
         logTaskStatistics();
-        scheduleNextTaskGeneration();
         return;
     }
-    
+
     EV_INFO << "✓ Task accepted" << endl;
     
     // Check if can start immediately
@@ -852,7 +1040,6 @@ void PayloadVehicleApp::generateTask() {
     }
     
     logResourceState("After task generation");
-    scheduleNextTaskGeneration();
 }
 
 bool PayloadVehicleApp::canAcceptTask(Task* task) {
@@ -946,11 +1133,11 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     task->completion_event = completionMsg;
     scheduleAt(simTime() + exec_time, completionMsg);
     
-    // Schedule deadline check
+    // Schedule deadline check (guard against deadline already passed)
     cMessage* deadlineMsg = new cMessage("taskDeadline");
     deadlineMsg->setContextPointer(task);
     task->deadline_event = deadlineMsg;
-    scheduleAt(task->deadline, deadlineMsg);
+    scheduleAt(task->deadline <= simTime() ? simTime() : task->deadline, deadlineMsg);
     
     task->logTaskInfo("Task started processing");
     
@@ -1117,6 +1304,13 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
         std::cout << "TASK_LATE: Vehicle " << getParentModule()->getIndex() << " completed task " 
                   << task->task_id << " LATE (by " << lateness << "s)" << std::endl;
     }
+
+    // Update cooperative perception snapshot when LOCAL_OBJECT_DETECTION completes
+    if (task->is_profile_task && task->type == TaskType::LOCAL_OBJECT_DETECTION) {
+        localObjectDetection.timestamp = simTime();
+        localObjectDetection.size_bytes = task->output_size_bytes;
+        sendObjectDetectionData(task);
+    }
     
     // Release resources
     processing_tasks.erase(task);
@@ -1234,6 +1428,18 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
     msg->setCreated_time(task->created_time.dbl());
     msg->setDeadline_seconds(task->relative_deadline);
     msg->setQos_value(task->qos_value);
+    
+    // Populate task profile fields so RSU/Redis DT know task type
+    if (task->is_profile_task) {
+        msg->setIs_profile_task(true);
+        msg->setTask_type_id(static_cast<int>(task->type));
+        msg->setTask_type_name(TaskProfileDatabase::getInstance().getTaskTypeName(task->type).c_str());
+        msg->setInput_size_bytes(task->input_size_bytes);
+        msg->setOutput_size_bytes(task->output_size_bytes);
+        msg->setIs_offloadable(task->is_offloadable);
+        msg->setIs_safety_critical(task->is_safety_critical);
+        msg->setPriority_level(static_cast<int>(task->priority));
+    }
     
     // Find RSU and send
     LAddress::L2Type rsuMacAddress = selectBestRSU();
@@ -1533,8 +1739,13 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setCpu_total(cpu_total);
     statusMsg->setCpu_allocable(cpu_allocable);
     statusMsg->setCpu_available(cpu_available);
-    // Store as ratio (0.0-1.0) not percentage
-    double cpu_util = (cpu_allocable > 0) ? ((cpu_allocable - cpu_available) / cpu_allocable) : 0.0;
+    // Task-allocation utilization (fraction of allocable CPU assigned to tasks)
+    double task_util = (cpu_allocable > 0) ? ((cpu_allocable - cpu_available) / cpu_allocable) : 0.0;
+    // Also factor in the background vehicle CPU load (driving/safety systems modelled by
+    // cpuLoadFactor).  When all tasks are force-offloaded, task_util is always 0 even
+    // though the vehicle CPU is genuinely busy with on-board workloads.  We take the
+    // maximum so the Digital Twin is never incorrectly shown as idle.
+    double cpu_util = std::max(task_util, cpuLoadFactor);
     statusMsg->setCpu_utilization(cpu_util);
     
     statusMsg->setMem_total(memory_total);
@@ -1966,8 +2177,18 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
         std::cout << "INFO: 📊 Decision latency: " << (taskTimings[taskId].decision_time - taskTimings[taskId].request_time) << "s" << std::endl;
     }
     
-    // Cancel any timeout message for this task
-    // (In production, we'd store timeout message handles to cancel them)
+    // Cancel the timeout message for this task
+    auto timeoutIt = pendingDecisionTimeouts.find(taskId);
+    if (timeoutIt != pendingDecisionTimeouts.end()) {
+        cMessage* timeoutMsg = timeoutIt->second;
+        if (timeoutMsg->isScheduled()) {
+            cancelAndDelete(timeoutMsg);
+        } else {
+            delete timeoutMsg;
+        }
+        pendingDecisionTimeouts.erase(timeoutIt);
+        EV_INFO << "✓ Cancelled timeout for task " << taskId << endl;
+    }
     
     EV_INFO << "✓ Task found: " << task->task_id << endl;
     EV_INFO << "  Decision: " << decisionType << endl;
@@ -1996,9 +2217,19 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         EV_INFO << "💻 Decision: EXECUTE LOCALLY" << endl;
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " executing LOCALLY" << std::endl;
         
-        // Track processor for completion report
+        // Track processor and decision time for completion report
         if (taskTimings.find(task->task_id) != taskTimings.end()) {
             taskTimings[task->task_id].processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+            taskTimings[task->task_id].decision_time = simTime().dbl();
+            taskTimings[task->task_id].decision_type = "LOCAL";
+        } else {
+            // Create timing entry if it wasn't created yet (e.g. rsuDecisionTimeout fallback)
+            TaskTimingInfo timing;
+            timing.request_time = simTime().dbl();
+            timing.decision_time = simTime().dbl();
+            timing.decision_type = "LOCAL";
+            timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+            taskTimings[task->task_id] = timing;
         }
         
         // Check if can accept task locally
@@ -2364,11 +2595,11 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
     task->completion_event = completionMsg;
     scheduleAt(simTime() + processing_time, completionMsg);
     
-    // Schedule deadline check
+    // Schedule deadline check (guard against deadline already passed)
     cMessage* deadlineMsg = new cMessage("serviceTaskDeadline");
     deadlineMsg->setContextPointer(task);
     task->deadline_event = deadlineMsg;
-    scheduleAt(task->deadline, deadlineMsg);
+    scheduleAt(task->deadline <= simTime() ? simTime() : task->deadline, deadlineMsg);
     
     EV_INFO << "✓ Service task processing started, completion expected at " 
             << (simTime() + processing_time).dbl() << endl;
@@ -2532,6 +2763,50 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
     
     // Clean up timing info
     taskTimings.erase(taskId);
+}
+
+void PayloadVehicleApp::sendObjectDetectionData(const Task* task) {
+    if (task->output_size_bytes == 0) return;
+    auto* msg = new veins::ObjectDetectionDataMessage();
+    msg->setVehicle_id(task->vehicle_id.c_str());
+    msg->setTimestamp(simTime().dbl());
+    msg->setData_size_bytes(task->output_size_bytes);
+    msg->setPayload_tag("LOCAL_OBJECT_DETECTION");
+    populateWSM(msg);
+    sendDown(msg);
+    EV_INFO << "Broadcast object detection data: " << task->output_size_bytes << " bytes from vehicle "
+            << task->vehicle_id << endl;
+}
+
+void PayloadVehicleApp::handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg) {
+    std::string sender_id = msg->getVehicle_id();
+    std::string self_id = std::to_string(getParentModule()->getIndex());
+    if (sender_id == self_id) {
+        delete msg;
+        return;
+    }
+    ObjectDetectionSnapshot snapshot;
+    snapshot.timestamp = SimTime(msg->getTimestamp());
+    snapshot.size_bytes = msg->getData_size_bytes();
+    neighborObjectDetections[sender_id] = snapshot;
+    EV_INFO << "Received object detection data from vehicle " << sender_id
+            << " (size=" << snapshot.size_bytes << " bytes)" << endl;
+    delete msg;
+}
+
+uint32_t PayloadVehicleApp::countFreshNeighborDetections() {
+    uint32_t fresh_count = 0;
+    simtime_t now = simTime();
+    for (auto it = neighborObjectDetections.begin(); it != neighborObjectDetections.end(); ) {
+        double age = (now - it->second.timestamp).dbl();
+        if (age <= objectDetectionTtlSec) {
+            fresh_count++;
+            ++it;
+        } else {
+            it = neighborObjectDetections.erase(it);
+        }
+    }
+    return fresh_count;
 }
 
 } // namespace complex_network

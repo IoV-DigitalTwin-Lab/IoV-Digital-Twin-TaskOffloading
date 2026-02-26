@@ -153,15 +153,22 @@ std::vector<std::string> RedisDigitalTwin::getTopServiceVehicles(int count) {
 }
 
 void RedisDigitalTwin::createTask(const std::string& task_id, const std::string& vehicle_id,
-                                  double created_time, double deadline)
+                                  double created_time, double deadline,
+                                  const std::string& task_type_name,
+                                  bool is_offloadable,
+                                  bool is_safety_critical,
+                                  int priority_level)
 {
     if (!redis_ctx || !is_connected) return;
     
     std::string key = "task:" + task_id + ":state";
     
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
-        "HMSET %s vehicle_id %s status PENDING created_time %f deadline %f",
-        key.c_str(), vehicle_id.c_str(), created_time, deadline
+        "HMSET %s vehicle_id %s status PENDING created_time %f deadline %f "
+        "task_type %s is_offloadable %d is_safety_critical %d priority_level %d",
+        key.c_str(), vehicle_id.c_str(), created_time, deadline,
+        task_type_name.empty() ? "UNKNOWN" : task_type_name.c_str(),
+        (int)is_offloadable, (int)is_safety_critical, priority_level
     );
     
     if (reply) {
@@ -212,6 +219,33 @@ void RedisDigitalTwin::deleteTask(const std::string& task_id) {
     if (reply) freeReplyObject(reply);
 }
 
+void RedisDigitalTwin::updateTaskCompletion(const std::string& task_id,
+                                           const std::string& status,
+                                           const std::string& decision_type,
+                                           const std::string& processor_id,
+                                           double processing_time,
+                                           double total_latency,
+                                           double completion_time)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    std::string key = "task:" + task_id + ":state";
+
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s status %s decision_type %s processor_id %s "
+        "processing_time %f total_latency %f completion_time %f",
+        key.c_str(), status.c_str(), decision_type.c_str(), processor_id.c_str(),
+        processing_time, total_latency, completion_time
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis task completion update error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
 std::map<std::string, std::string> RedisDigitalTwin::getTaskState(const std::string& task_id) {
     std::map<std::string, std::string> state;
     if (!redis_ctx || !is_connected) return state;
@@ -238,7 +272,13 @@ void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
                                             double cpu_cycles,
                                             double deadline_seconds,
                                             double qos_value,
-                                            double request_time)
+                                            double request_time,
+                                            const std::string& task_type_name,
+                                            uint64_t input_size_bytes,
+                                            uint64_t output_size_bytes,
+                                            bool is_offloadable,
+                                            bool is_safety_critical,
+                                            int priority_level)
 {
     if (!redis_ctx || !is_connected) return;
     
@@ -253,7 +293,13 @@ void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
         "cpu_cycles %.0f "
         "deadline_seconds %.2f "
         "qos_value %.2f "
-        "request_time %.6f",
+        "request_time %.6f "
+        "task_type %s "
+        "input_size_bytes %llu "
+        "output_size_bytes %llu "
+        "is_offloadable %d "
+        "is_safety_critical %d "
+        "priority_level %d",
         request_key.c_str(),
         task_id.c_str(),
         vehicle_id.c_str(),
@@ -262,7 +308,13 @@ void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
         cpu_cycles,
         deadline_seconds,
         qos_value,
-        request_time
+        request_time,
+        task_type_name.empty() ? "UNKNOWN" : task_type_name.c_str(),
+        (unsigned long long)input_size_bytes,
+        (unsigned long long)output_size_bytes,
+        (int)is_offloadable,
+        (int)is_safety_critical,
+        priority_level
     );
     
     if (reply) {
@@ -313,7 +365,8 @@ std::map<std::string, std::string> RedisDigitalTwin::getDecision(const std::stri
 void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
                                          double cpu_available, double memory_available,
                                          int queue_length, int processing_count,
-                                         double sim_time)
+                                         double sim_time,
+                                         double pos_x, double pos_y)
 {
     if (!redis_ctx || !is_connected) return;
     
@@ -321,9 +374,9 @@ void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
     
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s cpu_available %f memory_available %f "
-        "queue_length %d processing_count %d update_time %f",
+        "queue_length %d processing_count %d update_time %f pos_x %f pos_y %f",
         key.c_str(), cpu_available, memory_available,
-        queue_length, processing_count, sim_time
+        queue_length, processing_count, sim_time, pos_x, pos_y
     );
     
     if (reply) {
