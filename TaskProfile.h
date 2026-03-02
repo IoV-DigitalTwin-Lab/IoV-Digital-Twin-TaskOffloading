@@ -1,6 +1,7 @@
 #ifndef TASK_PROFILE_H_
 #define TASK_PROFILE_H_
 
+#include <cstdint>
 #include <string>
 #include <map>
 #include <vector>
@@ -57,16 +58,23 @@ struct TaskProfile {
     std::string description;
 
     // Computational Characteristics
+    // input_size_bytes / cpu_cycles are the MINIMUM values; _max fields define the upper bound.
+    // generateTask() samples uniformly in [min, max] to produce per-instance variation.
     struct {
-        uint64_t input_size_bytes;    // Input data size
-        uint64_t output_size_bytes;   // Output data size
-        uint64_t cpu_cycles;          // CPU cycles required
-        double memory_peak_bytes;     // Peak memory during execution
+        uint64_t input_size_bytes;       // Minimum input data size (bytes)
+        uint64_t input_size_bytes_max;   // Maximum input data size (bytes)
+        uint64_t output_size_bytes;      // Output data size (fixed)
+        uint64_t cpu_cycles;             // Minimum CPU cycles required
+        uint64_t cpu_cycles_max;         // Maximum CPU cycles required
+        double memory_peak_bytes;        // Peak memory during execution
     } computation;
 
     // Timing Characteristics
+    // deadline_seconds is the minimum; deadline_seconds_max is the upper bound.
+    // generateTask() samples uniformly in [min, max].
     struct {
-        double deadline_seconds;      // Hard/soft deadline
+        double deadline_seconds;      // Minimum (tightest) deadline (seconds)
+        double deadline_seconds_max;  // Maximum deadline (seconds)
         double qos_value;             // QoS score (0.0-1.0)
         PriorityLevel priority;
     } timing;
@@ -128,13 +136,14 @@ private:
 // Constants for Quick Reference
 // ============================================================================
 
-// Periodic task periods (seconds)
+// Periodic task generation intervals (seconds)
+// Chosen for practical IoV load: 51 vehicles × rates below ≈ RSU near-saturation.
 namespace TaskPeriods {
-    constexpr double LOCAL_OBJECT_DETECTION = 0.050;      // 50ms (20 Hz)
-    constexpr double COOPERATIVE_PERCEPTION = 0.100;      // 100ms (10 Hz)
-    constexpr double ROUTE_OPTIMIZATION = 0.500;          // 500ms (2 Hz)
-    constexpr double SENSOR_HEALTH_CHECK = 2.0;           // 2s (0.5 Hz) - increased from 10s
-    constexpr double FLEET_TRAFFIC_BATCH = 15.0;          // 15s batch (increased from 60s)
+    constexpr double LOCAL_OBJECT_DETECTION = 0.100;      // 100ms (10 Hz) — on-board sensing, NOT offloaded
+    constexpr double COOPERATIVE_PERCEPTION = 2.000;      // 2s (0.5 Hz)  — V2V fusion, offloaded
+    constexpr double ROUTE_OPTIMIZATION     = 5.000;      // 5s (0.2 Hz)  — path planning, offloaded
+    constexpr double SENSOR_HEALTH_CHECK    = 10.0;       // 10s          — background, offloaded
+    constexpr double FLEET_TRAFFIC_BATCH    = 60.0;       // 60s          — batch ML, offloaded
 }
 
 // Poisson task rates (tasks/second, lambda parameter)
