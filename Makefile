@@ -48,6 +48,7 @@ OBJS = \
     $O/SingleMessageVehicleApp.o \
     $O/Task.o \
     $O/TaskOffloadingDecision.o \
+    $O/TaskProfile.o \
     $O/UnicastVisualizer.o \
     $O/VehicleApp.o \
     $O/TaskMetadataMessage_m.o

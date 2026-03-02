@@ -26,6 +26,26 @@ packet TaskMetadataMessage extends BaseFrame1609_4 {
     
     // QoS and Priority
     double qos_value;            // Quality of Service (0.0 - 1.0)
+    
+    // Task Profile Fields (set when is_profile_task = true)
+    bool is_profile_task = false;     // True if generated from TaskProfile taxonomy
+    string task_type_name;            // Human-readable type: "LOCAL_OBJECT_DETECTION", etc.
+    int task_type_id = 0;             // Numeric TaskType enum value
+    uint64_t input_size_bytes = 0;    // Input data size (may differ from task_size_bytes)
+    uint64_t output_size_bytes = 0;   // Expected output size
+    bool is_offloadable = true;       // False for safety-critical local-only tasks
+    bool is_safety_critical = false;  // True for LOCAL_OBJECT_DETECTION
+    int priority_level = 2;           // PriorityLevel enum (0=LOW, 1=MEDIUM, 2=HIGH, 3=SAFETY_CRITICAL)
+}
+
+//
+// Object Detection Data Message - Vehicle → Vehicle broadcast (cooperative perception)
+//
+packet ObjectDetectionDataMessage extends BaseFrame1609_4 {
+    string vehicle_id;           // Sender vehicle ID
+    double timestamp;            // When detection was produced (sim time)
+    uint64_t data_size_bytes;    // Size of object list payload
+    string payload_tag;          // Lightweight tag for tracing (no raw data)
 }
 
 //

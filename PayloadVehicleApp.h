@@ -96,13 +96,18 @@ private:
     
     double total_completion_time = 0.0;       // Sum for average calculation
     
-    // Self-message for task generation
-    cMessage* taskGenerationEvent = nullptr;
-    
+    // Self-message for task generation (one per task type)
+    cMessage* localObjDetEvent = nullptr;
+    cMessage* coopPercepEvent = nullptr;
+    cMessage* routeOptEvent = nullptr;
+    cMessage* fleetForecastEvent = nullptr;
+    cMessage* voiceCommandEvent = nullptr;
+    cMessage* sensorHealthEvent = nullptr;
+
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
-    void scheduleNextTaskGeneration();        // Schedule next task arrival (Poisson)
-    void generateTask();                      // Generate new task with random characteristics
+    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg); // Schedule next task arrival per type
+    void generateTask(TaskType type);         // Generate new task using TaskProfile
     bool canAcceptTask(Task* task);           // Check if task can be accepted
     bool canStartProcessing(Task* task);      // Check if task can start immediately
     void allocateResourcesAndStart(Task* task); // Allocate CPU/memory and start processing
@@ -175,10 +180,12 @@ private:
     std::map<std::string, TaskTimingInfo> taskTimings;  // task_id -> timing info
     
     bool offloadingEnabled = false;                        // Enable/disable offloading
+    bool forceOffload = false;                             // Always offload (bypass heuristic)
     TaskOffloadingDecisionMaker* decisionMaker = nullptr;  // Offloading decision maker
     
     // Pending offloading requests (awaiting RSU decision)
     std::map<std::string, Task*> pendingOffloadingDecisions;  // task_id -> Task*
+    std::map<std::string, cMessage*> pendingDecisionTimeouts;  // task_id -> timeout message
     
     // Offloaded tasks (awaiting results)
     std::map<std::string, Task*> offloadedTasks;  // task_id -> Task*
@@ -209,7 +216,20 @@ private:
                                   bool success, bool onTime, 
                                   uint64_t taskSizeBytes, uint64_t cpuCycles, 
                                   double qosValue, const std::string& resultData);
-    
+
+    // Cooperative perception data sharing (vehicle-to-vehicle)
+    struct ObjectDetectionSnapshot {
+        simtime_t timestamp = 0;
+        uint64_t size_bytes = 0;
+    };
+    ObjectDetectionSnapshot localObjectDetection;
+    std::map<std::string, ObjectDetectionSnapshot> neighborObjectDetections;
+    double objectDetectionTtlSec = 0.2;  // Data freshness window for neighbors (seconds)
+
+    void sendObjectDetectionData(const Task* task);
+    void handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg);
+    uint32_t countFreshNeighborDetections();
+
     // Service vehicle capability (this vehicle can process tasks for others)
     bool serviceVehicleEnabled = false;
     int maxConcurrentServiceTasks = 3;
