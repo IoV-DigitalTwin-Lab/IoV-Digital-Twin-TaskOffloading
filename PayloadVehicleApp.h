@@ -106,10 +106,10 @@ private:
     cMessage* fleetForecastEvent = nullptr;
     cMessage* voiceCommandEvent = nullptr;
     cMessage* sensorHealthEvent = nullptr;
-    
+
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
-    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg); // Schedule next task arrival
+    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg); // Schedule next task arrival per type
     void generateTask(TaskType type);         // Generate new task using TaskProfile
     bool canAcceptTask(Task* task);           // Check if task can be accepted
     bool canStartProcessing(Task* task);      // Check if task can start immediately
@@ -183,10 +183,12 @@ private:
     std::map<std::string, TaskTimingInfo> taskTimings;  // task_id -> timing info
     
     bool offloadingEnabled = false;                        // Enable/disable offloading
+    bool forceOffload = false;                             // Always offload (bypass heuristic)
     TaskOffloadingDecisionMaker* decisionMaker = nullptr;  // Offloading decision maker
     
     // Pending offloading requests (awaiting RSU decision)
     std::map<std::string, Task*> pendingOffloadingDecisions;  // task_id -> Task*
+    std::map<std::string, cMessage*> pendingDecisionTimeouts;  // task_id -> timeout message
     
     // Offloaded tasks (awaiting results)
     std::map<std::string, Task*> offloadedTasks;  // task_id -> Task*
@@ -233,7 +235,7 @@ private:
 
     // Energy and metrics
     EnergyCalculator energyCalculator;
-    
+
     // Service vehicle capability (this vehicle can process tasks for others)
     bool serviceVehicleEnabled = false;
     int maxConcurrentServiceTasks = 3;

@@ -5,19 +5,19 @@
 namespace complex_network {
 
 Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cycles, 
-                     double deadline_sec, double qos) 
-        : vehicle_id(vid),
-            task_size_bytes(size),
-            cpu_cycles(cycles),
-            input_size_bytes(size),
-            output_size_bytes(0),
-            relative_deadline(deadline_sec),
-            qos_value(qos),
-            state(CREATED),
-            cpu_cycles_executed(0),
-            cpu_allocated(0.0),
-            completion_event(nullptr),
-            deadline_event(nullptr)
+           double deadline_sec, double qos) 
+    : vehicle_id(vid),
+      task_size_bytes(size),
+      cpu_cycles(cycles),
+      input_size_bytes(size),
+      output_size_bytes(0),
+      relative_deadline(deadline_sec),
+      qos_value(qos),
+      state(CREATED),
+      cpu_cycles_executed(0),
+      cpu_allocated(0.0),
+      completion_event(nullptr),
+      deadline_event(nullptr)
 {
     // Generate unique task ID
     std::ostringstream oss;

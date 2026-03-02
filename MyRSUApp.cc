@@ -30,9 +30,10 @@ void MyRSUApp::initialize(int stage) {
         rsu_cpu_available = edgeCPU_GHz;  // Initially all available
         rsu_memory_total = edgeMemory_GB;
         rsu_memory_available = edgeMemory_GB;
-        rsu_max_concurrent = maxVehicles;  // Use maxVehicles as max concurrent tasks
+        // Use dedicated rsuMaxConcurrent param (prevents maxVehicles from inflating the cap)
+        rsu_max_concurrent = par("rsuMaxConcurrent").intValue();
         
-        // Initialize PostgreSQL database connection
+        // Initialize PostgreSQL database connection (always enabled)
         initDatabase();
         
         // Initialize Redis Digital Twin
@@ -71,7 +72,8 @@ void MyRSUApp::initialize(int stage) {
         
         // Start periodic RSU status updates
         rsu_status_update_timer = new cMessage("rsuStatusUpdate");
-        scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
+        // First RSU status at t=0 so Redis sees RSUs immediately
+        scheduleAt(simTime(), rsu_status_update_timer);
         
         // Start periodic RSU-to-RSU status broadcast
         rsu_broadcast_timer = new cMessage("rsuBroadcast");
@@ -242,6 +244,33 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         
         // Reschedule next check
         scheduleAt(simTime() + 0.1, checkDecisionMsg);
+    }
+    else if (strcmp(msg->getName(), "rsuTaskComplete") == 0) {
+        // Physics-based RSU task completion — fire when exec_time elapses
+        std::string* task_id_ptr = static_cast<std::string*>(msg->getContextPointer());
+        std::string task_id = *task_id_ptr;
+        delete task_id_ptr;
+        delete msg;
+
+        auto it = rsuPendingTasks.find(task_id);
+        if (it != rsuPendingTasks.end()) {
+            PendingRSUTask& pending = it->second;
+            rsu_processing_count = std::max(0, rsu_processing_count - 1);
+            rsu_tasks_processed++;
+            rsu_total_processing_time += pending.exec_time_s;
+
+            EV_INFO << "✅ RSU task complete: " << task_id
+                    << " (exec=" << pending.exec_time_s << "s)" << endl;
+            std::cout << "RSU_DONE: Task " << task_id
+                      << " completed in " << pending.exec_time_s << "s" << std::endl;
+
+            sendTaskResultToVehicle(task_id, pending.vehicle_id, pending.vehicle_mac,
+                                    true, pending.exec_time_s);
+            rsuPendingTasks.erase(it);
+        } else {
+            EV_WARN << "⚠ rsuTaskComplete: no pending record for " << task_id << endl;
+        }
+        return;
     }
     else {
         DemoBaseApplLayer::handleSelfMsg(msg);
@@ -630,6 +659,16 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     record.received_time = simTime().dbl();
     record.qos_value = msg->getQos_value();
     
+    // Profile fields
+    record.is_profile_task = msg->getIs_profile_task();
+    record.task_type_name = msg->getTask_type_name();
+    record.task_type_id = msg->getTask_type_id();
+    record.input_size_bytes = msg->getInput_size_bytes();
+    record.output_size_bytes = msg->getOutput_size_bytes();
+    record.is_offloadable = msg->getIs_offloadable();
+    record.is_safety_critical = msg->getIs_safety_critical();
+    record.priority_level = msg->getPriority_level();
+    
     // Store in task records
     task_records[task_id] = record;
     
@@ -645,6 +684,11 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     EV_INFO << "  CPU Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Deadline: " << record.deadline_seconds << " sec" << endl;
     EV_INFO << "  QoS: " << record.qos_value << endl;
+    if (record.is_profile_task) {
+        EV_INFO << "  Task Type: " << record.task_type_name << endl;
+        EV_INFO << "  Offloadable: " << (record.is_offloadable ? "Yes" : "No") << endl;
+        EV_INFO << "  Safety Critical: " << (record.is_safety_critical ? "Yes" : "No") << endl;
+    }
     EV_INFO << "  Received at: " << record.received_time << " (delay: " 
             << (record.received_time - record.created_time) << " sec)" << endl;
     
@@ -657,7 +701,11 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
             task_id,
             vehicle_id,
             record.created_time,
-            record.deadline_seconds
+            record.deadline_seconds,
+            record.task_type_name,
+            record.is_offloadable,
+            record.is_safety_critical,
+            record.priority_level
         );
         
         // Push offloading request to queue for ML model to process (fast Redis queue)
@@ -669,13 +717,19 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
             record.cpu_cycles,
             record.deadline_seconds,
             record.qos_value,
-            record.created_time
+            record.created_time,
+            record.task_type_name,
+            record.input_size_bytes,
+            record.output_size_bytes,
+            record.is_offloadable,
+            record.is_safety_critical,
+            record.priority_level
         );
         
         std::cout << "REDIS_PUSH: Task " << task_id << " pushed to ML request queue" << std::endl;
     }
     
-    // IMPORTANT: Always insert into PostgreSQL for dashboard and historical data
+    // Insert into PostgreSQL for dashboard and historical data
     insertTaskMetadata(msg);
     
     std::cout << "DT_TASK: RSU received metadata for task " << task_id 
@@ -996,25 +1050,30 @@ void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event)
 // ============================================================================
 
 void MyRSUApp::initDatabase() {
-    // Try to get database connection string from environment variable
+    // Try to get database connection string from environment variable.
+    // NOTE: Only use DATABASE_URL if it is complete (contains "password=").
+    // The common `export $(grep -v '^#' .env | xargs)` pattern truncates
+    // space-separated values, so DATABASE_URL may arrive as just "host=localhost"
+    // without the password.  We therefore validate before trusting the env var.
     const char* db_env = std::getenv("DATABASE_URL");
-    
-    if (db_env) {
+    bool found = false;
+
+    if (db_env && strstr(db_env, "password=") != nullptr) {
         db_conninfo = std::string(db_env);
         EV_INFO << "Using DATABASE_URL from environment variable" << endl;
-    } else {
-        // Try to read from .env file
-        EV_INFO << "DATABASE_URL not in environment, attempting to read from .env file..." << endl;
+        found = true;
+    }
+
+    if (!found) {
+        // Try to read DATABASE_URL from .env file
+        EV_INFO << "DATABASE_URL env var missing/incomplete, reading from .env file..." << endl;
         std::ifstream envFile(".env");
-        bool found = false;
-        
         if (envFile.is_open()) {
             std::string line;
             while (std::getline(envFile, line)) {
-                // Skip comments and empty lines
+                // Strip trailing carriage-return (Windows line endings)
+                if (!line.empty() && line.back() == '\r') line.pop_back();
                 if (line.empty() || line[0] == '#') continue;
-                
-                // Look for DATABASE_URL=
                 if (line.find("DATABASE_URL=") == 0) {
                     db_conninfo = line.substr(13); // Skip "DATABASE_URL="
                     found = true;
@@ -1024,12 +1083,64 @@ void MyRSUApp::initDatabase() {
             }
             envFile.close();
         }
-        
-        if (!found) {
-            EV_ERROR << "ERROR: DATABASE_URL not found in environment or .env file!" << endl;
-            EV_ERROR << "Please configure DATABASE_URL in your .env file" << endl;
-            throw cRuntimeError("Missing DATABASE_URL configuration");
+    }
+
+    if (!found) {
+        // Last resort: build conninfo from individual POSTGRES_DB_* variables.
+        // These single-word values survive the xargs export trick without truncation.
+        auto readEnvVar = [](const std::string& name) -> std::string {
+            const char* v = std::getenv(name.c_str());
+            return v ? std::string(v) : std::string();
+        };
+
+        std::map<std::string, std::string> pgVars;
+        pgVars["host"]     = readEnvVar("POSTGRES_DB_HOST");
+        pgVars["port"]     = readEnvVar("POSTGRES_DB_PORT");
+        pgVars["dbname"]   = readEnvVar("POSTGRES_DB_NAME");
+        pgVars["user"]     = readEnvVar("POSTGRES_DB_USER");
+        pgVars["password"] = readEnvVar("POSTGRES_DB_PASSWORD");
+
+        // If env vars are missing, fall back to the individual keys in .env
+        if (pgVars["host"].empty() || pgVars["password"].empty()) {
+            std::ifstream envFile2(".env");
+            if (envFile2.is_open()) {
+                std::map<std::string, std::string> keyMap = {
+                    {"POSTGRES_DB_HOST", "host"}, {"POSTGRES_DB_PORT", "port"},
+                    {"POSTGRES_DB_NAME", "dbname"}, {"POSTGRES_DB_USER", "user"},
+                    {"POSTGRES_DB_PASSWORD", "password"}
+                };
+                std::string line;
+                while (std::getline(envFile2, line)) {
+                    if (!line.empty() && line.back() == '\r') line.pop_back();
+                    if (line.empty() || line[0] == '#') continue;
+                    for (auto& kv : keyMap) {
+                        std::string prefix = kv.first + "=";
+                        if (line.find(prefix) == 0)
+                            pgVars[kv.second] = line.substr(prefix.size());
+                    }
+                }
+                envFile2.close();
+            }
         }
+
+        if (!pgVars["host"].empty() && !pgVars["password"].empty()) {
+            std::ostringstream conn;
+            conn << "host=" << pgVars["host"];
+            if (!pgVars["port"].empty())   conn << " port="   << pgVars["port"];
+            if (!pgVars["dbname"].empty()) conn << " dbname=" << pgVars["dbname"];
+            if (!pgVars["user"].empty())   conn << " user="   << pgVars["user"];
+            conn << " password=" << pgVars["password"];
+            db_conninfo = conn.str();
+            found = true;
+            EV_INFO << "Built connection string from POSTGRES_DB_* variables" << endl;
+        }
+    }
+
+    if (!found) {
+        EV_ERROR << "ERROR: No valid PostgreSQL connection info found!" << endl;
+        EV_ERROR << "Set DATABASE_URL (with password=) or POSTGRES_DB_* variables "
+                    "in your environment or .env file." << endl;
+        throw cRuntimeError("Missing PostgreSQL configuration");
     }
     
     EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
@@ -1038,20 +1149,16 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "Database: " << db_conninfo << endl;
     
     // Add connection timeout to prevent hanging
+    // For URI format (postgresql://...), use ? for parameters, otherwise use space
     std::string conninfo_with_timeout;
     if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-        // URL format - add timeout as query parameter
-        conninfo_with_timeout = db_conninfo;
-        if (db_conninfo.find("?") != std::string::npos) {
-            conninfo_with_timeout += "&connect_timeout=5";
-        } else {
-            conninfo_with_timeout += "?connect_timeout=5";
-        }
+        // URI format - check if parameters already exist
+        conninfo_with_timeout = db_conninfo + 
+            (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
     } else {
-        // Key-value format - add timeout as space-separated parameter
+        // Keyword=value format
         conninfo_with_timeout = db_conninfo + " connect_timeout=5";
     }
-    
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
     
     if (PQstatus(db_conn) != CONNECTION_OK) {
@@ -1082,17 +1189,14 @@ PGconn* MyRSUApp::getDBConnection() {
             PQfinish(db_conn);
         }
         // Add connection timeout to prevent hanging
+        // For URI format (postgresql://...), use ? for parameters, otherwise use space
         std::string conninfo_with_timeout;
         if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-            // URL format - add timeout as query parameter
-            conninfo_with_timeout = db_conninfo;
-            if (db_conninfo.find("?") != std::string::npos) {
-                conninfo_with_timeout += "&connect_timeout=5";
-            } else {
-                conninfo_with_timeout += "?connect_timeout=5";
-            }
+            // URI format - check if parameters already exist
+            conninfo_with_timeout = db_conninfo + 
+                (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
         } else {
-            // Key-value format - add timeout as space-separated parameter
+            // Keyword=value format
             conninfo_with_timeout = db_conninfo + " connect_timeout=5";
         }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());
@@ -1127,10 +1231,17 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
                  << "\"qos_value\":" << msg->getQos_value() << ","
                  << "\"created_time\":" << msg->getCreated_time() << ","
                  << "\"deadline_seconds\":" << msg->getDeadline_seconds() << ","
-                 << "\"received_time\":" << simTime().dbl()
+                 << "\"received_time\":" << simTime().dbl() << ","
+                 << "\"task_type_name\":\"" << msg->getTask_type_name() << "\","
+                 << "\"task_type_id\":" << msg->getTask_type_id() << ","
+                 << "\"input_size_bytes\":" << msg->getInput_size_bytes() << ","
+                 << "\"output_size_bytes\":" << msg->getOutput_size_bytes() << ","
+                 << "\"is_offloadable\":" << (msg->getIs_offloadable() ? "true" : "false") << ","
+                 << "\"is_safety_critical\":" << (msg->getIs_safety_critical() ? "true" : "false") << ","
+                 << "\"priority_level\":" << msg->getPriority_level()
                  << "}";
     
-    const char* paramValues[10];
+    const char* paramValues[17];
     std::string task_id = msg->getTask_id();
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
@@ -1140,6 +1251,13 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     std::string created = std::to_string(msg->getCreated_time());
     std::string deadline = std::to_string(msg->getDeadline_seconds());
     std::string received = std::to_string(simTime().dbl());
+    std::string task_type_name = msg->getTask_type_name();
+    std::string task_type_id = std::to_string(msg->getTask_type_id());
+    std::string input_size = std::to_string(msg->getInput_size_bytes());
+    std::string output_size = std::to_string(msg->getOutput_size_bytes());
+    std::string is_offloadable = msg->getIs_offloadable() ? "t" : "f";
+    std::string is_safety_critical = msg->getIs_safety_critical() ? "t" : "f";
+    std::string priority_level = std::to_string(msg->getPriority_level());
     std::string payload = payload_json.str();
     
     paramValues[0] = task_id.c_str();
@@ -1151,13 +1269,22 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     paramValues[6] = created.c_str();
     paramValues[7] = deadline.c_str();
     paramValues[8] = received.c_str();
-    paramValues[9] = payload.c_str();
+    paramValues[9] = task_type_name.c_str();
+    paramValues[10] = task_type_id.c_str();
+    paramValues[11] = input_size.c_str();
+    paramValues[12] = output_size.c_str();
+    paramValues[13] = is_offloadable.c_str();
+    paramValues[14] = is_safety_critical.c_str();
+    paramValues[15] = priority_level.c_str();
+    paramValues[16] = payload.c_str();
     
     const char* query = "INSERT INTO task_metadata (task_id, vehicle_id, rsu_id, task_size_bytes, "
-                        "cpu_cycles, qos_value, created_time, deadline_seconds, received_time, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)";
+                        "cpu_cycles, qos_value, created_time, deadline_seconds, received_time, "
+                        "task_type_name, task_type_id, input_size_bytes, output_size_bytes, "
+                        "is_offloadable, is_safety_critical, priority_level, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)";
     
-    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    PGresult* res = PQexecParams(conn, query, 17, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_WARN << "✗ Failed to insert task metadata: " << PQerrorMessage(conn) << endl;
@@ -1821,7 +1948,6 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         
         EV_INFO << "✅ ACCEPT: " << decisionType << " - " << reason << endl;
         std::cout << "RSU_DECISION: ACCEPT - decision_type=" << decisionType << std::endl;
-        
     } else {
         // ====================================================================
         // THIS RSU IS OVERLOADED - Try to redirect to neighbor
@@ -2154,7 +2280,8 @@ void MyRSUApp::deallocateTaskResources(const RSUActiveTask& task) {
 
 
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
-                                        LAddress::L2Type vehicle_mac, bool success) {
+                                        LAddress::L2Type vehicle_mac, bool success,
+                                        double processing_time) {
     EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
     
     // Create result message
@@ -2162,12 +2289,12 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
     result->setTask_id(task_id.c_str());
     result->setProcessor_id("RSU");
     result->setSuccess(success);
-    result->setProcessing_time(0.1);  // Placeholder: 100ms processing time
+    result->setProcessing_time(processing_time);
     result->setCompletion_time(simTime().dbl());
     
     if (success) {
-        result->setTask_output_data("RSU_PROCESSED_DATA");  // Placeholder
-        EV_INFO << "  Result: SUCCESS" << endl;
+        result->setTask_output_data("RSU_PROCESSED_DATA");
+        EV_INFO << "  Result: SUCCESS (" << processing_time << "s)" << endl;
     } else {
         result->setFailure_reason("Processing failed");
         EV_INFO << "  Result: FAILED" << endl;
@@ -2177,7 +2304,9 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
     populateWSM(result, vehicle_mac);
     sendDown(result);
     
-    std::cout << "RSU_RESULT: Sent task result for " << task_id << " to vehicle " << vehicle_id << std::endl;
+    std::cout << "RSU_RESULT: Sent task result for " << task_id
+              << " to vehicle " << vehicle_id
+              << " (processing_time=" << processing_time << "s)" << std::endl;
 }
 
 void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
@@ -2311,7 +2440,26 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         std::cout << "COMPLETION_DB: Task " << task_id << " completion data inserted - "
                   << "Total latency: " << total_latency << "s, Success: " << success 
                   << ", On-time: " << on_time << std::endl;
-        
+
+        // Update Redis task status with full timing and decision data
+        if (redis_twin && use_redis) {
+            std::string status = on_time ? "COMPLETED_ON_TIME" : "COMPLETED_LATE";
+            double processing_time = completion_time - start_time;
+            redis_twin->updateTaskCompletion(
+                task_id,
+                status,
+                decision_type,
+                processor_id,
+                processing_time,
+                total_latency,
+                completion_time
+            );
+            std::cout << "REDIS_UPDATE: Task " << task_id << " status -> " << status
+                      << " decision_type=" << decision_type
+                      << " processor=" << processor_id
+                      << " latency=" << total_latency << "s" << std::endl;
+        }
+
     } catch (const std::exception& e) {
         EV_ERROR << "Failed to parse completion data JSON: " << e.what() << endl;
         std::cout << "ERROR: Failed to parse completion data for task " << task_id 
@@ -2335,16 +2483,27 @@ void MyRSUApp::sendRSUStatusUpdate() {
     double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
     double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
     
-    // Update Redis with RSU state
+    // Update Redis with RSU state (include position)
     if (redis_twin && use_redis) {
         std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+        
+        // Get RSU position from mobility module
+        double pos_x = 0.0, pos_y = 0.0;
+        cModule* mobilityModule = getParentModule()->getSubmodule("mobility");
+        if (mobilityModule) {
+            pos_x = mobilityModule->par("x").doubleValue();
+            pos_y = mobilityModule->par("y").doubleValue();
+        }
+        
         redis_twin->updateRSUResources(
             rsu_id_str,
             rsu_cpu_available,
             rsu_memory_available,
             rsu_queue_length,
             rsu_processing_count,
-            simTime().dbl()
+            simTime().dbl(),
+            pos_x,
+            pos_y
         );
     }
     

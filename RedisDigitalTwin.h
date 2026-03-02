@@ -16,8 +16,8 @@ private:
     redisContext* redis_ctx = nullptr;
     std::string redis_host = "127.0.0.1";
     int redis_port = 6379;
-    int vehicle_ttl = 5;  // seconds
-    int task_ttl = 300;   // 5 minutes
+    int vehicle_ttl = 300;  // 5 minutes
+    int task_ttl = 1800;   // 20 minutes
     bool is_connected = false;
 
 public:
@@ -45,10 +45,23 @@ public:
     
     // Task State Tracking
     void createTask(const std::string& task_id, const std::string& vehicle_id,
-                   double created_time, double deadline);
+                   double created_time, double deadline,
+                   const std::string& task_type_name = "",
+                   bool is_offloadable = true,
+                   bool is_safety_critical = false,
+                   int priority_level = 2);
     void updateTaskStatus(const std::string& task_id, const std::string& status,
                          const std::string& decision_type = "", 
                          const std::string& target_id = "");
+
+    // Detailed task completion statistics
+    void updateTaskCompletion(const std::string& task_id,
+                              const std::string& status,
+                              const std::string& decision_type,
+                              const std::string& processor_id,
+                              double processing_time,
+                              double total_latency,
+                              double completion_time);
     void deleteTask(const std::string& task_id);
     std::map<std::string, std::string> getTaskState(const std::string& task_id);
     
@@ -60,7 +73,13 @@ public:
                               double cpu_cycles,
                               double deadline_seconds,
                               double qos_value,
-                              double request_time);
+                              double request_time,
+                              const std::string& task_type_name = "",
+                              uint64_t input_size_bytes = 0,
+                              uint64_t output_size_bytes = 0,
+                              bool is_offloadable = true,
+                              bool is_safety_critical = false,
+                              int priority_level = 2);
     
     // Get ML decision from Redis
     std::map<std::string, std::string> getDecision(const std::string& task_id);
@@ -69,7 +88,8 @@ public:
     void updateRSUResources(const std::string& rsu_id,
                            double cpu_available, double memory_available,
                            int queue_length, int processing_count,
-                           double sim_time);
+                           double sim_time,
+                           double pos_x, double pos_y);
     
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);
     

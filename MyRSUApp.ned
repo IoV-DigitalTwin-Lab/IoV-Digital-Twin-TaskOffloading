@@ -27,16 +27,17 @@ simple MyRSUApp like IBaseApplLayer
     double wsaInterval @unit(s) = default(1s);
         int currentOfferedServiceId = default(42);
         
+        // Redis digital twin integration
+        bool useRedis = default(true);      // Enable Redis for real-time state sync
+        string redisHost = default("127.0.0.1");  // Redis server host
+        int redisPort = default(6379);       // Redis server port
+
         // Edge server resource parameters
         double edgeCPU_GHz;              // CPU capacity in GHz
         double edgeMemory_GB;            // Memory capacity in GB  
         int maxVehicles;                 // Max concurrent vehicles
+        int rsuMaxConcurrent = default(6); // Hard cap on simultaneous tasks
         double processingDelay_ms;       // Base processing delay in ms
-
-        // Digital Twin (Redis) parameters
-        bool useRedis = default(false);  // Enable Redis Digital Twin
-        string redisHost = default("127.0.0.1");
-        int redisPort = default(6379);
         
         // RSU-to-RSU Communication (Neighbor Discovery)
         double rsuStatusBroadcastInterval @unit(s) = default(0.5s);  // Interval for periodic status broadcast

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS vehicle_status (
     pos_y DOUBLE PRECISION,
     speed DOUBLE PRECISION,
     heading DOUBLE PRECISION,
+    acceleration DOUBLE PRECISION,
     
     -- Resource information
     cpu_total DOUBLE PRECISION,
@@ -52,6 +53,14 @@ CREATE TABLE IF NOT EXISTS task_metadata (
     created_time DOUBLE PRECISION,
     deadline_seconds DOUBLE PRECISION,
     received_time DOUBLE PRECISION,
+    -- Task profile fields
+    task_type_name TEXT,
+    task_type_id INTEGER DEFAULT 0,
+    input_size_bytes BIGINT DEFAULT 0,
+    output_size_bytes BIGINT DEFAULT 0,
+    is_offloadable BOOLEAN DEFAULT TRUE,
+    is_safety_critical BOOLEAN DEFAULT FALSE,
+    priority_level INTEGER DEFAULT 2,
     payload JSONB,
     received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
@@ -325,3 +334,14 @@ CREATE TABLE IF NOT EXISTS vehicle_metadata (
 
 CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_type ON vehicle_metadata (vehicle_type);
 CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_service ON vehicle_metadata (service_vehicle);
+
+-- ============================================================================
+-- MIGRATION: Add task profile columns to task_metadata (idempotent)
+-- ============================================================================
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_name TEXT;
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_id INTEGER DEFAULT 0;
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS input_size_bytes BIGINT DEFAULT 0;
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS output_size_bytes BIGINT DEFAULT 0;
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_offloadable BOOLEAN DEFAULT TRUE;
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_safety_critical BOOLEAN DEFAULT FALSE;
+ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS priority_level INTEGER DEFAULT 2;
