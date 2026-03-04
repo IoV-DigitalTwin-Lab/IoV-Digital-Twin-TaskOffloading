@@ -267,6 +267,15 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
             sendTaskResultToVehicle(task_id, pending.vehicle_id, pending.vehicle_mac,
                                     true, pending.exec_time_s);
             rsuPendingTasks.erase(it);
+
+            // Task completed → remaining tasks each get a larger CPU share.
+            // Reallocate so they finish sooner (fair-share release).
+            if (rsu_processing_count > 0) {
+                double new_cpu = (edgeCPU_GHz * 1e9) / rsu_processing_count;
+                reallocateRSUTasks(new_cpu);
+                EV_INFO << "  RSU load released: " << rsu_processing_count
+                        << " task(s) reallocated to " << (new_cpu/1e9) << " GHz each" << endl;
+            }
         } else {
             EV_WARN << "⚠ rsuTaskComplete: no pending record for " << task_id << endl;
         }
@@ -652,7 +661,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     TaskRecord record;
     record.task_id = task_id;
     record.vehicle_id = vehicle_id;
-    record.task_size_bytes = msg->getTask_size_bytes();
+    record.mem_footprint_bytes = msg->getMem_footprint_bytes();
     record.cpu_cycles = msg->getCpu_cycles();
     record.created_time = msg->getCreated_time();
     record.deadline_seconds = msg->getDeadline_seconds();
@@ -680,7 +689,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     EV_INFO << "Task metadata stored:" << endl;
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
-    EV_INFO << "  Size: " << (record.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Size: " << (record.mem_footprint_bytes / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Deadline: " << record.deadline_seconds << " sec" << endl;
     EV_INFO << "  QoS: " << record.qos_value << endl;
@@ -713,7 +722,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
             task_id,
             vehicle_id,
             "RSU_" + std::to_string(rsu_id),
-            record.task_size_bytes,
+            record.mem_footprint_bytes,
             record.cpu_cycles,
             record.deadline_seconds,
             record.qos_value,
@@ -1031,7 +1040,7 @@ void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event)
     EV_INFO << "📝 TASK RECORD [" << event << "]:" << endl;
     EV_INFO << "  ID: " << record.task_id << endl;
     EV_INFO << "  Vehicle: " << record.vehicle_id << endl;
-    EV_INFO << "  Size: " << (record.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Size: " << (record.mem_footprint_bytes / 1024.0) << " KB" << endl;
     EV_INFO << "  Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  QoS: " << record.qos_value << endl;
     EV_INFO << "  Created: " << record.created_time << " s" << endl;
@@ -1226,7 +1235,7 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     payload_json << "{"
                  << "\"task_id\":\"" << msg->getTask_id() << "\","
                  << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
-                 << "\"task_size_bytes\":" << msg->getTask_size_bytes() << ","
+                 << "\"mem_footprint_bytes\":" << msg->getMem_footprint_bytes() << ","
                  << "\"cpu_cycles\":" << msg->getCpu_cycles() << ","
                  << "\"qos_value\":" << msg->getQos_value() << ","
                  << "\"created_time\":" << msg->getCreated_time() << ","
@@ -1245,7 +1254,7 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     std::string task_id = msg->getTask_id();
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
-    std::string task_size = std::to_string(msg->getTask_size_bytes());
+    std::string task_size = std::to_string(msg->getMem_footprint_bytes());
     std::string cpu_cycles = std::to_string(msg->getCpu_cycles());
     std::string qos = std::to_string(msg->getQos_value());
     std::string created = std::to_string(msg->getCreated_time());
@@ -1278,7 +1287,7 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     paramValues[15] = priority_level.c_str();
     paramValues[16] = payload.c_str();
     
-    const char* query = "INSERT INTO task_metadata (task_id, vehicle_id, rsu_id, task_size_bytes, "
+    const char* query = "INSERT INTO task_metadata (task_id, vehicle_id, rsu_id, mem_footprint_bytes, "
                         "cpu_cycles, qos_value, created_time, deadline_seconds, received_time, "
                         "task_type_name, task_type_id, input_size_bytes, output_size_bytes, "
                         "is_offloadable, is_safety_critical, priority_level, payload) "
@@ -1531,7 +1540,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
                  << "\"task_id\":\"" << request.task_id << "\","
                  << "\"vehicle_id\":\"" << request.vehicle_id << "\","
                  << "\"local_decision\":\"" << request.local_decision << "\","
-                 << "\"task_size_bytes\":" << request.task_size_bytes << ","
+                 << "\"mem_footprint_bytes\":" << request.mem_footprint_bytes << ","
                  << "\"cpu_cycles\":" << request.cpu_cycles << ","
                  << "\"deadline_seconds\":" << request.deadline_seconds << ","
                  << "\"qos_value\":" << request.qos_value
@@ -1542,7 +1551,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     std::string vehicle_id = request.vehicle_id;
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string request_time = std::to_string(request.request_time);
-    std::string task_size = std::to_string(request.task_size_bytes);
+    std::string task_size = std::to_string(request.mem_footprint_bytes);
     std::string cpu_cycles = std::to_string(request.cpu_cycles);
     std::string deadline = std::to_string(request.deadline_seconds);
     std::string qos = std::to_string(request.qos_value);
@@ -1577,7 +1586,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     paramValues[17] = payload.c_str();
     
     const char* query = "INSERT INTO offloading_requests (task_id, vehicle_id, rsu_id, request_time, "
-                        "task_size_bytes, cpu_cycles, deadline_seconds, qos_value, "
+                        "mem_footprint_bytes, cpu_cycles, deadline_seconds, qos_value, "
                         "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_mem_available, "
                         "vehicle_queue_length, vehicle_processing_count, "
                         "pos_x, pos_y, speed, local_decision, payload) "
@@ -1699,7 +1708,7 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
                                              const std::string& decision_type, const std::string& processor_id,
                                              double request_time, double decision_time, double start_time,
                                              double completion_time, bool success, bool completed_on_time,
-                                             double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                             double deadline_seconds, uint64_t mem_footprint_bytes, uint64_t cpu_cycles,
                                              double qos_value, const std::string& result_data, const std::string& failure_reason) {
     PGconn* conn = getDBConnection();
     if (!conn) {
@@ -1735,7 +1744,7 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
     std::string succ = success ? "true" : "false";
     std::string comp_on_time = completed_on_time ? "true" : "false";
     std::string deadline = std::to_string(deadline_seconds);
-    std::string tsize = std::to_string(task_size_bytes);
+    std::string tsize = std::to_string(mem_footprint_bytes);
     std::string cycles = std::to_string(cpu_cycles);
     std::string qos = std::to_string(qos_value);
     std::string result = result_data;
@@ -1763,7 +1772,7 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
     const char* query = "INSERT INTO offloaded_task_completions (task_id, vehicle_id, rsu_id, "
                         "decision_type, processor_id, request_time, decision_time, start_time, completion_time, "
                         "decision_latency, processing_latency, total_latency, success, completed_on_time, "
-                        "deadline_seconds, task_size_bytes, cpu_cycles, qos_value, result_data) "
+                        "deadline_seconds, mem_footprint_bytes, cpu_cycles, qos_value, result_data) "
                         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::boolean, $14::boolean, "
                         "$15, $16, $17, $18, $19)";
     
@@ -1819,7 +1828,7 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
     
     // Task characteristics
-    request.task_size_bytes = msg->getTask_size_bytes();
+    request.mem_footprint_bytes = msg->getMem_footprint_bytes();
     request.cpu_cycles = msg->getCpu_cycles();
     request.deadline_seconds = msg->getDeadline_seconds();
     request.qos_value = msg->getQos_value();
@@ -1845,7 +1854,7 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
-    EV_INFO << "  Task Size: " << (request.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Task Size: " << (request.mem_footprint_bytes / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles: " << (request.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Deadline: " << request.deadline_seconds << " s" << endl;
     EV_INFO << "  QoS: " << request.qos_value << endl;
@@ -2075,7 +2084,7 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
     
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Origin Vehicle: " << vehicle_id << endl;
-    EV_INFO << "  Task Size: " << (msg->getTask_size_bytes() / 1024.0) << " KB" << endl;
+    EV_INFO << "  Task Size: " << (msg->getMem_footprint_bytes() / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
     
     // Process task on RSU edge server (msg will be deleted inside processTaskOnRSU)
@@ -2278,7 +2287,30 @@ void MyRSUApp::deallocateTaskResources(const RSUActiveTask& task) {
     EV_DEBUG << "    - Processing count: " << rsu_processing_count << endl;
 }
 
+void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
+    if (rsuPendingTasks.empty() || new_cpu_per_task_Hz <= 0.0) {
+        return;
+    }
 
+    double now = simTime().dbl();
+    for (auto& kv : rsuPendingTasks) {
+        PendingRSUTask& t = kv.second;
+        double elapsed = std::max(0.0, now - t.last_reschedule_time);
+        t.cycles_remaining = std::max(0.0, t.cycles_remaining - t.cpu_allocated_hz * elapsed);
+        t.last_reschedule_time = now;
+        t.cpu_allocated_hz = new_cpu_per_task_Hz;
+
+        if (t.completion_event && t.completion_event->isScheduled()) {
+            cancelEvent(t.completion_event);
+        }
+
+        double new_exec = t.cycles_remaining / new_cpu_per_task_Hz;
+        t.exec_time_s = new_exec;
+        if (t.completion_event) {
+            scheduleAt(simTime() + new_exec, t.completion_event);
+        }
+    }
+}
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                         LAddress::L2Type vehicle_mac, bool success,
                                         double processing_time) {
@@ -2343,13 +2375,13 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         // Manual JSON parsing (simple approach)
         double request_time = 0.0, decision_time = 0.0, start_time = 0.0, completion_time = 0.0;
         double qos_value = 0.0;
-        uint64_t task_size_bytes = 0, cpu_cycles = 0;
+        uint64_t mem_footprint_bytes = 0, cpu_cycles = 0;
         bool on_time = false;
         std::string decision_type, processor_id, result;
-        
+
         // Extract values from JSON string (simple parsing)
         size_t pos = 0;
-        
+
         // Helper lambda to extract numeric value
         auto extractDouble = [&result_data](const std::string& key) -> double {
             size_t keyPos = result_data.find("\"" + key + "\":");
@@ -2359,7 +2391,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
             return std::stod(valueStr);
         };
-        
+
         auto extractUint64 = [&result_data](const std::string& key) -> uint64_t {
             size_t keyPos = result_data.find("\"" + key + "\":");
             if (keyPos == std::string::npos) return 0;
@@ -2368,7 +2400,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
             return std::stoull(valueStr);
         };
-        
+
         auto extractString = [&result_data](const std::string& key) -> std::string {
             size_t keyPos = result_data.find("\"" + key + "\":");
             if (keyPos == std::string::npos) return "";
@@ -2376,7 +2408,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             size_t valueEnd = result_data.find("\"", valueStart);
             return result_data.substr(valueStart, valueEnd - valueStart);
         };
-        
+
         auto extractBool = [&result_data](const std::string& key) -> bool {
             size_t keyPos = result_data.find("\"" + key + "\":");
             if (keyPos == std::string::npos) return false;
@@ -2384,14 +2416,14 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             std::string valueStr = result_data.substr(valueStart, 4);
             return (valueStr.find("true") != std::string::npos);
         };
-        
+
         // Extract all timing values
         request_time = extractDouble("request_time");
         decision_time = extractDouble("decision_time");
         start_time = extractDouble("start_time");
         completion_time = extractDouble("completion_time");
         qos_value = extractDouble("qos_value");
-        task_size_bytes = extractUint64("task_size_bytes");
+        mem_footprint_bytes = extractUint64("mem_footprint_bytes");
         cpu_cycles = extractUint64("cpu_cycles");
         on_time = extractBool("on_time");
         decision_type = extractString("decision_type");
@@ -2430,7 +2462,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             success,
             on_time,
             deadline_seconds,
-            task_size_bytes,
+            mem_footprint_bytes,
             cpu_cycles,
             qos_value,
             result_data,

@@ -36,10 +36,13 @@ public:
     TaskType type = TaskType::LOCAL_OBJECT_DETECTION; // Task type (from TaskProfile)
     bool is_profile_task = false;     // True if created from TaskProfile
     // Task Characteristics
-    uint64_t task_size_bytes;         // Memory footprint (D_task)
+    // mem_footprint_bytes: working-set memory reserved on the processing entity during execution.
+    // Equals input_size_bytes (the data that must be resident in memory while the task runs).
+    // Separate from output_size_bytes which is post-processing result size.
+    uint64_t mem_footprint_bytes;     // Working memory footprint on processing entity (= input_size_bytes)
     uint64_t cpu_cycles;              // Required CPU cycles (C_task)
-    uint64_t input_size_bytes;        // Input size (bytes)
-    uint64_t output_size_bytes;       // Output size (bytes)
+    uint64_t input_size_bytes;        // Input data transmitted to processing entity (bytes)
+    uint64_t output_size_bytes;       // Output data returned after processing (bytes)
     
     // Timing Information
     simtime_t created_time;           // When task was generated

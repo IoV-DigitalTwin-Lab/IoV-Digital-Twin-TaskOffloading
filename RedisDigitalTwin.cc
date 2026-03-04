@@ -289,7 +289,7 @@ void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
         "task_id %s "
         "vehicle_id %s "
         "rsu_id %s "
-        "task_size_bytes %.0f "
+        "mem_footprint_bytes %.0f "
         "cpu_cycles %.0f "
         "deadline_seconds %.2f "
         "qos_value %.2f "

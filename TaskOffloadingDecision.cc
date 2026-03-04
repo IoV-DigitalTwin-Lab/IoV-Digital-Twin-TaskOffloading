@@ -1,7 +1,9 @@
+
 #include "TaskOffloadingDecision.h"
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <omnetpp.h>
 
 namespace complex_network {
 
@@ -96,162 +98,50 @@ double TaskOffloadingDecisionMaker::estimateOffloadingTime(const DecisionContext
 }
 
 // ============================================================================
-// HeuristicDecisionMaker - Simple Rule-Based Strategy
+// HeuristicDecisionMaker - Simple 3-rule placeholder (pre-DRL phase)
+//
+// Rule 1 — OFFLOAD_TO_RSU  : RSU reachable AND RSU has free capacity
+// Rule 2 — EXECUTE_LOCALLY : local queue below ceiling AND CPU not saturated
+// Rule 3 — REJECT_TASK     : neither option is viable
+//
+// The RSU itself enforces a hard admission limit, so Rule 1 is optimistic but
+// safe: occasional over-estimates are caught by the RSU before queuing.
 // ============================================================================
 
 HeuristicDecisionMaker::HeuristicDecisionMaker()
-    : TaskOffloadingDecisionMaker(),
-      local_cpu_threshold(0.5),        // Need at least 0.5 GHz available
-      queue_length_threshold(5),        // Max 5 tasks in queue
-      rssi_threshold(-85.0),           // Min -85 dBm for offloading
-      max_rsu_distance(1000.0),        // Max 1000m to RSU
-      critical_qos_threshold(0.7) {    // QoS > 0.7 is critical
+    : TaskOffloadingDecisionMaker() {
 }
 
 OffloadingDecision HeuristicDecisionMaker::makeDecision(const DecisionContext& context) {
-    std::cout << "\n🎯 OFFLOAD_DECISION: Evaluating task offloading options..." << std::endl;
-    std::cout << "   Task: size=" << context.task_size_kb << "KB, cycles=" 
-              << (context.cpu_cycles_required / 1e9) << "G, deadline=" 
-              << context.deadline_seconds << "s, QoS=" << context.qos_value << std::endl;
-    std::cout << "   Vehicle: CPU=" << context.local_cpu_available << "GHz ("
-              << (context.local_cpu_utilization * 100) << "% used), queue=" 
-              << context.local_queue_length << ", processing=" 
-              << context.local_processing_count << std::endl;
-    std::cout << "   Network: RSU available=" << (context.rsu_available ? "YES" : "NO")
-              << ", distance=" << context.rsu_distance << "m, RSSI=" 
-              << context.estimated_rsu_rssi << "dBm" << std::endl;
-    
-    // Check if RSU is available and reachable
-    bool network_ok = hasGoodNetwork(context);
-    bool local_ok = hasLocalCapacity(context);
-    bool is_critical = isTaskCritical(context);
-    
-    // Calculate scores for both options
-    double local_score = calculateLocalScore(context);
-    double offload_score = calculateOffloadScore(context);
-    
-    std::cout << "   Scores: local=" << local_score << ", offload=" << offload_score << std::endl;
-    
-    OffloadingDecision decision;
-    
-    // Decision logic
-    if (!network_ok && !local_ok) {
-        // Cannot handle task anywhere
-        decision = OffloadingDecision::REJECT_TASK;
-        last_decision_reason = "No capacity locally and RSU unreachable";
-        decisions_reject++;
-        std::cout << "   ❌ DECISION: REJECT (no capacity anywhere)" << std::endl;
+    // Rule 1: prefer RSU when reachable and not at capacity
+    bool rsu_reachable  = context.rsu_available;
+    bool rsu_has_space  = context.rsu_processing_count < context.rsu_max_concurrent;
+
+    if (rsu_reachable && rsu_has_space) {
+        last_decision_reason = "RSU reachable and has capacity";
+        decisions_offload++;
+        std::cout << "[OFFLOAD_DECISION] OFFLOAD_TO_RSU — " << last_decision_reason << std::endl;
+        return OffloadingDecision::OFFLOAD_TO_RSU;
     }
-    else if (!network_ok) {
-        // Must execute locally (no RSU available)
-        decision = OffloadingDecision::EXECUTE_LOCALLY;
-        last_decision_reason = "RSU unreachable, executing locally";
+
+    // Rule 2: fall back to local execution if vehicle has headroom
+    bool local_has_space = context.local_queue_length < 10;
+    bool cpu_not_full    = context.local_cpu_utilization < 0.95;
+
+    if (local_has_space && cpu_not_full) {
+        last_decision_reason = rsu_reachable
+            ? "RSU at capacity, falling back to local"
+            : "RSU unreachable, executing locally";
         decisions_local++;
-        std::cout << "   💻 DECISION: EXECUTE_LOCALLY (no RSU available)" << std::endl;
+        std::cout << "[OFFLOAD_DECISION] EXECUTE_LOCALLY — " << last_decision_reason << std::endl;
+        return OffloadingDecision::EXECUTE_LOCALLY;
     }
-    else if (!local_ok) {
-        // Must offload (no local capacity)
-        decision = OffloadingDecision::OFFLOAD_TO_RSU;
-        last_decision_reason = "Insufficient local resources, offloading to RSU";
-        decisions_offload++;
-        std::cout << "   📤 DECISION: OFFLOAD_TO_RSU (insufficient local resources)" << std::endl;
-    }
-    else if (is_critical && network_ok) {
-        // Critical tasks prefer RSU (more reliable/faster)
-        decision = OffloadingDecision::OFFLOAD_TO_RSU;
-        last_decision_reason = "Critical task with good network, offloading for reliability";
-        decisions_offload++;
-        std::cout << "   📤 DECISION: OFFLOAD_TO_RSU (critical task, use RSU reliability)" << std::endl;
-    }
-    else if (offload_score > local_score * 1.2) {
-        // Offloading is significantly better
-        decision = OffloadingDecision::OFFLOAD_TO_RSU;
-        last_decision_reason = "Offloading score significantly better than local";
-        decisions_offload++;
-        std::cout << "   📤 DECISION: OFFLOAD_TO_RSU (better performance expected)" << std::endl;
-    }
-    else {
-        // Default to local execution
-        decision = OffloadingDecision::EXECUTE_LOCALLY;
-        last_decision_reason = "Local execution preferred (sufficient resources, save bandwidth)";
-        decisions_local++;
-        std::cout << "   💻 DECISION: EXECUTE_LOCALLY (sufficient resources)" << std::endl;
-    }
-    
-    std::cout << "   Reason: " << last_decision_reason << std::endl;
-    
-    return decision;
-}
 
-bool HeuristicDecisionMaker::isTaskCritical(const DecisionContext& context) {
-    // Critical if high QoS requirement or tight deadline
-    return context.qos_value >= critical_qos_threshold || 
-           context.deadline_seconds < 2.0;
-}
-
-bool HeuristicDecisionMaker::hasLocalCapacity(const DecisionContext& context) {
-    // Check if vehicle can handle the task
-    if (context.local_cpu_available < local_cpu_threshold) return false;
-    if (context.local_queue_length >= queue_length_threshold) return false;
-    if (context.local_cpu_utilization > 0.9) return false; // CPU overloaded
-    
-    // Check if task can meet deadline locally
-    double estimated_time = estimateLocalExecutionTime(context);
-    if (estimated_time > context.deadline_seconds * 0.8) return false; // Need 80% margin
-    
-    return true;
-}
-
-bool HeuristicDecisionMaker::hasGoodNetwork(const DecisionContext& context) {
-    if (!context.rsu_available) return false;
-    if (context.rsu_distance > max_rsu_distance) return false;
-    if (context.estimated_rsu_rssi < rssi_threshold) return false;
-    
-    return true;
-}
-
-double HeuristicDecisionMaker::calculateLocalScore(const DecisionContext& context) {
-    double score = 0.0;
-    
-    // CPU availability factor (0-1)
-    double cpu_factor = std::min(1.0, context.local_cpu_available / 2.0);
-    score += cpu_factor * 0.4;
-    
-    // Queue length factor (fewer queued = better)
-    double queue_factor = std::max(0.0, 1.0 - context.local_queue_length / 10.0);
-    score += queue_factor * 0.3;
-    
-    // Deadline feasibility
-    double estimated_time = estimateLocalExecutionTime(context);
-    double deadline_factor = estimated_time < context.deadline_seconds ? 
-        (context.deadline_seconds - estimated_time) / context.deadline_seconds : 0.0;
-    score += deadline_factor * 0.3;
-    
-    return score;
-}
-
-double HeuristicDecisionMaker::calculateOffloadScore(const DecisionContext& context) {
-    if (!hasGoodNetwork(context)) return 0.0;
-    
-    double score = 0.0;
-    
-    // Network quality factor (RSSI-based)
-    double rssi_factor = (context.estimated_rsu_rssi - rssi_threshold) / 
-                         (-40.0 - rssi_threshold); // Normalize -85 to -40 dBm
-    rssi_factor = std::max(0.0, std::min(1.0, rssi_factor));
-    score += rssi_factor * 0.4;
-    
-    // Distance factor (closer = better)
-    double distance_factor = std::max(0.0, 1.0 - context.rsu_distance / max_rsu_distance);
-    score += distance_factor * 0.3;
-    
-    // Deadline feasibility for offloading
-    double estimated_time = estimateOffloadingTime(context);
-    double deadline_factor = estimated_time < context.deadline_seconds ?
-        (context.deadline_seconds - estimated_time) / context.deadline_seconds : 0.0;
-    score += deadline_factor * 0.3;
-    
-    return score;
+    // Rule 3: both paths exhausted
+    last_decision_reason = "Local queue full and RSU unavailable/at-capacity";
+    decisions_reject++;
+    std::cout << "[OFFLOAD_DECISION] REJECT_TASK — " << last_decision_reason << std::endl;
+    return OffloadingDecision::REJECT_TASK;
 }
 
 // ============================================================================

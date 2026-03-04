@@ -11,7 +11,9 @@ TaskProfileDatabase::TaskProfileDatabase() {
     // ========================================================================
     // TASK 1: LOCAL_OBJECT_DETECTION
     // Physics: 160-240M cycles @ 5-7GHz = 23-48ms — fits 80-120ms deadline locally.
+    // Period: 200ms (5Hz) — standard ADAS sensor fusion rate; 10Hz excessive for sim scale.
     // NOT offloadable (safety-critical, latency dominated by wireless RTT).
+    // Per-vehicle rate: 5/s (non-offloadable, local only — no RSU CPU load)
     // ========================================================================
     TaskProfile localObjDet;
     localObjDet.type = TaskType::LOCAL_OBJECT_DETECTION;
@@ -48,6 +50,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     // TASK 2: COOPERATIVE_PERCEPTION
     // Physics: 1.2-1.8G cycles @ 32GHz/6-task-cap = 5.33GHz/task → 225-338ms + 5ms = 230-343ms ≤ 400ms ✓
     //          @ 5-7GHz vehicle = 171-360ms — often exceeds 250ms ⇒ offloading beneficial.
+    // Period: 1s (1Hz) — V2X CAM standard rate; previous 2s too slow for real-time fusion.
+    // Per-vehicle offloadable rate: 1/s
     // ========================================================================
     TaskProfile coopPercep;
     coopPercep.type = TaskType::COOPERATIVE_PERCEPTION;
@@ -84,6 +88,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     // TASK 3: ROUTE_OPTIMIZATION
     // Physics: 2.5-3.5G cycles @ 16GHz RSU = 156-219ms + 5ms base = 161-224ms ≤ 1.5s ✓
     //          @ 5-7GHz vehicle = 357-700ms — feasible locally for fast vehicles.
+    // Period: 5s (0.2Hz) — practical navigation replanning interval, unchanged.
+    // Per-vehicle offloadable rate: 0.2/s
     // ========================================================================
     TaskProfile routeOpt;
     routeOpt.type = TaskType::ROUTE_OPTIMIZATION;
@@ -119,6 +125,9 @@ TaskProfileDatabase::TaskProfileDatabase() {
     // ========================================================================
     // TASK 4: FLEET_TRAFFIC_FORECAST
     // Physics: 15-25G cycles @ 16GHz RSU = 938ms-1.56s + 5ms = well under 5min deadline ✓
+    // Period: 30s (batch) — reduced from 60s so a typical 100-300s sim sees ≥3 batches.
+    // Deadline: 4-6 min (unchanged) — batch job, can tolerate queuing.
+    // Per-vehicle offloadable rate: 0.033/s
     // ========================================================================
     TaskProfile fleetTraffic;
     fleetTraffic.type = TaskType::FLEET_TRAFFIC_FORECAST;
@@ -154,6 +163,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     // TASK 5: VOICE_COMMAND_PROCESSING
     // Physics: 350-650M cycles @ 16GHz RSU = 22-41ms + 5ms = 27-46ms ≤ 500ms ✓
     //          @ 5-7GHz vehicle = 50-130ms ≤ 500ms – feasible locally too.
+    // Rate: λ=0.25 (mean 4s) — slightly increased from 5s for realistic driver interaction.
+    // Per-vehicle offloadable rate: 0.25/s
     // ========================================================================
     TaskProfile voiceCmd;
     voiceCmd.type = TaskType::VOICE_COMMAND_PROCESSING;
@@ -188,6 +199,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     // ========================================================================
     // TASK 6: SENSOR_HEALTH_CHECK
     // Physics: 80-150M cycles @ 16GHz RSU = 5-9ms + 5ms = 10-14ms ≤ 10s deadline ✓
+    // Period: 15s — increased from 10s; truly background, very low priority.
+    // Per-vehicle offloadable rate: 0.067/s
     // ========================================================================
     TaskProfile sensorHealth;
     sensorHealth.type = TaskType::SENSOR_HEALTH_CHECK;

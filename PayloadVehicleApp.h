@@ -109,7 +109,7 @@ private:
 
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
-    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg); // Schedule next task arrival per type
+    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset = 0.0); // Schedule next task arrival per type
     void generateTask(TaskType type);         // Generate new task using TaskProfile
     bool canAcceptTask(Task* task);           // Check if task can be accepted
     bool canStartProcessing(Task* task);      // Check if task can start immediately
@@ -155,6 +155,10 @@ private:
         int consecutiveFailures = 0;                 // Count of consecutive failures
         simtime_t lastContactTime = 0;               // Last successful contact
         double score = 0.0;                          // Calculated selection score
+        
+        // RSU edge-compute load (set from beacon / assume 0 when unknown)
+        int rsu_processing_count = 0;  // Active tasks on this RSU right now
+        int rsu_max_concurrent   = 16; // Configured admission ceiling on this RSU
         
         // Calculate Packet Reception Ratio (PRR)
         double getPRR() const {
@@ -248,6 +252,9 @@ private:
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);
+    // Divide service-reserved CPU equally among all concurrent service tasks
+    // and reschedule each completion event, mirroring reallocateCPUResources().
+    void reallocateServiceCPUResources();
     void sendServiceTaskResult(Task* task, const std::string& originalVehicleId);
     
     // RSU Selection Members

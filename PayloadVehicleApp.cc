@@ -732,12 +732,22 @@ void PayloadVehicleApp::initializeTaskSystem() {
     if (sensorHealthEvent == nullptr) {
         sensorHealthEvent = new cMessage("taskGenSensorHealth");
     }
-    scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, localObjDetEvent);
-    scheduleNextTaskGeneration(TaskType::COOPERATIVE_PERCEPTION, coopPercepEvent);
-    scheduleNextTaskGeneration(TaskType::ROUTE_OPTIMIZATION, routeOptEvent);
-    scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST, fleetForecastEvent);
-    scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, voiceCommandEvent);
-    scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK, sensorHealthEvent);
+    // Read startup delay — ensures all 6 task generators fire only after the
+    // vehicle has sent at least (startupDelay / heartbeatIntervalS) DT heartbeats.
+    // Default 1.0s = 2 heartbeat cycles at 0.5s interval, giving the RSU valid
+    // vehicle state before the first offloading decision is needed.
+    double startupDelay = par("firstTaskDelayS").doubleValue();
+    EV_INFO << "⏳ Task startup delay: " << startupDelay
+            << "s (ensures DT state available before first task offloading decision)" << endl;
+    std::cout << "TASK_SYSTEM: First task for vehicle " << getParentModule()->getIndex()
+              << " delayed by " << startupDelay << "s to allow DT warm-up" << std::endl;
+
+    scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, localObjDetEvent,  startupDelay);
+    scheduleNextTaskGeneration(TaskType::COOPERATIVE_PERCEPTION,  coopPercepEvent,   startupDelay);
+    scheduleNextTaskGeneration(TaskType::ROUTE_OPTIMIZATION,      routeOptEvent,     startupDelay);
+    scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST,  fleetForecastEvent, startupDelay);
+    scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, voiceCommandEvent, startupDelay);
+    scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK,     sensorHealthEvent,  startupDelay);
     // ============================================================================
     // INITIALIZE OFFLOADING DECISION FRAMEWORK
     // ============================================================================
@@ -785,7 +795,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
               << " with " << (cpu_allocable/1e9) << " GHz allocable CPU" << std::endl;
 }
 
-void PayloadVehicleApp::scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg) {
+void PayloadVehicleApp::scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset) {
     const auto& profile = TaskProfileDatabase::getInstance().getProfile(type);
     double next_arrival = 0.0;
 
@@ -806,11 +816,22 @@ void PayloadVehicleApp::scheduleNextTaskGeneration(TaskType type, cMessage* even
         next_arrival = 0.001;
     }
 
-    scheduleAt(simTime() + next_arrival, eventMsg);
+    // extra_offset is used only on the first call (startup delay) so that
+    // tasks begin after at least two DT heartbeat cycles, giving the RSU
+    // (and any DRL/heuristic decision-maker) valid vehicle state to work with.
+    double fire_at = simTime().dbl() + next_arrival + extra_offset;
+    scheduleAt(fire_at, eventMsg);
 
-    EV_INFO << "⏰ Next " << TaskProfileDatabase::getTaskTypeName(type)
-            << " task scheduled in " << next_arrival << " seconds (at "
-            << (simTime() + next_arrival).dbl() << ")" << endl;
+    if (extra_offset > 0.0) {
+        EV_INFO << "⏰ First " << TaskProfileDatabase::getTaskTypeName(type)
+                << " task scheduled at t=" << fire_at
+                << " (startup_delay=" << extra_offset
+                << "s + interval=" << next_arrival << "s)" << endl;
+    } else {
+        EV_INFO << "⏰ Next " << TaskProfileDatabase::getTaskTypeName(type)
+                << " task scheduled in " << next_arrival << " seconds (at "
+                << fire_at << ")" << endl;
+    }
 }
 
 void PayloadVehicleApp::generateTask(TaskType type) {
@@ -842,7 +863,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
 
     task->cpu_cycles       = sampled_cycles;
     task->input_size_bytes = sampled_input;
-    task->task_size_bytes  = sampled_input;   // task_size tracks the transmission payload
+    task->mem_footprint_bytes = sampled_input;   // working-set memory = input size
     task->relative_deadline = sampled_deadline;
     task->deadline = task->created_time + SimTime(sampled_deadline);
 
@@ -873,7 +894,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         if (scale > 2.0) scale = 2.0;
 
         task->input_size_bytes = input_size;
-        task->task_size_bytes = input_size;
+        task->mem_footprint_bytes = input_size;
         task->cpu_cycles = static_cast<uint64_t>(task->cpu_cycles * scale);
 
         EV_INFO << "COOP_PERCEP input size set to " << (input_size / 1024.0) << " KB"
@@ -911,7 +932,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         DecisionContext context;
         
         // Task characteristics
-        context.task_size_kb = task->task_size_bytes / 1024.0;
+        context.task_size_kb = task->mem_footprint_bytes / 1024.0;
         context.cpu_cycles_required = task->cpu_cycles;
         context.qos_value = task->qos_value;
         context.deadline_seconds = task->relative_deadline;
@@ -929,6 +950,15 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.rsu_distance = getRSUDistance();
         context.estimated_rsu_rssi = getEstimatedRSSI();
         context.estimated_transmission_time = estimateTransmissionTime(task);
+        
+        // RSU edge-compute load — look up the selected RSU in our metrics map
+        for (auto& kv : rsuMetrics) {
+            if (kv.second.macAddress == rsu) {
+                context.rsu_processing_count = kv.second.rsu_processing_count;
+                context.rsu_max_concurrent   = kv.second.rsu_max_concurrent;
+                break;
+            }
+        }
         
         // Current time for deadline calculations
         context.current_time = simTime().dbl();
@@ -1075,7 +1105,7 @@ bool PayloadVehicleApp::canAcceptTask(Task* task) {
     }
     
     // Check if task is too large for vehicle memory
-    if (task->task_size_bytes > memory_total) {
+    if (task->mem_footprint_bytes > memory_total) {
         EV_INFO << "❌ Task too large for vehicle memory" << endl;
         return false;
     }
@@ -1102,9 +1132,9 @@ bool PayloadVehicleApp::canStartProcessing(Task* task) {
     }
     
     // Check memory availability
-    if (task->task_size_bytes > memory_available) {
+    if (task->mem_footprint_bytes > memory_available) {
         EV_INFO << "  ⏸ Insufficient memory (" << (memory_available/1e6) << " MB available, " 
-                << (task->task_size_bytes/1e6) << " MB needed)" << endl;
+                << (task->mem_footprint_bytes/1e6) << " MB needed)" << endl;
         return false;
     }
     
@@ -1117,7 +1147,7 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
     
     // Allocate memory
-    memory_available -= task->task_size_bytes;
+    memory_available -= task->mem_footprint_bytes;
     
     // Add to processing set
     processing_tasks.insert(task);
@@ -1138,7 +1168,7 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     }
     
     EV_INFO << "Resource allocation:" << endl;
-    EV_INFO << "  • Memory allocated: " << (task->task_size_bytes / 1e6) << " MB" << endl;
+    EV_INFO << "  • Memory allocated: " << (task->mem_footprint_bytes / 1e6) << " MB" << endl;
     EV_INFO << "  • CPU allocated: " << (task->cpu_allocated / 1e9) << " GHz" << endl;
     EV_INFO << "  • Remaining CPU: " << (cpu_available / 1e9) << " GHz" << endl;
     EV_INFO << "  • Remaining Memory: " << (memory_available / 1e6) << " MB" << endl;
@@ -1228,27 +1258,38 @@ void PayloadVehicleApp::reallocateCPUResources() {
     EV_INFO << "│ Processing tasks: " << std::setw(52) << processing_tasks.size() << " │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
     
-    // Recalculate allocation for all processing tasks
+    // Recalculate allocation for all processing tasks.
+    // Remaining cycles are derived from the currently scheduled completion time:
+    //   remaining_cycles = cpu_allocated * (arrival_time - now)
+    // This is always correct regardless of how many prior reallocations occurred
+    // because cpu_allocated * remaining_time = outstanding compute work (Hz * s = cycles).
     for (Task* task : processing_tasks) {
         double old_allocation = task->cpu_allocated;
         double new_allocation = calculateCPUAllocation(task);
-        
-        if (std::abs(new_allocation - old_allocation) > 1e6) {  // Significant change (> 1MHz)
-            EV_INFO << "Task " << task->task_id << ": " << (old_allocation/1e9) 
+
+        if (std::abs(new_allocation - old_allocation) > 1e6) {  // Significant change (> 1 MHz)
+            EV_INFO << "Task " << task->task_id << ": " << (old_allocation/1e9)
                     << " → " << (new_allocation/1e9) << " GHz" << endl;
-            
+
+            // Derive remaining cycles from the currently scheduled completion time
+            double remaining_cycles;
+            if (task->completion_event && task->completion_event->isScheduled()) {
+                double time_left = std::max(0.0,
+                    task->completion_event->getArrivalTime().dbl() - simTime().dbl());
+                remaining_cycles = old_allocation * time_left;
+            } else {
+                remaining_cycles = static_cast<double>(task->cpu_cycles);  // fallback
+            }
+
             task->cpu_allocated = new_allocation;
-            
-            // Reschedule completion event
+
             if (task->completion_event && task->completion_event->isScheduled()) {
                 cancelEvent(task->completion_event);
             }
-            
-            double remaining_cycles = task->getRemainingCycles();
-            double new_exec_time = remaining_cycles / new_allocation;
-            
+            double new_exec_time = (new_allocation > 0.0)
+                                   ? remaining_cycles / new_allocation : 0.0;
             scheduleAt(simTime() + new_exec_time, task->completion_event);
-            
+
             EV_INFO << "  Remaining cycles: " << (remaining_cycles/1e9) << " G" << endl;
             EV_INFO << "  New completion time: " << new_exec_time << " seconds" << endl;
         }
@@ -1344,7 +1385,7 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     // Release resources
     processing_tasks.erase(task);
     cpu_available += task->cpu_allocated;
-    memory_available += task->task_size_bytes;
+    memory_available += task->mem_footprint_bytes;
     
     // Cancel deadline event
     if (task->deadline_event && task->deadline_event->isScheduled()) {
@@ -1380,7 +1421,7 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     // Send completion notification to RSU with timing data
     sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
                             true, on_time, 
-                            task->task_size_bytes, task->cpu_cycles, 
+                            task->mem_footprint_bytes, task->cpu_cycles, 
                             task->qos_value, "completed");
     
     // Reallocate CPU to remaining tasks
@@ -1426,7 +1467,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     if (processing_tasks.find(task) != processing_tasks.end()) {
         processing_tasks.erase(task);
         cpu_available += task->cpu_allocated;
-        memory_available += task->task_size_bytes;
+        memory_available += task->mem_footprint_bytes;
         
         // Cancel completion event
         if (task->completion_event && task->completion_event->isScheduled()) {
@@ -1452,7 +1493,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     // Send completion report for failed task (for completion rate calculation)
     sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
                             false, false, 
-                            task->task_size_bytes, task->cpu_cycles, 
+                            task->mem_footprint_bytes, task->cpu_cycles, 
                             task->qos_value, "deadline_missed");
     
     // Send failure notification to RSU
@@ -1478,7 +1519,7 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
     TaskMetadataMessage* msg = new TaskMetadataMessage();
     msg->setTask_id(task->task_id.c_str());
     msg->setVehicle_id(task->vehicle_id.c_str());
-    msg->setTask_size_bytes(task->task_size_bytes);
+    msg->setMem_footprint_bytes(task->mem_footprint_bytes);
     msg->setCpu_cycles(task->cpu_cycles);
     msg->setCreated_time(task->created_time.dbl());
     msg->setDeadline_seconds(task->relative_deadline);
@@ -1585,9 +1626,13 @@ void PayloadVehicleApp::handleServiceTaskCompletion(Task* task) {
     
     // Remove from processing set
     processingServiceTasks.erase(task);
-    
+
     // Release resources
-    memory_available += task->task_size_bytes;
+    memory_available += task->mem_footprint_bytes;
+
+    // Task completed → remaining service tasks get a larger CPU share.
+    // Reallocate so they finish sooner.
+    reallocateServiceCPUResources();
     
     // Cancel deadline event
     if (task->deadline_event && task->deadline_event->isScheduled()) {
@@ -1645,7 +1690,7 @@ void PayloadVehicleApp::handleServiceTaskDeadline(Task* task) {
     // Remove from processing set
     if (processingServiceTasks.find(task) != processingServiceTasks.end()) {
         processingServiceTasks.erase(task);
-        memory_available += task->task_size_bytes;
+        memory_available += task->mem_footprint_bytes;
         
         // Cancel completion event
         if (task->completion_event && task->completion_event->isScheduled()) {
@@ -2271,8 +2316,8 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
     // IEEE 802.11p DSRC Channel Rate: 3-27 Mbps (typically 6 Mbps for reliability)
     double bandwidth_mbps = 6.0;  // Conservative estimate for reliable transmission
     
-    // Calculate transmission time (data size in bits / bandwidth)
-    double transmission_time = (task->task_size_bytes * 8.0) / (bandwidth_mbps * 1e6);
+    // Calculate transmission time based on input bytes sent over the air
+    double transmission_time = (task->input_size_bytes * 8.0) / (bandwidth_mbps * 1e6);
     
     // Add propagation delay (distance / speed of light)
     double distance = getRSUDistance();
@@ -2306,7 +2351,7 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     msg->setTask_id(task->task_id.c_str());
     msg->setVehicle_id(task->vehicle_id.c_str());
     msg->setRequest_time(simTime().dbl());
-    msg->setTask_size_bytes(task->task_size_bytes);
+    msg->setMem_footprint_bytes(task->mem_footprint_bytes);
     msg->setCpu_cycles(task->cpu_cycles);
     msg->setDeadline_seconds(task->relative_deadline);
     msg->setQos_value(task->qos_value);
@@ -2754,7 +2799,7 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task) {
     packet->setOrigin_vehicle_id(task->vehicle_id.c_str());
     packet->setOrigin_vehicle_mac(myId);  // Set our MAC address for return routing
     packet->setOffload_time(simTime().dbl());
-    packet->setTask_size_bytes(task->task_size_bytes);
+    packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
     packet->setDeadline_seconds(task->relative_deadline);
     packet->setQos_value(task->qos_value);
@@ -2787,7 +2832,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     packet->setOrigin_vehicle_id(task->vehicle_id.c_str());
     packet->setOrigin_vehicle_mac(myId);  // Set our MAC address for return routing
     packet->setOffload_time(simTime().dbl());
-    packet->setTask_size_bytes(task->task_size_bytes);
+    packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
     packet->setDeadline_seconds(task->relative_deadline);
     packet->setQos_value(task->qos_value);
@@ -2820,7 +2865,7 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
         // Send completion report with timing data
         sendTaskCompletionToRSU(task_id, completion_time, 
                                 success, on_time, 
-                                task->task_size_bytes, task->cpu_cycles, 
+                                task->mem_footprint_bytes, task->cpu_cycles, 
                                 task->qos_value, msg->getTask_output_data());
         
         if (on_time) {
@@ -2898,9 +2943,9 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
     double service_mem_bytes = serviceMemoryReservation * 1e6;  // MB to bytes
     
     // Check if we have sufficient reserved resources
-    if (memory_available < msg->getTask_size_bytes()) {
+    if (memory_available < msg->getMem_footprint_bytes()) {
         EV_WARN << "Insufficient memory for service task (need " 
-                << (msg->getTask_size_bytes()/1e6) << "MB, have " 
+                << (msg->getMem_footprint_bytes()/1e6) << "MB, have " 
                 << (memory_available/1e6) << "MB)" << endl;
         std::cout << "SERVICE_REJECT: Task " << task_id << " rejected - insufficient memory" << std::endl;
         delete msg;
@@ -2910,7 +2955,7 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
     // Create Task object from packet
     std::string vehicle_id = std::to_string(getParentModule()->getIndex());
     Task* task = new Task(origin_vehicle_id, task_sequence_number++, 
-                          msg->getTask_size_bytes(), msg->getCpu_cycles(),
+                          msg->getMem_footprint_bytes(), msg->getCpu_cycles(),
                           msg->getDeadline_seconds(), msg->getQos_value());
     
     // Override task_id with original task_id from packet
@@ -2922,7 +2967,7 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
     
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Origin Vehicle: " << origin_vehicle_id << endl;
-    EV_INFO << "  Task Size: " << (msg->getTask_size_bytes() / 1024.0) << " KB" << endl;
+    EV_INFO << "  Task Size: " << (msg->getMem_footprint_bytes() / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
     EV_INFO << "  Deadline: " << msg->getDeadline_seconds() << " s" << endl;
     EV_INFO << "  Service Queue: " << serviceTasks.size() << ", Processing: " 
@@ -2949,48 +2994,104 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
     EV_INFO << "⚙️ SERVICE VEHICLE: Starting service task " << task->task_id << endl;
     std::cout << "SERVICE_PROCESS: Vehicle " << getParentModule()->getIndex() 
               << " processing service task " << task->task_id << std::endl;
-    
-    // Use RESERVED resources for service tasks
-    double service_cpu_hz = cpu_total * serviceCpuReservation;
-    double service_mem_bytes = serviceMemoryReservation * 1e6;
-    
-    // Calculate processing time using reserved CPU
-    double processing_time = (double)task->cpu_cycles / service_cpu_hz;
-    
-    EV_INFO << "  Reserved Service CPU: " << (service_cpu_hz / 1e9) << " GHz" << endl;
+
+    // ======================================================================
+    // PHYSICS: Service vehicle reserves serviceCpuReservation fraction of
+    // its total CPU for serving other vehicles' tasks.  When multiple service
+    // tasks run concurrently that pool is shared equally (processor sharing).
+    //
+    //   per_task_hz = (cpu_total * reservation) / N_concurrent
+    //   exec_time   = cpu_cycles / per_task_hz
+    //
+    // Arrival of a new service task triggers reallocateServiceCPUResources()
+    // which burns down cycles already executed and reschedules all in-flight
+    // service tasks at the reduced per-task share.  Completion symmetrically
+    // speeds up the remaining tasks.  This mirrors the vehicle-local
+    // reallocateCPUResources() model.
+    // ======================================================================
+    double total_service_hz = cpu_total * serviceCpuReservation;
+    int n_concurrent = static_cast<int>(processingServiceTasks.size()) + 1; // +1 for this task
+    double per_task_hz = total_service_hz / n_concurrent;
+    double processing_time = static_cast<double>(task->cpu_cycles) / per_task_hz;
+
+    EV_INFO << "  Service CPU pool: " << (total_service_hz/1e9) << " GHz / "
+            << n_concurrent << " task(s) = " << (per_task_hz/1e9) << " GHz per task" << endl;
     EV_INFO << "  Task CPU Cycles: " << (task->cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Estimated Processing Time: " << processing_time << " s" << endl;
     EV_INFO << "  Deadline: " << task->relative_deadline << " s" << endl;
-    
+
     // Update task state
     task->state = PROCESSING;
     task->processing_start_time = simTime();
-    task->cpu_allocated = service_cpu_hz;
+    task->cpu_allocated = per_task_hz;
     processingServiceTasks.insert(task);
-    
-    // Allocate memory (from reserved service memory)
-    if (task->task_size_bytes <= memory_available) {
-        memory_available -= task->task_size_bytes;
-        EV_INFO << "  Memory allocated: " << (task->task_size_bytes / 1e6) << " MB" << endl;
-        EV_INFO << "  Memory available: " << (memory_available / 1e6) << " MB" << endl;
+
+    // Allocate memory from reserved service pool
+    if (task->mem_footprint_bytes <= memory_available) {
+        memory_available -= task->mem_footprint_bytes;
+        EV_INFO << "  Memory allocated: " << (task->mem_footprint_bytes / 1e6) << " MB" << endl;
     } else {
         EV_WARN << "  Insufficient memory, processing anyway with degraded performance" << endl;
     }
-    
+
     // Schedule completion event
     cMessage* completionMsg = new cMessage("serviceTaskCompletion");
     completionMsg->setContextPointer(task);
     task->completion_event = completionMsg;
     scheduleAt(simTime() + processing_time, completionMsg);
-    
-    // Schedule deadline check (guard against deadline already passed)
+
+    // Schedule deadline guard
     cMessage* deadlineMsg = new cMessage("serviceTaskDeadline");
     deadlineMsg->setContextPointer(task);
     task->deadline_event = deadlineMsg;
     scheduleAt(task->deadline <= simTime() ? simTime() : task->deadline, deadlineMsg);
-    
-    EV_INFO << "✓ Service task processing started, completion expected at " 
+
+    // Slow down all other concurrent service tasks now that one more shares the pool
+    reallocateServiceCPUResources();
+
+    EV_INFO << "✓ Service task processing started, completion expected at "
             << (simTime() + processing_time).dbl() << endl;
+}
+
+// ============================================================================
+// SERVICE VEHICLE CPU REALLOCATION
+// Divides the reserved CPU pool equally among all concurrent service tasks
+// and reschedules each completion event accordingly, mirroring
+// reallocateCPUResources() for own-vehicle tasks.
+// ============================================================================
+void PayloadVehicleApp::reallocateServiceCPUResources() {
+    if (processingServiceTasks.empty()) return;
+
+    double total_service_hz = cpu_total * serviceCpuReservation;
+    double per_task_hz = total_service_hz / static_cast<double>(processingServiceTasks.size());
+
+    for (Task* t : processingServiceTasks) {
+        if (std::abs(per_task_hz - t->cpu_allocated) < 1e6) continue;  // no meaningful change
+
+        // Derive remaining cycles from the currently scheduled completion time:
+        //   remaining = old_cpu_hz * (arrival_time - now)
+        // Using arrival-time is correct across any number of prior reallocations.
+        double remaining;
+        if (t->completion_event && t->completion_event->isScheduled()) {
+            double time_left = std::max(0.0,
+                t->completion_event->getArrivalTime().dbl() - simTime().dbl());
+            remaining = t->cpu_allocated * time_left;
+        } else {
+            remaining = static_cast<double>(t->cpu_cycles);  // fallback
+        }
+
+        t->cpu_allocated = per_task_hz;
+
+        if (t->completion_event && t->completion_event->isScheduled()) {
+            cancelEvent(t->completion_event);
+        }
+        double new_exec = (per_task_hz > 0.0) ? remaining / per_task_hz : 0.0;
+        scheduleAt(simTime() + new_exec, t->completion_event);
+
+        EV_INFO << "  SV realloc: task " << t->task_id
+                << " → " << (per_task_hz/1e9) << " GHz, "
+                << (remaining/1e9) << "G cycles left, completes in " << new_exec << "s" << endl;
+    }
 }
 
 void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& originalVehicleId) {
@@ -3114,7 +3215,7 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
     timingJson << "\"decision_type\":\"" << timing.decision_type << "\",";
     timingJson << "\"processor_id\":\"" << timing.processor_id << "\",";
     timingJson << "\"on_time\":" << (onTime ? "true" : "false") << ",";
-    timingJson << "\"task_size_bytes\":" << taskSizeBytes << ",";
+    timingJson << "\"mem_footprint_bytes\":" << taskSizeBytes << ",";
     timingJson << "\"cpu_cycles\":" << cpuCycles << ",";
     timingJson << "\"qos_value\":" << qosValue << ",";
     timingJson << "\"result\":\"" << resultData << "\"";
