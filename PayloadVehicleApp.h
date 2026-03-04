@@ -26,6 +26,7 @@ protected:
     virtual void handleMessage(cMessage* msg) override;
     virtual void handleSelfMsg(cMessage* msg) override;
     virtual void receiveSignal(cComponent* src, simsignal_t id, cObject* obj, cObject* details) override;
+    virtual void finish() override;
 
 private:
     veins::LAddress::L2Type myMacAddress;  // Store our own MAC address
@@ -263,6 +264,16 @@ private:
     void updateRSUMetrics(int rsuIndex, bool messageSuccess, double rssi = -999.0);
     double calculateRSUScore(const RSUMetrics& metrics);
     double normalizeValue(double value, double min, double max);
+    
+    // Multi-RSU Candidate List (for redirect support)
+    int max_candidate_rsus = 3;                       // Maximum RSUs to include in candidate list
+    int max_redirect_hops = 2;                        // Maximum redirect attempts before fallback
+    double candidateBlacklistDuration = 5.0;          // Duration to blacklist failed RSU (seconds)
+    int candidateBlacklistThreshold = 2;              // Consecutive failures to trigger blacklist
+    double rssiThreshold = -90.0;                     // RSSI threshold for viable RSU (dBm)
+    std::vector<veins::LAddress::L2Type> buildRankedRSUCandidates();  // Build ordered candidate list
+    std::map<std::string, int> task_redirect_counts;  // Track redirects per task (task_id -> count)
+    std::map<std::string, std::vector<veins::LAddress::L2Type>> taskCandidates;  // Store candidate list per task (task_id -> [MAC addresses])
 };
 
 } // namespace complex_network

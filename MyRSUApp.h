@@ -84,6 +84,33 @@ struct TaskRecord {
     bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
 };
 
+/**
+ * RSU Active Task tracking for event-driven processing
+ */
+struct RSUActiveTask {
+    std::string task_id;
+    std::string vehicle_id;
+    LAddress::L2Type vehicle_mac;
+    
+    // Task parameters
+    uint64_t cpu_cycles;
+    uint64_t task_size_bytes;
+    double deadline_seconds;
+    
+    // Timing
+    double arrival_time;      // When task arrived at RSU (for queue wait tracking)
+    double start_time;         // When task started processing
+    double allocated_cpu_ghz;  // CPU allocated to this task
+    double estimated_completion_time;  // Expected completion time
+    
+    // State
+    enum State { QUEUED, PROCESSING, COMPLETED, FAILED } state;
+    std::string failure_reason;
+    
+    // Self-message for completion event
+    cMessage* completion_msg = nullptr;
+};
+
 class MyRSUApp : public DemoBaseApplLayer {
 public:
     void initialize(int stage) override;
@@ -140,6 +167,62 @@ private:
     cMessage* rsu_status_update_timer = nullptr;
     
     // ============================================================================
+    // RSU-TO-RSU STATE SHARING (for load-aware redirect)
+    // ============================================================================
+    
+    // Neighbor RSU state cache
+    struct RSUNeighborState {
+        std::string rsu_id;
+        LAddress::L2Type rsu_mac;
+        double last_update_time;
+        
+        // Resource state
+        int queue_length;
+        int processing_count;
+        int max_concurrent_tasks;
+        double cpu_available_ghz;
+        double cpu_total_ghz;
+        double memory_available_gb;
+        double memory_total_gb;
+        
+        // Coverage information
+        std::vector<std::string> vehicle_ids_in_coverage;
+        int vehicle_count;
+        
+        // Position
+        double pos_x;
+        double pos_y;
+        
+        // Computed metrics
+        bool is_overloaded;
+        double load_factor;  // 0.0 = idle, 1.0 = full
+    };
+    
+    std::map<std::string, RSUNeighborState> neighbor_rsus;  // rsu_id -> state
+    
+    // RSU state broadcast configuration
+    double rsu_broadcast_interval = 0.5;      // Broadcast every 500ms
+    double neighbor_state_ttl = 1.5;          // Consider state stale after 1.5s
+    int max_vehicles_in_broadcast = 20;       // Limit vehicle list size to avoid huge packets
+    cMessage* rsu_broadcast_timer = nullptr;
+    
+    // Overload detection configuration
+    double overload_queue_threshold = 0.8;    // % of max capacity
+    double overload_cpu_headroom = 0.1;       // Minimum CPU headroom (10%)
+    int max_concurrent_processing = 10;       // Max tasks processing simultaneously
+    
+    // Decision strategy configuration
+    bool ml_model_enabled = false;            // Enable ML-based decisions (DRL)
+    std::string decision_strategy = "LOAD_AWARE";  // LOAD_AWARE | ROUND_ROBIN | DRL
+    
+    // RSU state broadcast methods
+    void broadcastRSUStatus();
+    void handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg);
+    void updateNeighborState(const RSUNeighborState& state);
+    bool isNeighborStateFresh(const RSUNeighborState& state);
+    void cleanupStaleNeighborStates();
+    
+    // ============================================================================
     // DIGITAL TWIN TRACKING SYSTEM
     // ============================================================================
     
@@ -170,6 +253,9 @@ private:
         LAddress::L2Type vehicle_mac;
         double request_time;
         std::string local_decision;
+        std::vector<LAddress::L2Type> candidate_rsu_macs;
+        int current_candidate_index = 0;
+        int max_redirect_hops = 0;
         
         // Task characteristics
         uint64_t task_size_bytes;
@@ -203,10 +289,23 @@ private:
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
     std::string selectBestServiceVehicle(const OffloadingRequest& request);
     
-    // RSU task processing (edge server)
+    // RSU task processing (edge server) - Event-driven
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id, 
                                   LAddress::L2Type vehicle_mac, bool success);
+    
+    // Event-driven task processing methods
+    void queueTaskForProcessing(const RSUActiveTask& active_task);
+    void processNextQueuedTask();
+    void handleTaskCompletionEvent(cMessage* msg);
+    double calculateProcessingTime(const RSUActiveTask& task);
+    void deallocateTaskResources(const RSUActiveTask& task);
+    void checkDeadlineAndNotify(const RSUActiveTask& task);
+    
+    // RSU task queue management
+    std::deque<RSUActiveTask> task_queue;           // FIFO queue for pending tasks
+    std::map<std::string, RSUActiveTask> active_tasks;  // Currently processing tasks (task_id -> task)
+    double cpu_time_slice = 0.01;  // Min CPU allocation per task (10ms)
     
     // Configuration parameters
     bool mlModelEnabled = false;

@@ -663,6 +663,13 @@ void PayloadVehicleApp::initializeTaskSystem() {
     max_concurrent_tasks = par("max_concurrent_tasks").intValue();
     min_cpu_guarantee = par("min_cpu_guarantee").doubleValue();
     
+    // Multi-RSU Candidate Selection & Redirect Parameters
+    max_candidate_rsus = par("maxCandidateRsus").intValue();
+    max_redirect_hops = par("maxRedirectHops").intValue();
+    candidateBlacklistDuration = par("candidateBlacklistDuration").doubleValue();
+    candidateBlacklistThreshold = par("candidateBlacklistThreshold").intValue();
+    rssiThreshold = par("rssiThreshold_dBm").doubleValue();
+    
     EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
     EV_INFO << "│ TASK GENERATION PARAMETERS                                               │" << endl;
     EV_INFO << "├──────────────────────────────────────────────────────────────────────────┤" << endl;
@@ -688,6 +695,20 @@ void PayloadVehicleApp::initializeTaskSystem() {
     EV_INFO << "│ Memory Total:         " << std::setw(38) << (memory_total / 1e6) << " MB       │" << endl;
     EV_INFO << "│ Max Queue Size:       " << std::setw(48) << max_queue_size << "      │" << endl;
     EV_INFO << "│ Max Concurrent Tasks: " << std::setw(48) << max_concurrent_tasks << "      │" << endl;
+    EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
+
+    EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
+    EV_INFO << "│ TASK PROFILE SUMMARY                                                      │" << endl;
+    EV_INFO << "├──────────────────────────────────────────────────────────────────────────┤" << endl;
+    for (TaskType type : TaskProfileDatabase::getAllTaskTypes()) {
+        const auto& profile = TaskProfileDatabase::getInstance().getProfile(type);
+        EV_INFO << "│ " << std::left << std::setw(24) << TaskProfileDatabase::getTaskTypeName(type)
+                << " In=" << std::setw(8) << (profile.computation.input_size_bytes / 1024.0)
+                << "KB Out=" << std::setw(8) << (profile.computation.output_size_bytes / 1024.0)
+                << "KB CPU=" << std::setw(8) << (profile.computation.cpu_cycles / 1e9)
+                << "G DL=" << std::setw(6) << profile.timing.deadline_seconds
+                << "s │" << endl;
+    }
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
 
     
@@ -796,6 +817,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     // Create task from TaskProfile
     std::string vehicle_id = std::to_string(getParentModule()->getIndex());
     Task* task = Task::createFromProfile(type, vehicle_id, task_sequence_number++);
+    MetricsManager::getInstance().recordTaskGenerated(type);
 
     if (type == TaskType::COOPERATIVE_PERCEPTION) {
         const auto& localProfile = TaskProfileDatabase::getInstance().getProfile(TaskType::LOCAL_OBJECT_DETECTION);
@@ -995,6 +1017,12 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     }
     
     logResourceState("After task generation");
+}
+
+void PayloadVehicleApp::finish() {
+    DemoBaseApplLayer::finish();
+    EV_INFO << "==================== TASK METRICS REPORT ====================" << endl;
+    MetricsManager::getInstance().printReport();
 }
 
 bool PayloadVehicleApp::canAcceptTask(Task* task) {
@@ -2018,6 +2046,114 @@ double PayloadVehicleApp::normalizeValue(double value, double min, double max) {
     return normalized;
 }
 
+std::vector<veins::LAddress::L2Type> PayloadVehicleApp::buildRankedRSUCandidates() {
+    EV_DEBUG << "🎯 Building ranked RSU candidate list..." << endl;
+    
+    // Get vehicle position
+    Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        EV_WARN << "Network module not found!" << endl;
+        return std::vector<veins::LAddress::L2Type>();
+    }
+    
+    // Update metrics for all RSUs and collect viable candidates
+    struct RSUCandidate {
+        int index;
+        LAddress::L2Type mac;
+        double score;
+        double distance;
+        double rssi;
+    };
+    
+    std::vector<RSUCandidate> candidates;
+    
+    for (int i = 0; i < 3; i++) {  // Assuming 3 RSUs (make configurable if needed)
+        cModule* rsuModule = networkModule->getSubmodule("rsu", i);
+        if (!rsuModule) continue;
+        
+        cModule* rsuMobilityModule = rsuModule->getSubmodule("mobility");
+        if (!rsuMobilityModule) continue;
+        
+        double rsuX = rsuMobilityModule->par("x").doubleValue();
+        double rsuY = rsuMobilityModule->par("y").doubleValue();
+        double dx = vehiclePos.x - rsuX;
+        double dy = vehiclePos.y - rsuY;
+        double distance = sqrt(dx * dx + dy * dy);
+        
+        // Initialize or update RSU metrics
+        if (rsuMetrics.find(i) == rsuMetrics.end()) {
+            rsuMetrics[i] = RSUMetrics();
+            DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
+                FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
+            if (rsuMacInterface) {
+                rsuMetrics[i].macAddress = rsuMacInterface->getMACAddress();
+            }
+        }
+        
+        rsuMetrics[i].distance = distance;
+        
+        // Estimate RSSI based on distance
+        double lambda = 3e8 / 5.89e9;
+        double fspl = 20 * log10(distance) + 20 * log10(5.89e9) + 20 * log10(4 * M_PI / 3e8);
+        double estimatedRSSI = 13.0 - fspl;
+        
+        if (rsuMetrics[i].lastRSSI < -100) {
+            rsuMetrics[i].lastRSSI = estimatedRSSI;
+        }
+        
+        // Check if RSU is viable (not blacklisted, meets RSSI threshold)
+        bool viable = true;
+        
+        // Check blacklist
+        if (rsuMetrics[i].consecutiveFailures >= failure_blacklist_threshold) {
+            simtime_t timeSinceLastFailure = simTime() - rsuMetrics[i].lastContactTime;
+            if (timeSinceLastFailure < blacklist_duration) {
+                viable = false;
+            } else {
+                rsuMetrics[i].consecutiveFailures = 0;  // Reset blacklist
+            }
+        }
+        
+        // Check RSSI threshold
+        if (rsuMetrics[i].lastRSSI < rssi_threshold) {
+            viable = false;
+        }
+        
+        if (viable) {
+            RSUCandidate candidate;
+            candidate.index = i;
+            candidate.mac = rsuMetrics[i].macAddress;
+            candidate.score = calculateRSUScore(rsuMetrics[i]);
+            candidate.distance = distance;
+            candidate.rssi = rsuMetrics[i].lastRSSI;
+            candidates.push_back(candidate);
+        }
+    }
+    
+    // Sort candidates by score (descending)
+    std::sort(candidates.begin(), candidates.end(),
+              [](const RSUCandidate& a, const RSUCandidate& b) {
+                  return a.score > b.score;  // Higher score is better
+              });
+    
+    // Build result vector (limit to max_candidate_rsus)
+    std::vector<veins::LAddress::L2Type> result;
+    for (size_t i = 0; i < candidates.size() && i < (size_t)max_candidate_rsus; i++) {
+        result.push_back(candidates[i].mac);
+        EV_DEBUG << "  Candidate " << i << ": RSU[" << candidates[i].index 
+                 << "] MAC=" << candidates[i].mac 
+                 << " score=" << candidates[i].score
+                 << " dist=" << candidates[i].distance << "m"
+                 << " rssi=" << candidates[i].rssi << "dBm" << endl;
+        std::cout << "RSU_CANDIDATE[" << i << "]: RSU[" << candidates[i].index 
+                  << "] score=" << candidates[i].score << " dist=" << candidates[i].distance << "m" << std::endl;
+    }
+    
+    EV_DEBUG << "Built candidate list with " << result.size() << " RSUs" << endl;
+    return result;
+}
+
 // ============================================================================
 // TASK OFFLOADING HELPER METHODS
 // ============================================================================
@@ -2151,19 +2287,39 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     // Set sender address (our MAC)
     msg->setSenderAddress(myId);
     
-    // Send to selected RSU
-    LAddress::L2Type rsuMac = selectBestRSU();
-    if (rsuMac == 0) {
-        EV_ERROR << "No RSU available for offloading request" << endl;
+    // Build ranked RSU candidate list for redirect support
+    std::vector<veins::LAddress::L2Type> candidates = buildRankedRSUCandidates();
+    
+    if (candidates.empty()) {
+        EV_ERROR << "No viable RSU candidates available" << endl;
         delete msg;
         return;
     }
+    
+    // Populate candidate array in message
+    msg->setCandidate_rsu_macsArraySize(candidates.size());
+    for (size_t i = 0; i < candidates.size(); i++) {
+        msg->setCandidate_rsu_macs(i, candidates[i]);
+    }
+    
+    // Initialize redirect tracking
+    msg->setCurrent_candidate_index(0);  // Start with best candidate
+    msg->setMax_redirect_hops(max_redirect_hops);
+    
+    // Send to first candidate (best RSU)
+    LAddress::L2Type rsuMac = candidates[0];
     
     populateWSM(msg, rsuMac);
     sendDown(msg);
     
     // Mark task as awaiting decision
     pendingOffloadingDecisions[task->task_id] = task;
+    
+    // Initialize redirect counter for this task
+    task_redirect_counts[task->task_id] = 0;
+    
+    // Store candidate list for potential redirects
+    taskCandidates[task->task_id] = candidates;
     
     // Record timing information for latency tracking
     TaskTimingInfo timing;
@@ -2173,8 +2329,10 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     // Send lifecycle event to RSU for Digital Twin
     sendTaskOffloadingEvent(task->task_id, "REQUEST_SENT", task->vehicle_id, "RSU");
     
-    EV_INFO << "Offloading request sent to RSU (MAC: " << rsuMac << ")" << endl;
-    std::cout << "INFO: Offloading request sent to RSU (MAC: " << rsuMac << ")" << std::endl;
+    EV_INFO << "Offloading request sent to RSU[0] (MAC: " << rsuMac << ") with " 
+            << candidates.size() << " candidate RSUs" << endl;
+    std::cout << "INFO: Offloading request sent to primary RSU with " << candidates.size() 
+              << " fallback candidates" << std::endl;
 }
 
 void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg) {
@@ -2337,6 +2495,126 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
         
         EV_INFO << "✓ Task offloaded to service vehicle, awaiting result" << endl;
+    }
+    
+    // ========================================================================
+    // DECISION: REDIRECT TO ANOTHER RSU
+    // ========================================================================
+    else if (decisionType == "REDIRECT") {
+        EV_INFO << "🔄 Decision: REDIRECT TO ANOTHER RSU" << endl;
+        std::cout << "OFFLOAD_REDIRECT: Task " << task->task_id << " redirected by RSU" << std::endl;
+        
+        // Extract redirect information from decision message
+        LAddress::L2Type redirectTargetMac = decision->getRedirect_target_rsu_mac();
+        int nextCandidateIndex = decision->getNext_candidate_index();
+        std::string redirectTargetId = decision->getRedirect_target_rsu_id();
+        
+        // Handle redirect attempt
+        auto it = task_redirect_counts.find(task->task_id);
+        int redirectAttempts = (it == task_redirect_counts.end()) ? 0 : it->second;
+        
+        EV_INFO << "RSU redirects to target: " << redirectTargetId 
+                << " (MAC: " << redirectTargetMac << "), attempt " 
+                << (redirectAttempts + 1) << "/" << max_redirect_hops << endl;
+        
+        // Check if we can still retry
+        if (redirectAttempts >= max_redirect_hops) {
+            EV_WARN << "Max redirect hops (" << max_redirect_hops << ") exceeded for task " 
+                    << task->task_id << " - falling back to LOCAL" << endl;
+            std::cout << "OFFLOAD_REDIRECT_EXHAUSTED: Task " << task->task_id 
+                      << " exceeds max redirects, executing locally" << std::endl;
+            
+            // Fallback to local execution
+            if (canAcceptTask(task)) {
+                if (canStartProcessing(task)) {
+                    allocateResourcesAndStart(task);
+                } else {
+                    task->state = QUEUED;
+                    pending_tasks.push(task);
+                }
+                
+                // Track fallback
+                if (taskTimings.find(task->task_id) != taskTimings.end()) {
+                    taskTimings[task->task_id].processor_id = "VEHICLE_FALLBACK_" + std::to_string(getParentModule()->getIndex());
+                    taskTimings[task->task_id].decision_type = "LOCAL_FALLBACK";
+                }
+            } else {
+                // Queue full - reject
+                EV_WARN << "Cannot accept task locally (queue full) - rejecting" << endl;
+                task->state = REJECTED;
+                tasks_rejected++;
+                sendTaskFailureToRSU(task, "REDIRECT_EXHAUSTED_QUEUE_FULL");
+                delete task;
+            }
+        }
+        else if (redirectTargetMac == 0 || redirectTargetMac == myId) {
+            EV_ERROR << "Invalid redirect target MAC or self-reference - rejecting" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "INVALID_REDIRECT_TARGET");
+            delete task;
+        }
+        else {
+            // Valid redirect - resend request to next RSU
+            task_redirect_counts[task->task_id]++;
+            
+            EV_INFO << "Sending redirect request to " << redirectTargetId 
+                    << " (MAC: " << redirectTargetMac << ")" << endl;
+            
+            // Create new offloading request with updated candidate index
+            veins::OffloadingRequestMessage* redirectRequest = new veins::OffloadingRequestMessage();
+            redirectRequest->setTask_id(task->task_id.c_str());
+            redirectRequest->setVehicle_id(task->vehicle_id.c_str());
+            redirectRequest->setRequest_time(simTime().dbl());
+            redirectRequest->setTask_size_bytes(task->task_size_bytes);
+            redirectRequest->setCpu_cycles(task->cpu_cycles);
+            redirectRequest->setDeadline_seconds(task->relative_deadline);
+            redirectRequest->setQos_value(task->qos_value);
+            redirectRequest->setLocal_cpu_available_ghz(cpu_available / 1e9);
+            redirectRequest->setLocal_cpu_utilization((cpu_allocable - cpu_available) / cpu_allocable);
+            redirectRequest->setLocal_mem_available_mb(memory_available / 1e6);
+            redirectRequest->setLocal_queue_length(pending_tasks.size());
+            redirectRequest->setLocal_processing_count(processing_tasks.size());
+            Coord redirectPos = mobility->getPositionAt(simTime());
+            redirectRequest->setPos_x(redirectPos.x);
+            redirectRequest->setPos_y(redirectPos.y);
+            redirectRequest->setSpeed(mobility->getSpeed());
+            redirectRequest->setLocal_decision("OFFLOAD_TO_RSU");
+            redirectRequest->setSenderAddress(myId);
+            
+            // Copy the candidate list from the original decision message
+            // Note: The decision message should have the same candidate MACs
+            // Get candidates for this task from the tracking data
+            auto candidateIt = taskCandidates.find(task->task_id);
+            if (candidateIt != taskCandidates.end()) {
+                const auto& candidates = candidateIt->second;
+                
+                // Set candidate array
+                redirectRequest->setCandidate_rsu_macsArraySize(candidates.size());
+                for (size_t i = 0; i < candidates.size(); i++) {
+                    redirectRequest->setCandidate_rsu_macs(i, candidates[i]);
+                }
+                
+                // Update to point to the redirect target
+                redirectRequest->setCurrent_candidate_index(nextCandidateIndex);
+                redirectRequest->setMax_redirect_hops(max_redirect_hops);
+                
+                // Send to redirect target using standard WSM protocol
+                populateWSM(redirectRequest, redirectTargetMac);
+                sendDown(redirectRequest);
+                
+                EV_INFO << "✓ Redirect request sent to RSU candidate index " << nextCandidateIndex << endl;
+                std::cout << "INFO: Redirect request sent to " << redirectTargetId 
+                          << " (redirect attempt " << task_redirect_counts[task->task_id] << ")" << std::endl;
+            }
+            else {
+                EV_ERROR << "Cannot find candidate list for task " << task->task_id << endl;
+                task->state = REJECTED;
+                tasks_rejected++;
+                sendTaskFailureToRSU(task, "REDIRECT_CANDIDATE_LIST_NOT_FOUND");
+                delete task;
+            }
+        }
     }
     
     // ========================================================================
@@ -2791,8 +3069,10 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
         delete resultMsg;
     }
     
-    // Clean up timing info
+    // Clean up task tracking data
     taskTimings.erase(taskId);
+    taskCandidates.erase(taskId);
+    task_redirect_counts.erase(taskId);
 }
 
 } // namespace complex_network
