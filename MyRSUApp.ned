@@ -38,6 +38,11 @@ simple MyRSUApp like IBaseApplLayer
         int maxVehicles;                 // Max concurrent vehicles
         int rsuMaxConcurrent = default(6); // Hard cap on simultaneous tasks
         double processingDelay_ms;       // Base processing delay in ms
+
+        // Digital Twin (Redis) parameters
+        bool useRedis = default(false);  // Enable Redis Digital Twin
+        string redisHost = default("127.0.0.1");
+        int redisPort = default(6379);
         
         // RSU-to-RSU Communication (Neighbor Discovery)
         double rsuStatusBroadcastInterval @unit(s) = default(0.5s);  // Interval for periodic status broadcast
@@ -52,6 +57,7 @@ simple MyRSUApp like IBaseApplLayer
         // Offloading Decision Parameters
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
+
     gates:
         input lowerLayerIn;
         output lowerLayerOut;

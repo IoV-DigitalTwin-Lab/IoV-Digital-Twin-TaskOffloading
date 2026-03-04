@@ -298,8 +298,8 @@ private:
     // ML-based decision engine
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
     std::string selectBestServiceVehicle(const OffloadingRequest& request);
-    
-    // RSU task processing (edge server) - Event-driven
+
+    // RSU task processing (edge server)
     // Tracks tasks currently being processed on the RSU edge server.
     struct PendingRSUTask {
         std::string vehicle_id;

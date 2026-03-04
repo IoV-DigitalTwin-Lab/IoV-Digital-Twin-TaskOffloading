@@ -141,47 +141,46 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "rsuDecisionTimeout") == 0) {
+        // Handle timeout waiting for RSU offloading decision
         Task* task = (Task*)msg->getContextPointer();
+        EV_WARN << "⏱️ RSU decision timeout for task " << task->task_id << " - falling back to local execution" << endl;
+        std::cout << "TIMEOUT: Task " << task->task_id << " - no RSU decision received, executing locally" << std::endl;
+        
+        // Remove from pending decisions and timeout map
         auto it = pendingOffloadingDecisions.find(task->task_id);
         if (it != pendingOffloadingDecisions.end()) {
             pendingOffloadingDecisions.erase(it);
-            EV_WARN << "RSU decision timeout for task " << task->task_id << " - falling back to local" << endl;
-
-            if (canAcceptTask(task)) {
-                if (canStartProcessing(task)) {
-                    allocateResourcesAndStart(task);
-                } else {
-                    task->state = QUEUED;
-                    pending_tasks.push(task);
-                }
-            } else {
-                task->state = REJECTED;
-                tasks_rejected++;
-                sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT");
-                delete task;
-            }
         }
-        delete msg;
-        return;
-    }
-    else if (strcmp(msg->getName(), "offloadedTaskTimeout") == 0) {
-        Task* task = (Task*)msg->getContextPointer();
-        auto it = offloadedTasks.find(task->task_id);
-        if (it != offloadedTasks.end()) {
-            offloadedTasks.erase(it);
-            offloadedTaskTargets.erase(task->task_id);
+        pendingDecisionTimeouts.erase(task->task_id);
+        
+        // Execute locally as fallback
+        // Ensure taskTimings entry exists so completion reports can be sent
+        if (taskTimings.find(task->task_id) == taskTimings.end()) {
+            TaskTimingInfo timing;
+            timing.request_time = simTime().dbl();
+            timing.decision_time = simTime().dbl();
+            timing.decision_type = "LOCAL";
+            timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+            taskTimings[task->task_id] = timing;
+        }
 
-            task->state = FAILED;
-            tasks_failed++;
-
-            double latency = (simTime() - task->created_time).dbl();
-            if (task->is_profile_task) {
-                MetricsManager::getInstance().recordTaskFailed(task->type, latency);
+        if (canAcceptTask(task)) {
+            if (canStartProcessing(task)) {
+                EV_INFO << "✓ Starting task locally after timeout" << endl;
+                allocateResourcesAndStart(task);
+            } else {
+                EV_INFO << "⏸ Queuing task locally after timeout" << endl;
+                task->state = QUEUED;
+                pending_tasks.push(task);
             }
-
-            sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
+        } else {
+            EV_WARN << "❌ Cannot accept task locally - rejecting after timeout" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "TIMEOUT_AND_QUEUE_FULL");
             delete task;
         }
+        
         delete msg;
         return;
     }
@@ -721,6 +720,9 @@ void PayloadVehicleApp::initializeTaskSystem() {
     EV_INFO << "│ Max Concurrent Tasks: " << std::setw(48) << max_concurrent_tasks << "      │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
 
+    // Data sharing freshness window for cooperative perception
+    objectDetectionTtlSec = TaskPeriods::LOCAL_OBJECT_DETECTION * 4.0;
+
     EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
     EV_INFO << "│ TASK PROFILE SUMMARY                                                      │" << endl;
     EV_INFO << "├──────────────────────────────────────────────────────────────────────────┤" << endl;
@@ -734,6 +736,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
                 << "s │" << endl;
     }
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
+
     // Schedule per-task generation based on TaskProfile
     if (localObjDetEvent == nullptr) {
         localObjDetEvent = new cMessage("taskGenLocalObjDet");
@@ -769,6 +772,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
     scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST,  fleetForecastEvent, startupDelay);
     scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, voiceCommandEvent, startupDelay);
     scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK,     sensorHealthEvent,  startupDelay);
+
     // ============================================================================
     // INITIALIZE OFFLOADING DECISION FRAMEWORK
     // ============================================================================
@@ -922,7 +926,9 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 << " (neighbors=" << neighbor_count << ", local_fresh="
                 << (local_fresh ? "YES" : "NO") << ")" << endl;
     }
+
     tasks_generated++;
+
     EV_INFO << "Task generated: ID=" << task->task_id
             << " Type=" << TaskProfileDatabase::getTaskTypeName(type)
             << " Input=" << (task->input_size_bytes/1024.0) << "KB"

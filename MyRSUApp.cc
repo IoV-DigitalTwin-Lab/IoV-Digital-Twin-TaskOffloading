@@ -1954,7 +1954,24 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                 confidence = 0.85;
             }
         }
-        
+        // Rule 3: Vehicle can handle it locally
+        // BUT: if vehicle explicitly requested offloading, never send back as LOCAL
+        else if (request.vehicle_cpu_available > 0.5 &&
+                 request.local_decision != "OFFLOAD_TO_RSU" &&
+                 request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
+            decisionType = "LOCAL";
+            reason = "Vehicle has sufficient resources (CPU available: " + std::to_string(request.vehicle_cpu_available) + " GHz)";
+            confidence = 0.85;
+            estimated_completion_time = request.deadline_seconds * 0.5;
+        }
+        // Rule 4: Borderline case - default to RSU
+        else {
+            decisionType = "RSU";
+            reason = "Borderline case, using RSU for reliability";
+            confidence = 0.65;
+            estimated_completion_time = request.deadline_seconds * 0.7;
+        }
+
         EV_INFO << "✅ ACCEPT: " << decisionType << " - " << reason << endl;
         std::cout << "RSU_DECISION: ACCEPT - decision_type=" << decisionType << std::endl;
     } else {
@@ -2092,45 +2109,112 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
 }
 
 void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
-    EV_INFO << "⚙️ RSU: Admitting task " << task_id << " for edge server processing..." << endl;
-    
-    std::string vehicle_id = packet->getOrigin_vehicle_id();
+    std::string vehicle_id  = packet->getOrigin_vehicle_id();
     LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
-    uint64_t cpu_cycles = packet->getCpu_cycles();
-    uint64_t task_size_bytes = packet->getTask_size_bytes();
-    double deadline_seconds = packet->getDeadline();
-    
-    // Check if RSU has room in queue or processing
-    if (rsu_processing_count >= rsu_max_concurrent && task_queue.size() >= (size_t)rsu_max_concurrent) {
-        // RSU fully saturated - should ideally reject, but we queue anyway
-        EV_WARN << "  ⚠️ RSU queue full, but queueing anyway" << endl;
-        std::cout << "RSU_FULL: Task " << task_id << " queued (overload)" << std::endl;
+    uint64_t cpu_cycles     = packet->getCpu_cycles();
+
+    // ======================================================================
+    // ADMISSION CONTROL: hard cap on simultaneous tasks
+    // ======================================================================
+    if (rsu_processing_count >= rsu_max_concurrent) {
+        EV_WARN << "⛔ RSU overloaded (" << rsu_processing_count << "/" << rsu_max_concurrent
+                << ") — rejecting task " << task_id << endl;
+        std::cout << "RSU_OVERLOAD: Task " << task_id << " rejected (RSU at capacity "
+                  << rsu_processing_count << "/" << rsu_max_concurrent << ")" << std::endl;
+        sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, false, 0.0);
+        delete packet;
+        return;
     }
-    
-    // Create active task record
-    RSUActiveTask active_task;
-    active_task.task_id = task_id;
-    active_task.vehicle_id = vehicle_id;
-    active_task.vehicle_mac = vehicle_mac;
-    active_task.cpu_cycles = cpu_cycles;
-    active_task.task_size_bytes = task_size_bytes;
-    active_task.deadline_seconds = deadline_seconds;
-    active_task.arrival_time = simTime().dbl();
-    active_task.state = RSUActiveTask::QUEUED;
-    
-    EV_INFO << "  Task parameters:" << endl;
-    EV_INFO << "    - CPU Cycles: " << (cpu_cycles / 1e9) << " G" << endl;
-    EV_INFO << "    - Task Size: " << (task_size_bytes / 1024.0) << " KB" << endl;
-    EV_INFO << "    - Deadline: " << deadline_seconds << " s" << endl;
-    
-    // Queue the task
-    queueTaskForProcessing(active_task);
-    
-    // Try to start processing
-    processNextQueuedTask();
-    
-    EV_INFO << "  Queue length: " << (rsu_processing_count + task_queue.size()) << endl;
-    delete packet;
+
+    // ======================================================================
+    // PHYSICS-BASED EXECUTION TIME WITH FAIR CPU SHARING
+    //
+    // Model: RSU has edgeCPU_GHz total throughput spread equally across all
+    // concurrent tasks (processor sharing / GPS model).
+    //
+    //   cpu_per_task = edgeCPU_GHz / N_concurrent
+    //   exec_time    = cpu_cycles / cpu_per_task + overhead_once
+    //
+    // When N changes (new task arrives or task completes), ALL in-flight tasks
+    // are rescheduled so each gets its updated fair share — this correctly
+    // slows tasks when load increases and speeds them up when load drops.
+    // The overhead (processingDelay_ms) models OS/memory latency and is only
+    // applied once at first admission, not at subsequent CPU reallocations.
+    // ======================================================================
+    rsu_processing_count++;
+    rsu_tasks_received++;
+    int concurrent = rsu_processing_count;  // includes this new task
+    double cpu_per_task_Hz = (edgeCPU_GHz * 1e9) / static_cast<double>(concurrent);
+
+    // Step 1: reschedule all EXISTING in-flight tasks at the new (lower) per-task share
+    reallocateRSUTasks(cpu_per_task_Hz);
+
+    // Step 2: schedule THIS new task
+    // overhead applied once here; reallocateRSUTasks() will never re-add it
+    double exec_time = static_cast<double>(cpu_cycles) / cpu_per_task_Hz
+                       + processingDelay_ms / 1000.0;
+
+    cMessage* completeMsg = new cMessage("rsuTaskComplete");
+    completeMsg->setContextPointer(new std::string(task_id));
+    scheduleAt(simTime() + exec_time, completeMsg);
+
+    PendingRSUTask pending;
+    pending.vehicle_id            = vehicle_id;
+    pending.vehicle_mac           = vehicle_mac;
+    pending.cpu_cycles            = cpu_cycles;
+    pending.cycles_remaining      = static_cast<double>(cpu_cycles);
+    pending.exec_time_s           = exec_time;
+    pending.scheduled_at          = simTime().dbl();
+    pending.last_reschedule_time  = simTime().dbl();
+    pending.cpu_allocated_hz      = cpu_per_task_Hz;
+    pending.completion_event      = completeMsg;
+    rsuPendingTasks[task_id]      = pending;
+
+    EV_INFO << "⚙️ RSU: Task " << task_id << " accepted for edge processing" << endl;
+    EV_INFO << "  Edge CPU: " << edgeCPU_GHz << " GHz / " << concurrent
+            << " task(s) = " << (cpu_per_task_Hz/1e9) << " GHz per task" << endl;
+    EV_INFO << "  Exec time: " << (cpu_cycles/1e9) << "G cycles / "
+            << (cpu_per_task_Hz/1e9) << " GHz + " << processingDelay_ms
+            << "ms overhead = " << exec_time << "s" << endl;
+    std::cout << "RSU_PROCESS: Task " << task_id << " scheduled, exec=" << exec_time
+              << "s (" << concurrent << " concurrent tasks)" << std::endl;
+}
+
+// ============================================================================
+// RSU FAIR-SHARE CPU REALLOCATION
+// Called whenever N_concurrent changes (task arrival or completion).
+// Burns down cycles already executed for each in-flight task, then
+// reschedules each completion event at the new equal CPU share.
+// ============================================================================
+void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
+    if (rsuPendingTasks.empty()) return;
+
+    double now = simTime().dbl();
+    for (auto& kv : rsuPendingTasks) {
+        PendingRSUTask& t = kv.second;
+
+        // Burn down cycles consumed since this task was last rescheduled
+        double elapsed       = now - t.last_reschedule_time;
+        double cycles_burned = t.cpu_allocated_hz * elapsed;
+        t.cycles_remaining   = std::max(0.0, t.cycles_remaining - cycles_burned);
+        t.last_reschedule_time = now;
+        t.cpu_allocated_hz   = new_cpu_per_task_Hz;
+
+        // Reschedule completion event — no overhead added here (already paid at admission)
+        if (t.completion_event && t.completion_event->isScheduled()) {
+            cancelEvent(t.completion_event);
+        }
+        double new_exec = (new_cpu_per_task_Hz > 0.0)
+                          ? t.cycles_remaining / new_cpu_per_task_Hz
+                          : 0.0;
+        t.exec_time_s = new_exec;
+        scheduleAt(simTime() + new_exec, t.completion_event);
+
+        EV_INFO << "  RSU realloc: task " << kv.first
+                << " → " << (new_cpu_per_task_Hz/1e9) << " GHz, "
+                << (t.cycles_remaining/1e9) << "G cycles left, "
+                << "completes in " << new_exec << "s" << endl;
+    }
 }
 
 void MyRSUApp::queueTaskForProcessing(const RSUActiveTask& active_task) {
@@ -2287,30 +2371,7 @@ void MyRSUApp::deallocateTaskResources(const RSUActiveTask& task) {
     EV_DEBUG << "    - Processing count: " << rsu_processing_count << endl;
 }
 
-void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
-    if (rsuPendingTasks.empty() || new_cpu_per_task_Hz <= 0.0) {
-        return;
-    }
 
-    double now = simTime().dbl();
-    for (auto& kv : rsuPendingTasks) {
-        PendingRSUTask& t = kv.second;
-        double elapsed = std::max(0.0, now - t.last_reschedule_time);
-        t.cycles_remaining = std::max(0.0, t.cycles_remaining - t.cpu_allocated_hz * elapsed);
-        t.last_reschedule_time = now;
-        t.cpu_allocated_hz = new_cpu_per_task_Hz;
-
-        if (t.completion_event && t.completion_event->isScheduled()) {
-            cancelEvent(t.completion_event);
-        }
-
-        double new_exec = t.cycles_remaining / new_cpu_per_task_Hz;
-        t.exec_time_s = new_exec;
-        if (t.completion_event) {
-            scheduleAt(simTime() + new_exec, t.completion_event);
-        }
-    }
-}
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                         LAddress::L2Type vehicle_mac, bool success,
                                         double processing_time) {
