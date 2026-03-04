@@ -64,7 +64,7 @@ struct TaskRecord {
     std::string task_id;
     std::string vehicle_id;
     
-    uint64_t task_size_bytes;
+    uint64_t mem_footprint_bytes;    // working memory held on the processing entity
     uint64_t cpu_cycles;
     
     double created_time;
@@ -146,7 +146,7 @@ private:
     double rsu_total_queue_time = 0.0;
     
     // Status update timing
-    double rsu_status_update_interval = 1.0;  // Update every 1 second
+    double rsu_status_update_interval = 0.5;  // Update every 0.5 second
     cMessage* rsu_status_update_timer = nullptr;
     
     // ============================================================================
@@ -182,7 +182,7 @@ private:
         std::string local_decision;
         
         // Task characteristics
-        uint64_t task_size_bytes;
+        uint64_t mem_footprint_bytes;  // working memory on processing entity
         uint64_t cpu_cycles;
         double deadline_seconds;
         double qos_value;
@@ -218,13 +218,20 @@ private:
     struct PendingRSUTask {
         std::string vehicle_id;
         LAddress::L2Type vehicle_mac = 0;
-        uint64_t cpu_cycles = 0;          // cycles required for this task instance
-        double exec_time_s = 0.0;         // computed execution time (seconds)
-        double scheduled_at = 0.0;        // simTime when task was accepted
+        uint64_t cpu_cycles = 0;            // total cycles required for this task
+        double cycles_remaining = 0.0;      // cycles not yet executed (updated at each reschedule)
+        double exec_time_s = 0.0;           // current projected execution time (seconds)
+        double scheduled_at = 0.0;          // simTime when task was first accepted
+        double last_reschedule_time = 0.0;  // simTime of last CPU reallocation
+        double cpu_allocated_hz = 0.0;      // per-task CPU share at last reschedule (Hz)
+        cMessage* completion_event = nullptr; // pointer to scheduled completion self-msg
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
 
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
+    // Recomputes each in-flight task's remaining cycles and reschedules all completion
+    // events so every task gets an equal share of edgeCPU_GHz.
+    void reallocateRSUTasks(double new_cpu_per_task_Hz);
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                   LAddress::L2Type vehicle_mac, bool success, double processing_time);
     
@@ -267,7 +274,7 @@ private:
                                        const std::string& decision_type, const std::string& processor_id,
                                        double request_time, double decision_time, double start_time, 
                                        double completion_time, bool success, bool completed_on_time,
-                                       double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                       double deadline_seconds, uint64_t mem_footprint_bytes, uint64_t cpu_cycles,
                                        double qos_value, const std::string& result_data, const std::string& failure_reason);
     
     // RSU status and metadata tracking

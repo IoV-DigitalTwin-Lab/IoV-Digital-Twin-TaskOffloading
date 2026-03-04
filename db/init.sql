@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS task_metadata (
     task_id TEXT NOT NULL,
     vehicle_id TEXT NOT NULL,
     rsu_id INTEGER,
-    task_size_bytes BIGINT,
+    mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     qos_value DOUBLE PRECISION,
     created_time DOUBLE PRECISION,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS offloading_requests (
     request_time DOUBLE PRECISION,
     
     -- Task characteristics
-    task_size_bytes BIGINT,
+    mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     deadline_seconds DOUBLE PRECISION,
     qos_value DOUBLE PRECISION,
@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS offloaded_task_completions (
     deadline_seconds DOUBLE PRECISION, -- Original deadline
     
     -- Task characteristics
-    task_size_bytes BIGINT,
+    mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     qos_value DOUBLE PRECISION,
     

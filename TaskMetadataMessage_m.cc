@@ -179,7 +179,7 @@ void TaskMetadataMessage::copy(const TaskMetadataMessage& other)
 {
     this->task_id = other.task_id;
     this->vehicle_id = other.vehicle_id;
-    this->task_size_bytes = other.task_size_bytes;
+    this->mem_footprint_bytes = other.mem_footprint_bytes;
     this->cpu_cycles = other.cpu_cycles;
     this->created_time = other.created_time;
     this->deadline_seconds = other.deadline_seconds;
@@ -200,7 +200,7 @@ void TaskMetadataMessage::parsimPack(omnetpp::cCommBuffer *b) const
     ::veins::BaseFrame1609_4::parsimPack(b);
     doParsimPacking(b,this->task_id);
     doParsimPacking(b,this->vehicle_id);
-    doParsimPacking(b,this->task_size_bytes);
+    doParsimPacking(b,this->mem_footprint_bytes);
     doParsimPacking(b,this->cpu_cycles);
     doParsimPacking(b,this->created_time);
     doParsimPacking(b,this->deadline_seconds);
@@ -221,7 +221,7 @@ void TaskMetadataMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     ::veins::BaseFrame1609_4::parsimUnpack(b);
     doParsimUnpacking(b,this->task_id);
     doParsimUnpacking(b,this->vehicle_id);
-    doParsimUnpacking(b,this->task_size_bytes);
+    doParsimUnpacking(b,this->mem_footprint_bytes);
     doParsimUnpacking(b,this->cpu_cycles);
     doParsimUnpacking(b,this->created_time);
     doParsimUnpacking(b,this->deadline_seconds);
@@ -257,14 +257,14 @@ void TaskMetadataMessage::setVehicle_id(const char * vehicle_id)
     this->vehicle_id = vehicle_id;
 }
 
-uint64_t TaskMetadataMessage::getTask_size_bytes() const
+uint64_t TaskMetadataMessage::getMem_footprint_bytes() const
 {
-    return this->task_size_bytes;
+    return this->mem_footprint_bytes;
 }
 
-void TaskMetadataMessage::setTask_size_bytes(uint64_t task_size_bytes)
+void TaskMetadataMessage::setMem_footprint_bytes(uint64_t mem_footprint_bytes)
 {
-    this->task_size_bytes = task_size_bytes;
+    this->mem_footprint_bytes = mem_footprint_bytes;
 }
 
 uint64_t TaskMetadataMessage::getCpu_cycles() const
@@ -404,7 +404,7 @@ class TaskMetadataMessageDescriptor : public omnetpp::cClassDescriptor
     enum FieldConstants {
         FIELD_task_id,
         FIELD_vehicle_id,
-        FIELD_task_size_bytes,
+        FIELD_mem_footprint_bytes,
         FIELD_cpu_cycles,
         FIELD_created_time,
         FIELD_deadline_seconds,
@@ -498,7 +498,7 @@ unsigned int TaskMetadataMessageDescriptor::getFieldTypeFlags(int field) const
     static unsigned int fieldTypeFlags[] = {
         FD_ISEDITABLE,    // FIELD_task_id
         FD_ISEDITABLE,    // FIELD_vehicle_id
-        FD_ISEDITABLE,    // FIELD_task_size_bytes
+        FD_ISEDITABLE,    // FIELD_mem_footprint_bytes
         FD_ISEDITABLE,    // FIELD_cpu_cycles
         FD_ISEDITABLE,    // FIELD_created_time
         FD_ISEDITABLE,    // FIELD_deadline_seconds
@@ -527,7 +527,7 @@ const char *TaskMetadataMessageDescriptor::getFieldName(int field) const
     static const char *fieldNames[] = {
         "task_id",
         "vehicle_id",
-        "task_size_bytes",
+        "mem_footprint_bytes",
         "cpu_cycles",
         "created_time",
         "deadline_seconds",
@@ -551,7 +551,7 @@ int TaskMetadataMessageDescriptor::findField(const char *fieldName) const
     int baseIndex = base ? base->getFieldCount() : 0;
     if (strcmp(fieldName, "task_id") == 0) return baseIndex + 0;
     if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 1;
-    if (strcmp(fieldName, "task_size_bytes") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "mem_footprint_bytes") == 0) return baseIndex + 2;
     if (strcmp(fieldName, "cpu_cycles") == 0) return baseIndex + 3;
     if (strcmp(fieldName, "created_time") == 0) return baseIndex + 4;
     if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 5;
@@ -579,7 +579,7 @@ const char *TaskMetadataMessageDescriptor::getFieldTypeString(int field) const
     static const char *fieldTypeStrings[] = {
         "string",    // FIELD_task_id
         "string",    // FIELD_vehicle_id
-        "uint64_t",    // FIELD_task_size_bytes
+        "uint64_t",    // FIELD_mem_footprint_bytes
         "uint64_t",    // FIELD_cpu_cycles
         "double",    // FIELD_created_time
         "double",    // FIELD_deadline_seconds
@@ -679,7 +679,7 @@ std::string TaskMetadataMessageDescriptor::getFieldValueAsString(omnetpp::any_pt
     switch (field) {
         case FIELD_task_id: return oppstring2string(pp->getTask_id());
         case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
-        case FIELD_task_size_bytes: return uint642string(pp->getTask_size_bytes());
+        case FIELD_mem_footprint_bytes: return uint642string(pp->getMem_footprint_bytes());
         case FIELD_cpu_cycles: return uint642string(pp->getCpu_cycles());
         case FIELD_created_time: return double2string(pp->getCreated_time());
         case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
@@ -711,7 +711,7 @@ void TaskMetadataMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr objec
     switch (field) {
         case FIELD_task_id: pp->setTask_id((value)); break;
         case FIELD_vehicle_id: pp->setVehicle_id((value)); break;
-        case FIELD_task_size_bytes: pp->setTask_size_bytes(string2uint64(value)); break;
+        case FIELD_mem_footprint_bytes: pp->setMem_footprint_bytes(string2uint64(value)); break;
         case FIELD_cpu_cycles: pp->setCpu_cycles(string2uint64(value)); break;
         case FIELD_created_time: pp->setCreated_time(string2double(value)); break;
         case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
@@ -741,7 +741,7 @@ omnetpp::cValue TaskMetadataMessageDescriptor::getFieldValue(omnetpp::any_ptr ob
     switch (field) {
         case FIELD_task_id: return pp->getTask_id();
         case FIELD_vehicle_id: return pp->getVehicle_id();
-        case FIELD_task_size_bytes: return (omnetpp::intval_t)(pp->getTask_size_bytes());
+        case FIELD_mem_footprint_bytes: return (omnetpp::intval_t)(pp->getMem_footprint_bytes());
         case FIELD_cpu_cycles: return (omnetpp::intval_t)(pp->getCpu_cycles());
         case FIELD_created_time: return pp->getCreated_time();
         case FIELD_deadline_seconds: return pp->getDeadline_seconds();
@@ -773,7 +773,7 @@ void TaskMetadataMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int f
     switch (field) {
         case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
         case FIELD_vehicle_id: pp->setVehicle_id(value.stringValue()); break;
-        case FIELD_task_size_bytes: pp->setTask_size_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_mem_footprint_bytes: pp->setMem_footprint_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_cpu_cycles: pp->setCpu_cycles(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_created_time: pp->setCreated_time(value.doubleValue()); break;
         case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
@@ -2997,7 +2997,7 @@ void OffloadingRequestMessage::copy(const OffloadingRequestMessage& other)
     this->task_id = other.task_id;
     this->vehicle_id = other.vehicle_id;
     this->request_time = other.request_time;
-    this->task_size_bytes = other.task_size_bytes;
+    this->mem_footprint_bytes = other.mem_footprint_bytes;
     this->cpu_cycles = other.cpu_cycles;
     this->deadline_seconds = other.deadline_seconds;
     this->qos_value = other.qos_value;
@@ -3019,7 +3019,7 @@ void OffloadingRequestMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->task_id);
     doParsimPacking(b,this->vehicle_id);
     doParsimPacking(b,this->request_time);
-    doParsimPacking(b,this->task_size_bytes);
+    doParsimPacking(b,this->mem_footprint_bytes);
     doParsimPacking(b,this->cpu_cycles);
     doParsimPacking(b,this->deadline_seconds);
     doParsimPacking(b,this->qos_value);
@@ -3041,7 +3041,7 @@ void OffloadingRequestMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->task_id);
     doParsimUnpacking(b,this->vehicle_id);
     doParsimUnpacking(b,this->request_time);
-    doParsimUnpacking(b,this->task_size_bytes);
+    doParsimUnpacking(b,this->mem_footprint_bytes);
     doParsimUnpacking(b,this->cpu_cycles);
     doParsimUnpacking(b,this->deadline_seconds);
     doParsimUnpacking(b,this->qos_value);
@@ -3096,14 +3096,14 @@ void OffloadingRequestMessage::setRequest_time(double request_time)
     this->request_time = request_time;
 }
 
-uint64_t OffloadingRequestMessage::getTask_size_bytes() const
+uint64_t OffloadingRequestMessage::getMem_footprint_bytes() const
 {
-    return this->task_size_bytes;
+    return this->mem_footprint_bytes;
 }
 
-void OffloadingRequestMessage::setTask_size_bytes(uint64_t task_size_bytes)
+void OffloadingRequestMessage::setMem_footprint_bytes(uint64_t mem_footprint_bytes)
 {
-    this->task_size_bytes = task_size_bytes;
+    this->mem_footprint_bytes = mem_footprint_bytes;
 }
 
 uint64_t OffloadingRequestMessage::getCpu_cycles() const
@@ -3235,7 +3235,7 @@ class OffloadingRequestMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_task_id,
         FIELD_vehicle_id,
         FIELD_request_time,
-        FIELD_task_size_bytes,
+        FIELD_mem_footprint_bytes,
         FIELD_cpu_cycles,
         FIELD_deadline_seconds,
         FIELD_qos_value,
@@ -3330,7 +3330,7 @@ unsigned int OffloadingRequestMessageDescriptor::getFieldTypeFlags(int field) co
         FD_ISEDITABLE,    // FIELD_task_id
         FD_ISEDITABLE,    // FIELD_vehicle_id
         FD_ISEDITABLE,    // FIELD_request_time
-        FD_ISEDITABLE,    // FIELD_task_size_bytes
+        FD_ISEDITABLE,    // FIELD_mem_footprint_bytes
         FD_ISEDITABLE,    // FIELD_cpu_cycles
         FD_ISEDITABLE,    // FIELD_deadline_seconds
         FD_ISEDITABLE,    // FIELD_qos_value
@@ -3360,7 +3360,7 @@ const char *OffloadingRequestMessageDescriptor::getFieldName(int field) const
         "task_id",
         "vehicle_id",
         "request_time",
-        "task_size_bytes",
+        "mem_footprint_bytes",
         "cpu_cycles",
         "deadline_seconds",
         "qos_value",
@@ -3385,7 +3385,7 @@ int OffloadingRequestMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "task_id") == 0) return baseIndex + 1;
     if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 2;
     if (strcmp(fieldName, "request_time") == 0) return baseIndex + 3;
-    if (strcmp(fieldName, "task_size_bytes") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "mem_footprint_bytes") == 0) return baseIndex + 4;
     if (strcmp(fieldName, "cpu_cycles") == 0) return baseIndex + 5;
     if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 6;
     if (strcmp(fieldName, "qos_value") == 0) return baseIndex + 7;
@@ -3414,7 +3414,7 @@ const char *OffloadingRequestMessageDescriptor::getFieldTypeString(int field) co
         "string",    // FIELD_task_id
         "string",    // FIELD_vehicle_id
         "double",    // FIELD_request_time
-        "uint64_t",    // FIELD_task_size_bytes
+        "uint64_t",    // FIELD_mem_footprint_bytes
         "uint64_t",    // FIELD_cpu_cycles
         "double",    // FIELD_deadline_seconds
         "double",    // FIELD_qos_value
@@ -3515,7 +3515,7 @@ std::string OffloadingRequestMessageDescriptor::getFieldValueAsString(omnetpp::a
         case FIELD_task_id: return oppstring2string(pp->getTask_id());
         case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
         case FIELD_request_time: return double2string(pp->getRequest_time());
-        case FIELD_task_size_bytes: return uint642string(pp->getTask_size_bytes());
+        case FIELD_mem_footprint_bytes: return uint642string(pp->getMem_footprint_bytes());
         case FIELD_cpu_cycles: return uint642string(pp->getCpu_cycles());
         case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
         case FIELD_qos_value: return double2string(pp->getQos_value());
@@ -3547,7 +3547,7 @@ void OffloadingRequestMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr 
         case FIELD_task_id: pp->setTask_id((value)); break;
         case FIELD_vehicle_id: pp->setVehicle_id((value)); break;
         case FIELD_request_time: pp->setRequest_time(string2double(value)); break;
-        case FIELD_task_size_bytes: pp->setTask_size_bytes(string2uint64(value)); break;
+        case FIELD_mem_footprint_bytes: pp->setMem_footprint_bytes(string2uint64(value)); break;
         case FIELD_cpu_cycles: pp->setCpu_cycles(string2uint64(value)); break;
         case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
         case FIELD_qos_value: pp->setQos_value(string2double(value)); break;
@@ -3578,7 +3578,7 @@ omnetpp::cValue OffloadingRequestMessageDescriptor::getFieldValue(omnetpp::any_p
         case FIELD_task_id: return pp->getTask_id();
         case FIELD_vehicle_id: return pp->getVehicle_id();
         case FIELD_request_time: return pp->getRequest_time();
-        case FIELD_task_size_bytes: return (omnetpp::intval_t)(pp->getTask_size_bytes());
+        case FIELD_mem_footprint_bytes: return (omnetpp::intval_t)(pp->getMem_footprint_bytes());
         case FIELD_cpu_cycles: return (omnetpp::intval_t)(pp->getCpu_cycles());
         case FIELD_deadline_seconds: return pp->getDeadline_seconds();
         case FIELD_qos_value: return pp->getQos_value();
@@ -3610,7 +3610,7 @@ void OffloadingRequestMessageDescriptor::setFieldValue(omnetpp::any_ptr object, 
         case FIELD_task_id: pp->setTask_id(value.stringValue()); break;
         case FIELD_vehicle_id: pp->setVehicle_id(value.stringValue()); break;
         case FIELD_request_time: pp->setRequest_time(value.doubleValue()); break;
-        case FIELD_task_size_bytes: pp->setTask_size_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_mem_footprint_bytes: pp->setMem_footprint_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_cpu_cycles: pp->setCpu_cycles(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
         case FIELD_qos_value: pp->setQos_value(value.doubleValue()); break;
@@ -4249,7 +4249,7 @@ void TaskOffloadPacket::copy(const TaskOffloadPacket& other)
     this->origin_vehicle_id = other.origin_vehicle_id;
     this->origin_vehicle_mac = other.origin_vehicle_mac;
     this->offload_time = other.offload_time;
-    this->task_size_bytes = other.task_size_bytes;
+    this->mem_footprint_bytes = other.mem_footprint_bytes;
     this->cpu_cycles = other.cpu_cycles;
     this->deadline_seconds = other.deadline_seconds;
     this->qos_value = other.qos_value;
@@ -4263,7 +4263,7 @@ void TaskOffloadPacket::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->origin_vehicle_id);
     doParsimPacking(b,this->origin_vehicle_mac);
     doParsimPacking(b,this->offload_time);
-    doParsimPacking(b,this->task_size_bytes);
+    doParsimPacking(b,this->mem_footprint_bytes);
     doParsimPacking(b,this->cpu_cycles);
     doParsimPacking(b,this->deadline_seconds);
     doParsimPacking(b,this->qos_value);
@@ -4277,7 +4277,7 @@ void TaskOffloadPacket::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->origin_vehicle_id);
     doParsimUnpacking(b,this->origin_vehicle_mac);
     doParsimUnpacking(b,this->offload_time);
-    doParsimUnpacking(b,this->task_size_bytes);
+    doParsimUnpacking(b,this->mem_footprint_bytes);
     doParsimUnpacking(b,this->cpu_cycles);
     doParsimUnpacking(b,this->deadline_seconds);
     doParsimUnpacking(b,this->qos_value);
@@ -4324,14 +4324,14 @@ void TaskOffloadPacket::setOffload_time(double offload_time)
     this->offload_time = offload_time;
 }
 
-uint64_t TaskOffloadPacket::getTask_size_bytes() const
+uint64_t TaskOffloadPacket::getMem_footprint_bytes() const
 {
-    return this->task_size_bytes;
+    return this->mem_footprint_bytes;
 }
 
-void TaskOffloadPacket::setTask_size_bytes(uint64_t task_size_bytes)
+void TaskOffloadPacket::setMem_footprint_bytes(uint64_t mem_footprint_bytes)
 {
-    this->task_size_bytes = task_size_bytes;
+    this->mem_footprint_bytes = mem_footprint_bytes;
 }
 
 uint64_t TaskOffloadPacket::getCpu_cycles() const
@@ -4383,7 +4383,7 @@ class TaskOffloadPacketDescriptor : public omnetpp::cClassDescriptor
         FIELD_origin_vehicle_id,
         FIELD_origin_vehicle_mac,
         FIELD_offload_time,
-        FIELD_task_size_bytes,
+        FIELD_mem_footprint_bytes,
         FIELD_cpu_cycles,
         FIELD_deadline_seconds,
         FIELD_qos_value,
@@ -4470,7 +4470,7 @@ unsigned int TaskOffloadPacketDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_origin_vehicle_id
         FD_ISEDITABLE,    // FIELD_origin_vehicle_mac
         FD_ISEDITABLE,    // FIELD_offload_time
-        FD_ISEDITABLE,    // FIELD_task_size_bytes
+        FD_ISEDITABLE,    // FIELD_mem_footprint_bytes
         FD_ISEDITABLE,    // FIELD_cpu_cycles
         FD_ISEDITABLE,    // FIELD_deadline_seconds
         FD_ISEDITABLE,    // FIELD_qos_value
@@ -4492,7 +4492,7 @@ const char *TaskOffloadPacketDescriptor::getFieldName(int field) const
         "origin_vehicle_id",
         "origin_vehicle_mac",
         "offload_time",
-        "task_size_bytes",
+        "mem_footprint_bytes",
         "cpu_cycles",
         "deadline_seconds",
         "qos_value",
@@ -4509,7 +4509,7 @@ int TaskOffloadPacketDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "origin_vehicle_id") == 0) return baseIndex + 1;
     if (strcmp(fieldName, "origin_vehicle_mac") == 0) return baseIndex + 2;
     if (strcmp(fieldName, "offload_time") == 0) return baseIndex + 3;
-    if (strcmp(fieldName, "task_size_bytes") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "mem_footprint_bytes") == 0) return baseIndex + 4;
     if (strcmp(fieldName, "cpu_cycles") == 0) return baseIndex + 5;
     if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 6;
     if (strcmp(fieldName, "qos_value") == 0) return baseIndex + 7;
@@ -4530,7 +4530,7 @@ const char *TaskOffloadPacketDescriptor::getFieldTypeString(int field) const
         "string",    // FIELD_origin_vehicle_id
         "uint64_t",    // FIELD_origin_vehicle_mac
         "double",    // FIELD_offload_time
-        "uint64_t",    // FIELD_task_size_bytes
+        "uint64_t",    // FIELD_mem_footprint_bytes
         "uint64_t",    // FIELD_cpu_cycles
         "double",    // FIELD_deadline_seconds
         "double",    // FIELD_qos_value
@@ -4623,7 +4623,7 @@ std::string TaskOffloadPacketDescriptor::getFieldValueAsString(omnetpp::any_ptr 
         case FIELD_origin_vehicle_id: return oppstring2string(pp->getOrigin_vehicle_id());
         case FIELD_origin_vehicle_mac: return uint642string(pp->getOrigin_vehicle_mac());
         case FIELD_offload_time: return double2string(pp->getOffload_time());
-        case FIELD_task_size_bytes: return uint642string(pp->getTask_size_bytes());
+        case FIELD_mem_footprint_bytes: return uint642string(pp->getMem_footprint_bytes());
         case FIELD_cpu_cycles: return uint642string(pp->getCpu_cycles());
         case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
         case FIELD_qos_value: return double2string(pp->getQos_value());
@@ -4648,7 +4648,7 @@ void TaskOffloadPacketDescriptor::setFieldValueAsString(omnetpp::any_ptr object,
         case FIELD_origin_vehicle_id: pp->setOrigin_vehicle_id((value)); break;
         case FIELD_origin_vehicle_mac: pp->setOrigin_vehicle_mac(string2uint64(value)); break;
         case FIELD_offload_time: pp->setOffload_time(string2double(value)); break;
-        case FIELD_task_size_bytes: pp->setTask_size_bytes(string2uint64(value)); break;
+        case FIELD_mem_footprint_bytes: pp->setMem_footprint_bytes(string2uint64(value)); break;
         case FIELD_cpu_cycles: pp->setCpu_cycles(string2uint64(value)); break;
         case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
         case FIELD_qos_value: pp->setQos_value(string2double(value)); break;
@@ -4671,7 +4671,7 @@ omnetpp::cValue TaskOffloadPacketDescriptor::getFieldValue(omnetpp::any_ptr obje
         case FIELD_origin_vehicle_id: return pp->getOrigin_vehicle_id();
         case FIELD_origin_vehicle_mac: return (omnetpp::intval_t)(pp->getOrigin_vehicle_mac());
         case FIELD_offload_time: return pp->getOffload_time();
-        case FIELD_task_size_bytes: return (omnetpp::intval_t)(pp->getTask_size_bytes());
+        case FIELD_mem_footprint_bytes: return (omnetpp::intval_t)(pp->getMem_footprint_bytes());
         case FIELD_cpu_cycles: return (omnetpp::intval_t)(pp->getCpu_cycles());
         case FIELD_deadline_seconds: return pp->getDeadline_seconds();
         case FIELD_qos_value: return pp->getQos_value();
@@ -4696,7 +4696,7 @@ void TaskOffloadPacketDescriptor::setFieldValue(omnetpp::any_ptr object, int fie
         case FIELD_origin_vehicle_id: pp->setOrigin_vehicle_id(value.stringValue()); break;
         case FIELD_origin_vehicle_mac: pp->setOrigin_vehicle_mac(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_offload_time: pp->setOffload_time(value.doubleValue()); break;
-        case FIELD_task_size_bytes: pp->setTask_size_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_mem_footprint_bytes: pp->setMem_footprint_bytes(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_cpu_cycles: pp->setCpu_cycles(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
         case FIELD_qos_value: pp->setQos_value(value.doubleValue()); break;
