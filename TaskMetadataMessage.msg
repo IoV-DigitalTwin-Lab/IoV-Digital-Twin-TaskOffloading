@@ -16,7 +16,10 @@ packet TaskMetadataMessage extends BaseFrame1609_4 {
     string vehicle_id;           // Originating vehicle ID
     
     // Task Characteristics
-    uint64_t task_size_bytes;    // Memory footprint (D_task)
+    // mem_footprint_bytes: working memory reserved on the processing entity.
+    // Set to input_size_bytes; kept as a separate wire field so the RSU's
+    // admission-control and DB schema don't need to look up the profile.
+    uint64_t mem_footprint_bytes;    // Working memory footprint (= input_size_bytes for this task)
     uint64_t cpu_cycles;         // Required CPU cycles (C_task)
     
     // Timing Information
@@ -118,7 +121,7 @@ packet OffloadingRequestMessage extends BaseFrame1609_4 {
     double request_time;                 // When request was sent
     
     // Task Characteristics
-    uint64_t task_size_bytes;            // Task size
+    uint64_t mem_footprint_bytes;            // Task size
     uint64_t cpu_cycles;                 // Required CPU cycles
     double deadline_seconds;             // Task deadline
     double qos_value;                    // QoS priority
@@ -171,7 +174,7 @@ packet TaskOffloadPacket extends BaseFrame1609_4 {
     double offload_time;                 // When task was offloaded
     
     // Task Characteristics
-    uint64_t task_size_bytes;            // Task size
+    uint64_t mem_footprint_bytes;            // Task size
     uint64_t cpu_cycles;                 // Required CPU cycles
     double deadline_seconds;             // Task deadline
     double qos_value;                    // QoS priority

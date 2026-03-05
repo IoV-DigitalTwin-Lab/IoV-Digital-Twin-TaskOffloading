@@ -7,7 +7,7 @@ namespace complex_network {
 Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cycles, 
            double deadline_sec, double qos) 
     : vehicle_id(vid),
-      task_size_bytes(size),
+    mem_footprint_bytes(size),
       cpu_cycles(cycles),
       input_size_bytes(size),
       output_size_bytes(0),
@@ -102,7 +102,7 @@ void Task::logTaskInfo(const std::string& prefix) const {
     EV_INFO << "├────────────────────────────────────────────────────────────────────┤" << endl;
     EV_INFO << "│ Task ID:          " << std::setw(48) << task_id << "│" << endl;
     EV_INFO << "│ State:            " << std::setw(48) << getStateString() << "│" << endl;
-    EV_INFO << "│ Task Size:        " << std::setw(38) << (task_size_bytes / 1024.0) << " KB    │" << endl;
+    EV_INFO << "│ Task Size:        " << std::setw(38) << (mem_footprint_bytes / 1024.0) << " KB    │" << endl;
     EV_INFO << "│ CPU Cycles:       " << std::setw(38) << (cpu_cycles / 1e9) << " G      │" << endl;
     EV_INFO << "│ Cycles Executed:  " << std::setw(38) << (cpu_cycles_executed / 1e9) << " G      │" << endl;
     EV_INFO << "│ Cycles Remaining: " << std::setw(38) << (getRemainingCycles() / 1e9) << " G      │" << endl;
@@ -131,7 +131,7 @@ Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
     : vehicle_id(vid),
       type(task_type),
       is_profile_task(true),
-      task_size_bytes(input_size),
+    mem_footprint_bytes(input_size),
       cpu_cycles(cycles),
       input_size_bytes(input_size),
       output_size_bytes(output_size),

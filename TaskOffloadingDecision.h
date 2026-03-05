@@ -41,6 +41,10 @@ struct DecisionContext {
     double estimated_rsu_rssi;       // Signal strength (dBm)
     double estimated_transmission_time; // Time to send task data (s)
     
+    // RSU edge-compute load
+    int rsu_processing_count = 0;    // Tasks currently executing on the RSU
+    int rsu_max_concurrent   = 16;   // RSU admission ceiling (from RSU config / default)
+    
     // Performance history
     double local_success_rate;       // Historical success rate for local exec
     double offload_success_rate;     // Historical success rate for offloading
@@ -117,25 +121,8 @@ public:
     OffloadingDecision makeDecision(const DecisionContext& context) override;
     
     // Configuration parameters
-    void setLocalCpuThreshold(double threshold) { local_cpu_threshold = threshold; }
-    void setQueueLengthThreshold(int threshold) { queue_length_threshold = threshold; }
-    void setRssiThreshold(double threshold) { rssi_threshold = threshold; }
-    void setMaxRsuDistance(double distance) { max_rsu_distance = distance; }
-    
-private:
-    // Thresholds for decision making
-    double local_cpu_threshold;      // Min CPU required for local exec (GHz)
-    int queue_length_threshold;      // Max queue length for local exec
-    double rssi_threshold;           // Min RSSI for offloading (dBm)
-    double max_rsu_distance;         // Max distance for offloading (m)
-    double critical_qos_threshold;   // QoS threshold for critical tasks
-    
-    // Decision logic helpers
-    bool isTaskCritical(const DecisionContext& context);
-    bool hasLocalCapacity(const DecisionContext& context);
-    bool hasGoodNetwork(const DecisionContext& context);
-    double calculateLocalScore(const DecisionContext& context);
-    double calculateOffloadScore(const DecisionContext& context);
+    // No additional configuration needed for the simple 3-rule placeholder.
+    // Thresholds / helper methods will be re-introduced when DRL replaces this.
 };
 
 /**

@@ -137,18 +137,19 @@ private:
 // ============================================================================
 
 // Periodic task generation intervals (seconds)
-// Chosen for practical IoV load: 51 vehicles × rates below ≈ RSU near-saturation.
+// Calibrated for practical IoV load (5-51 vehicles).
+// Total offloadable task rate per vehicle ≈ 1.6/s → manageable RSU load.
 namespace TaskPeriods {
-    constexpr double LOCAL_OBJECT_DETECTION = 0.100;      // 100ms (10 Hz) — on-board sensing, NOT offloaded
-    constexpr double COOPERATIVE_PERCEPTION = 2.000;      // 2s (0.5 Hz)  — V2V fusion, offloaded
-    constexpr double ROUTE_OPTIMIZATION     = 5.000;      // 5s (0.2 Hz)  — path planning, offloaded
-    constexpr double SENSOR_HEALTH_CHECK    = 10.0;       // 10s          — background, offloaded
-    constexpr double FLEET_TRAFFIC_BATCH    = 60.0;       // 60s          — batch ML, offloaded
+    constexpr double LOCAL_OBJECT_DETECTION = 0.200;      // 200ms (5 Hz)  — ADAS camera/LiDAR fusion; 10Hz excessive for sim
+    constexpr double COOPERATIVE_PERCEPTION = 1.000;      // 1s   (1 Hz)   — V2X CAM standard; 2s is too slow for fusion
+    constexpr double ROUTE_OPTIMIZATION     = 5.000;      // 5s   (0.2 Hz) — route replanning every 5s, practical for navigation
+    constexpr double SENSOR_HEALTH_CHECK    = 15.0;       // 15s           — background diagnostics, very low priority
+    constexpr double FLEET_TRAFFIC_BATCH    = 30.0;       // 30s           — batch ML; 60s too coarse for typical sim runs
 }
 
 // Poisson task rates (tasks/second, lambda parameter)
 namespace TaskRates {
-    constexpr double VOICE_COMMAND_PROCESSING = 0.2;      // 1 task per 5 seconds
+    constexpr double VOICE_COMMAND_PROCESSING = 0.25;     // 1 task per 4s — slightly more frequent than 5s for realism
 }
 
 // Task priorities (mapped to QoS values)
