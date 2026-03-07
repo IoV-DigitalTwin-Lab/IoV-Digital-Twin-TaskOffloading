@@ -1,3 +1,4 @@
+import org.car2x.veins.nodes.RSU;
 import org.car2x.veins.nodes.TrafficLight;
 import org.car2x.veins.nodes.Car;
 import org.car2x.veins.base.connectionManager.ConnectionManager;
@@ -13,8 +14,6 @@ import inet.physicallayer.wireless.ieee80211.packetlevel.Ieee80211ScalarRadioMed
 import inet.environment.common.PhysicalEnvironment;
 import inet.physicallayer.wireless.common.obstacleloss.DielectricObstacleLoss;
 import inet.visualizer.canvas.integrated.IntegratedCanvasVisualizer;
-import inet.node.ethernet.Eth1G;
-import EthernetRSU;
 
 // Phase 4: Enhanced network with advanced environmental modeling and visualization
 // NOTE: Does not extend Scenario to use regular TraCIScenarioManager (supports all SUMO versions)
@@ -79,8 +78,7 @@ network ComplexNetwork
             @display("p=50,350;i=block/app2;is=l");
         }
         
-        rsu[3]: EthernetRSU {
-            numEthInterfaces = 2;  // Each RSU connects to 2 others (full mesh)
+        rsu[3]: RSU {
             @display("p=150,140;i=device/antennatower;is=l;t=RSU");
         }
 
@@ -89,9 +87,4 @@ network ComplexNetwork
         }
         
     connections allowunconnected:
-        // Wired Ethernet backhaul mesh (1Gbps links with ~1-5ms latency)
-        // Full mesh topology: each RSU connects to every other RSU
-        rsu[0].ethg[0] <--> Eth1G <--> rsu[1].ethg[0];  // RSU0 <-> RSU1
-        rsu[0].ethg[1] <--> Eth1G <--> rsu[2].ethg[0];  // RSU0 <-> RSU2
-        rsu[1].ethg[1] <--> Eth1G <--> rsu[2].ethg[1];  // RSU1 <-> RSU2
 }

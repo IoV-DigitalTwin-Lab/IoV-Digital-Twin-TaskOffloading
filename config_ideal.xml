@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <!-- Obstacle-free PHY model for wired-like wireless behavior -->
+    <AnalogueModels>
+        <AnalogueModel type="SimplePathlossModel">
+            <parameter name="alpha" type="double" value="2.0"/>
+            <parameter name="carrierFrequency" type="double" value="5.89e9"/>
+        </AnalogueModel>
+    </AnalogueModels>
+
+    <Decider type="Decider80211p">
+        <parameter name="centerFrequency" type="double" value="5.890e9"/>
+        <parameter name="sensitivity" type="double" value="-85dBm"/>
+        <parameter name="busyThreshold" type="double" value="-62dBm"/>
+    </Decider>
+</root>

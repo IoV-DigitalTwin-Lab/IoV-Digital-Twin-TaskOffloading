@@ -6,6 +6,12 @@
 #include <iomanip>
 #include <cmath>
 
+// INET packet includes for UDP communication
+#include "inet/common/packet/Packet.h"
+#include "inet/common/packet/chunk/BytesChunk.h"
+#include "inet/common/TagBase_m.h"
+#include "inet/networklayer/contract/ipv4/Ipv4Address.h"
+
 using namespace veins;
 
 namespace complex_network {
@@ -69,6 +75,12 @@ void MyRSUApp::initialize(int stage) {
         ml_model_enabled = par("mlModelEnabled").boolValue();
         decision_strategy = par("decisionStrategy").stdstringValue();
         
+        // Initialize wired Ethernet backhaul
+        wired_backhaul_enabled = par("wiredBackhaulEnabled").boolValue();
+        // NOTE: Wired backhaul via Ethernet disabled for now (INET stack complexity)
+        // RSU-to-RSU communication falls back to Redis or wireless broadcast
+        wired_backhaul_enabled = false;  // Force disable for now
+        
         // Insert RSU metadata (static info) once at initialization
         insertRSUMetadata();
         
@@ -131,9 +143,11 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         sendRSUStatusUpdate();
     }
     else if (msg == rsu_broadcast_timer) {
-        // RSU-to-RSU state sharing: prefer Redis-backed wired abstraction,
-        // fallback to wireless broadcast when Redis is unavailable.
-        if (redis_twin && use_redis && redis_twin->isConnected()) {
+        // RSU-to-RSU state sharing: prioritize wired Ethernet backhaul,
+        // fallback to Redis, then wireless broadcast as last resort.
+        if (wired_backhaul_enabled) {
+            sendRSUStatusViaEthernet();
+        } else if (redis_twin && use_redis && redis_twin->isConnected()) {
             syncNeighborStatesFromRedis();
         } else {
             broadcastRSUStatus();
@@ -502,6 +516,14 @@ void MyRSUApp::finish() {
 void MyRSUApp::handleMessage(cMessage* msg) {
     std::cout << "CONSOLE: MyRSUApp handleMessage() called with message: " << msg->getName()
               << " at time " << simTime() << std::endl;
+
+    // ========================================================================
+    // HANDLE UDP PACKETS (Ethernet backhaul)
+    // ========================================================================
+        if (wired_backhaul_enabled && msg->arrivedOn("udpIn")) {
+        handleUdpData(msg);
+        return;
+    }
 
     // ========================================================================
     // HANDLE OFFLOADING REQUEST MESSAGES
@@ -2895,6 +2917,208 @@ void MyRSUApp::cleanupStaleNeighborStates() {
     if (removed > 0) {
         EV_DEBUG << "Cleaned up " << removed << " stale neighbor state(s)" << endl;
     }
+}
+
+// ============================================================================
+// WIRED ETHERNET BACKHAUL IMPLEMENTATION
+// ============================================================================
+
+void MyRSUApp::initializeWiredBackhaul() {
+    EV_INFO << "🔌 Initializing wired Ethernet backhaul for RSU[" << rsu_id << "]" << endl;
+    
+    // Bind UDP socket to local port
+    udp_socket.setOutputGate(gate("udpOut"));
+    udp_socket.bind(local_udp_port);
+    
+    // Discover IP addresses of all RSUs in the network
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        EV_ERROR << "Cannot find network module for IP address discovery" << endl;
+        wired_backhaul_enabled = false;
+        return;
+    }
+    
+    // Get RSU count from network configuration
+    int rsu_count = 3;  // TODO: Make this configurable
+    
+    for (int i = 0; i < rsu_count; i++) {
+        if (i == rsu_id) continue;  // Skip ourselves
+
+        cModule* rsu_module = networkModule->getSubmodule("rsu", i);
+        if (!rsu_module) {
+            EV_WARN << "  ⚠ RSU[" << i << "] module not found during neighbor discovery" << endl;
+            continue;
+        }
+
+        // Use deterministic static addressing from omnetpp.ini (10.0.0.(index+1))
+        std::string ip = "10.0.0." + std::to_string(i + 1);
+        inet::L3Address addr(inet::Ipv4Address(ip.c_str()));
+        rsu_ip_addresses[i] = addr;
+
+        EV_INFO << "  📍 Discovered RSU[" << i << "] at " << addr.str() << endl;
+        std::cout << "✓ RSU[" << rsu_id << "] discovered RSU[" << i << "] at "
+                  << addr.str() << ":" << dest_udp_port << std::endl;
+    }
+    
+    EV_INFO << "✓ Wired backhaul initialized: " << rsu_ip_addresses.size() 
+            << " neighbor RSUs discovered" << endl;
+    std::cout << "✓ RSU[" << rsu_id << "] Ethernet backhaul initialized with " 
+              << rsu_ip_addresses.size() << " neighbors" << std::endl;
+}
+
+void MyRSUApp::sendRSUStatusViaEthernet() {
+    if (rsu_ip_addresses.empty()) {
+        EV_WARN << "No neighbor RSUs discovered, falling back to wireless" << endl;
+        broadcastRSUStatus();
+        return;
+    }
+    
+    EV_DEBUG << "📤 Sending RSU status via Ethernet to " << rsu_ip_addresses.size() << " neighbors" << endl;
+    
+    // Create status message with current RSU state
+    auto* status_msg = new veins::RSUStatusBroadcastMessage();
+    std::string our_rsu_id = "RSU_" + std::to_string(rsu_id);
+    status_msg->setRsu_id(our_rsu_id.c_str());
+    status_msg->setRsu_mac(myId);
+    status_msg->setBroadcast_time(simTime().dbl());
+    
+    // Resource state
+    status_msg->setQueue_length(rsu_queue_length);
+    status_msg->setProcessing_count(rsu_processing_count);
+    status_msg->setMax_concurrent_tasks(rsu_max_concurrent);
+    status_msg->setCpu_available_ghz(rsu_cpu_available);
+    status_msg->setCpu_total_ghz(rsu_cpu_total);
+    status_msg->setMemory_available_gb(rsu_memory_available);
+    status_msg->setMemory_total_gb(rsu_memory_total);
+    
+    // Vehicle coverage (limit list size)
+    std::vector<std::string> vehicle_ids;
+    for (const auto& twin_pair : vehicle_twins) {
+        if (vehicle_ids.size() >= static_cast<size_t>(max_vehicles_in_broadcast)) break;
+        vehicle_ids.push_back(twin_pair.first);
+    }
+    status_msg->setVehicle_ids_in_coverageArraySize(vehicle_ids.size());
+    for (size_t i = 0; i < vehicle_ids.size(); i++) {
+        status_msg->setVehicle_ids_in_coverage(i, vehicle_ids[i].c_str());
+    }
+    status_msg->setVehicle_count(vehicle_twins.size());
+    
+    // Position
+    status_msg->setPos_x(curPosition.x);
+    status_msg->setPos_y(curPosition.y);
+    
+    // Send to each neighbor via UDP
+    for (const auto& [neighbor_id, neighbor_addr] : rsu_ip_addresses) {
+        auto* msg_copy = status_msg->dup();
+        msg_copy->setName("RSUStatusEthernet");
+        
+        // Create INET Packet and encapsulate Veins message
+        inet::Packet* packet = new inet::Packet("RSUStatusPacket");
+        packet->encapsulate(msg_copy);
+        
+        udp_socket.sendTo(packet, neighbor_addr, dest_udp_port);
+        
+        EV_DEBUG << "  → Sent to RSU[" << neighbor_id << "] at " << neighbor_addr.str() << endl;
+    }
+    
+    delete status_msg;
+}
+
+void MyRSUApp::handleUdpData(cMessage* msg) {
+    EV_DEBUG << "📥 Received UDP message: " << msg->getName() << endl;
+    
+    // Extract Veins message from INET Packet
+    inet::Packet* packet = dynamic_cast<inet::Packet*>(msg);
+    if (packet) {
+        // Decapsulate the Veins message
+        cMessage* encap_msg = packet->decapsulate();
+        veins::RSUStatusBroadcastMessage* status_msg = 
+            dynamic_cast<veins::RSUStatusBroadcastMessage*>(encap_msg);
+        
+        if (status_msg) {
+            processRSUStatusFromEthernet(status_msg);
+            delete status_msg;
+        } else if (encap_msg) {
+            EV_WARN << "Received unknown encapsulated message type: " << encap_msg->getClassName() << endl;
+            delete encap_msg;
+        }
+        
+        delete packet;
+    } else {
+        EV_WARN << "Received non-packet UDP message: " << msg->getClassName() << endl;
+        delete msg;
+    }
+}
+
+void MyRSUApp::processRSUStatusFromEthernet(cMessage* msg) {
+    veins::RSUStatusBroadcastMessage* status_msg = 
+        dynamic_cast<veins::RSUStatusBroadcastMessage*>(msg);
+    
+    if (!status_msg) {
+        return;
+    }
+    
+    std::string neighbor_rsu_id = status_msg->getRsu_id();
+    std::string our_rsu_id = "RSU_" + std::to_string(rsu_id);
+    
+    // Don't process our own messages (shouldn't happen, but safety check)
+    if (neighbor_rsu_id == our_rsu_id) {
+        return;
+    }
+    
+    EV_DEBUG << "📥 Processing Ethernet status from " << neighbor_rsu_id << endl;
+    
+    EV_DEBUG << "📥 Processing Ethernet status from " << neighbor_rsu_id << endl;
+    
+    // Build neighbor state structure
+    RSUNeighborState state;
+    state.rsu_id = neighbor_rsu_id;
+    state.rsu_mac = status_msg->getRsu_mac();
+    state.last_update_time = simTime().dbl();
+    
+    state.queue_length = status_msg->getQueue_length();
+    state.processing_count = status_msg->getProcessing_count();
+    state.max_concurrent_tasks = status_msg->getMax_concurrent_tasks();
+    state.cpu_available_ghz = status_msg->getCpu_available_ghz();
+    state.cpu_total_ghz = status_msg->getCpu_total_ghz();
+    state.memory_available_gb = status_msg->getMemory_available_gb();
+    state.memory_total_gb = status_msg->getMemory_total_gb();
+    
+    state.vehicle_count = status_msg->getVehicle_count();
+    state.vehicle_ids_in_coverage.clear();
+    for (size_t i = 0; i < status_msg->getVehicle_ids_in_coverageArraySize(); i++) {
+        state.vehicle_ids_in_coverage.push_back(status_msg->getVehicle_ids_in_coverage(i));
+    }
+    
+    state.pos_x = status_msg->getPos_x();
+    state.pos_y = status_msg->getPos_y();
+    
+    // Compute derived metrics
+    double cpu_util = (state.cpu_total_ghz > 0) ? 
+                      ((state.cpu_total_ghz - state.cpu_available_ghz) / state.cpu_total_ghz) : 0.0;
+    state.load_factor = cpu_util;
+    
+    state.is_overloaded = (state.queue_length >= (state.max_concurrent_tasks * overload_queue_threshold)) ||
+                          (state.processing_count >= state.max_concurrent_tasks) ||
+                          (state.cpu_available_ghz < (state.cpu_total_ghz * overload_cpu_headroom));
+    
+    // Update neighbor cache
+    updateNeighborState(state);
+    
+    EV_INFO << "✓ Ethernet: Updated neighbor " << neighbor_rsu_id 
+            << " [Q:" << state.queue_length << "/" << state.max_concurrent_tasks
+            << ", CPU:" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << "GHz"
+            << ", Load:" << (int)(state.load_factor * 100) << "%"
+            << ", Overloaded:" << (state.is_overloaded ? "YES" : "NO") << "]" << endl;
+    
+    std::cout << "🔗 RSU[" << rsu_id << "] Ethernet update from " << neighbor_rsu_id 
+              << ": Q=" << state.queue_length 
+              << ", P=" << state.processing_count
+              << ", CPU=" << std::fixed << std::setprecision(1) << state.cpu_available_ghz << "GHz"
+              << ", Load=" << (int)(state.load_factor * 100) << "%"
+              << ", Overloaded=" << (state.is_overloaded ? "YES" : "NO") << std::endl;
+    
+    // Note: Message is managed by caller (handleUdpData), don't delete here
 }
 
 

@@ -1,8 +1,6 @@
 import org.car2x.veins.nodes.RSU;
-import inet.node.ethernet.EthernetInterface;
-import inet.networklayer.ipv4.Ipv4NetworkLayer;
+import inet.linklayer.ethernet.EthernetInterface;
 import inet.networklayer.common.InterfaceTable;
-import inet.transportlayer.udp.Udp;
 
 //
 // EthernetRSU - RSU with wired Ethernet backhaul for inter-RSU communication
@@ -11,48 +9,25 @@ import inet.transportlayer.udp.Udp;
 module EthernetRSU extends RSU
 {
     parameters:
+        @networkNode;
         @display("i=device/antennatower;bgb=600,400");
         
-        // Number of Ethernet interfaces (for mesh topology)
-        int numEthInterfaces = default(2);
-        
     gates:
-        inout ethg[numEthInterfaces] @labels(EthernetFrame);  // Ethernet gates for wired backhaul
+        inout ethg @labels(EthernetFrame);  // Ethernet gate for physical backhaul connection
         
     submodules:
-        // Interface table required for IP routing
+        // Interface table for Ethernet MAC learning
         interfaceTable: InterfaceTable {
             @display("p=100,300;is=s");
         }
         
-        // Network layer for IP addressing
-        ipv4: Ipv4NetworkLayer {
-            @display("p=200,250");
-        }
-        
-        // UDP for lightweight application-level messaging
-        udp: Udp {
-            @display("p=200,175");
-        }
-        
-        // Ethernet interfaces for wired backhaul
-        eth[numEthInterfaces]: EthernetInterface {
-            @display("p=300,300,row,100;q=txQueue");
+        // Ethernet interface for wired backhaul
+        eth: EthernetInterface {
+            interfaceTableModule = default("^.interfaceTable");
+            @display("p=300,300;q=txQueue");
         }
         
     connections:
-        // Connect application layer to UDP
-        appl.lowerControlOut --> udp.appIn++ if exists(appl);
-        appl.lowerControlIn <-- udp.appOut++ if exists(appl);
-        
-        // Connect UDP to network layer
-        udp.ipOut --> ipv4.transportIn++;
-        udp.ipIn <-- ipv4.transportOut++;
-        
-        // Connect network layer to Ethernet interfaces
-        for i=0..numEthInterfaces-1 {
-            ipv4.ifOut++ --> eth[i].upperLayerIn;
-            ipv4.ifIn++ <-- eth[i].upperLayerOut;
-            eth[i].phys <--> ethg[i];
-        }
+        // Physical Ethernet connection to backhaul switch
+        eth.phys <--> ethg;
 }
