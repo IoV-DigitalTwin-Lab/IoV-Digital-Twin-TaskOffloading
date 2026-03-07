@@ -213,6 +213,9 @@ private:
     void sendTaskToRSU(Task* task);
     void sendTaskToServiceVehicle(Task* task, const std::string& serviceVehicleId, veins::LAddress::L2Type serviceMac);
     void handleTaskResult(veins::TaskResultMessage* msg);
+    void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
+                                   const std::string& sourceEntity, const std::string& targetEntity,
+                                   const std::string& details);
     void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType, 
                                   const std::string& sourceEntity, const std::string& targetEntity);
     void sendTaskCompletionToRSU(Task* task, bool success, const std::string& failureReason = "");

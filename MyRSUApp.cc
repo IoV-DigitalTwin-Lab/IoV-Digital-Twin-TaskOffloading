@@ -1713,11 +1713,18 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     if (decision) {
         // Store decision in Digital Twin database
         insertOffloadingDecision(task_id, decision);
-        
+        insertLifecycleEvent(task_id, "DECISION_MADE",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\","
+            "\"confidence\":" + std::to_string(decision->getConfidence_score()) + "}");
+
         // Send decision back to vehicle
         populateWSM(decision, request.vehicle_mac);
         sendDown(decision);
-        
+        insertLifecycleEvent(task_id, "DECISION_SENT",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
+
         EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
         std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id 
                   << ": " << decision->getDecision_type() << std::endl;
@@ -1954,6 +1961,11 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     pending.cpu_allocated_hz      = cpu_per_task_Hz;
     pending.completion_event      = completeMsg;
     rsuPendingTasks[task_id]      = pending;
+    insertLifecycleEvent(task_id, "RSU_PROCESSING_STARTED",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"exec_time_s\":" + std::to_string(exec_time) + ","
+        "\"concurrent\":" + std::to_string(concurrent) + ","
+        "\"cpu_per_task_ghz\":" + std::to_string(cpu_per_task_Hz/1e9) + "}");
 
     EV_INFO << "⚙️ RSU: Task " << task_id << " accepted for edge processing" << endl;
     EV_INFO << "  Edge CPU: " << edgeCPU_GHz << " GHz / " << concurrent
@@ -2026,10 +2038,42 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
     // Send to vehicle
     populateWSM(result, vehicle_mac);
     sendDown(result);
-    
+    insertLifecycleEvent(task_id, "RSU_RESULT_SENT",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"success\":" + std::string(success ? "true" : "false") + ","
+        "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+
     std::cout << "RSU_RESULT: Sent task result for " << task_id
               << " to vehicle " << vehicle_id
               << " (processing_time=" << processing_time << "s)" << std::endl;
+}
+
+void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
+                                     const std::string& source, const std::string& target,
+                                     const std::string& details) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::string rsu_id_str   = std::to_string(rsu_id);
+    std::string event_time_s = std::to_string(simTime().dbl());
+
+    const char* paramValues[7] = {
+        task_id.c_str(), event_type.c_str(), event_time_s.c_str(),
+        source.c_str(),  target.c_str(),     rsu_id_str.c_str(), details.c_str()
+    };
+    const char* query =
+        "INSERT INTO task_offloading_events "
+        "(task_id, event_type, event_time, source_entity_id, target_entity_id, rsu_id, event_details) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
+    } else {
+        std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
+                  << " (" << source << "->" << target << ")" << std::endl;
+    }
+    PQclear(res);
 }
 
 void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
