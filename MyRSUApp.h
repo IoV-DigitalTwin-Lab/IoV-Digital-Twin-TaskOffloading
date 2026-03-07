@@ -298,7 +298,8 @@ private:
     // ML-based decision engine
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
     std::string selectBestServiceVehicle(const OffloadingRequest& request);
-
+    
+<<<<<<< HEAD
     // RSU task processing (edge server)
     // Tracks tasks currently being processed on the RSU edge server.
     struct PendingRSUTask {
@@ -313,6 +314,10 @@ private:
         cMessage* completion_event = nullptr; // pointer to scheduled completion self-msg
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
+
+=======
+    // RSU task processing (edge server) - Event-driven
+>>>>>>> ee6b17d (Implementation of rsu2rsu comms and changes to task porcessing)
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so every task gets an equal share of edgeCPU_GHz.

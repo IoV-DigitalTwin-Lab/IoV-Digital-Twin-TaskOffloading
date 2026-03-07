@@ -1954,6 +1954,7 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                 confidence = 0.85;
             }
         }
+<<<<<<< HEAD
         // Rule 3: Vehicle can handle it locally
         // BUT: if vehicle explicitly requested offloading, never send back as LOCAL
         else if (request.vehicle_cpu_available > 0.5 &&
@@ -1971,9 +1972,12 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
             confidence = 0.65;
             estimated_completion_time = request.deadline_seconds * 0.7;
         }
-
+=======
+        
         EV_INFO << "✅ ACCEPT: " << decisionType << " - " << reason << endl;
         std::cout << "RSU_DECISION: ACCEPT - decision_type=" << decisionType << std::endl;
+        
+>>>>>>> ee6b17d (Implementation of rsu2rsu comms and changes to task porcessing)
     } else {
         // ====================================================================
         // THIS RSU IS OVERLOADED - Try to redirect to neighbor
@@ -2109,6 +2113,7 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
 }
 
 void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
+<<<<<<< HEAD
     std::string vehicle_id  = packet->getOrigin_vehicle_id();
     LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
     uint64_t cpu_cycles     = packet->getCpu_cycles();
@@ -2215,6 +2220,47 @@ void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
                 << (t.cycles_remaining/1e9) << "G cycles left, "
                 << "completes in " << new_exec << "s" << endl;
     }
+=======
+    EV_INFO << "⚙️ RSU: Admitting task " << task_id << " for edge server processing..." << endl;
+    
+    std::string vehicle_id = packet->getOrigin_vehicle_id();
+    LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
+    uint64_t cpu_cycles = packet->getCpu_cycles();
+    uint64_t task_size_bytes = packet->getTask_size_bytes();
+    double deadline_seconds = packet->getDeadline();
+    
+    // Check if RSU has room in queue or processing
+    if (rsu_processing_count >= rsu_max_concurrent && task_queue.size() >= (size_t)rsu_max_concurrent) {
+        // RSU fully saturated - should ideally reject, but we queue anyway
+        EV_WARN << "  ⚠️ RSU queue full, but queueing anyway" << endl;
+        std::cout << "RSU_FULL: Task " << task_id << " queued (overload)" << std::endl;
+    }
+    
+    // Create active task record
+    RSUActiveTask active_task;
+    active_task.task_id = task_id;
+    active_task.vehicle_id = vehicle_id;
+    active_task.vehicle_mac = vehicle_mac;
+    active_task.cpu_cycles = cpu_cycles;
+    active_task.task_size_bytes = task_size_bytes;
+    active_task.deadline_seconds = deadline_seconds;
+    active_task.arrival_time = simTime().dbl();
+    active_task.state = RSUActiveTask::QUEUED;
+    
+    EV_INFO << "  Task parameters:" << endl;
+    EV_INFO << "    - CPU Cycles: " << (cpu_cycles / 1e9) << " G" << endl;
+    EV_INFO << "    - Task Size: " << (task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "    - Deadline: " << deadline_seconds << " s" << endl;
+    
+    // Queue the task
+    queueTaskForProcessing(active_task);
+    
+    // Try to start processing
+    processNextQueuedTask();
+    
+    EV_INFO << "  Queue length: " << (rsu_processing_count + task_queue.size()) << endl;
+    delete packet;
+>>>>>>> ee6b17d (Implementation of rsu2rsu comms and changes to task porcessing)
 }
 
 void MyRSUApp::queueTaskForProcessing(const RSUActiveTask& active_task) {

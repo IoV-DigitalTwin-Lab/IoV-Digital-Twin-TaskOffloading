@@ -43,6 +43,11 @@ simple MyRSUApp like IBaseApplLayer
         bool useRedis = default(false);  // Enable Redis Digital Twin
         string redisHost = default("127.0.0.1");
         int redisPort = default(6379);
+
+        // Digital Twin (Redis) parameters
+        bool useRedis = default(false);  // Enable Redis Digital Twin
+        string redisHost = default("127.0.0.1");
+        int redisPort = default(6379);
         
         // RSU-to-RSU Communication (Neighbor Discovery)
         double rsuStatusBroadcastInterval @unit(s) = default(0.5s);  // Interval for periodic status broadcast

@@ -85,7 +85,11 @@ void PayloadVehicleApp::initialize(int stage) {
 }
 
 void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
+<<<<<<< HEAD
     // Handle per-type profile-based task generation events
+=======
+    // Handle task-related events
+>>>>>>> 45e3705 (Task modelling)
     if (strcmp(msg->getName(), "taskGenLocalObjDet") == 0) {
         generateTask(TaskType::LOCAL_OBJECT_DETECTION);
         scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, msg);
@@ -141,6 +145,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "rsuDecisionTimeout") == 0) {
+<<<<<<< HEAD
         // Handle timeout waiting for RSU offloading decision
         Task* task = (Task*)msg->getContextPointer();
         EV_WARN << "⏱️ RSU decision timeout for task " << task->task_id << " - falling back to local execution" << endl;
@@ -181,6 +186,27 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
             delete task;
         }
         
+=======
+        Task* task = (Task*)msg->getContextPointer();
+        auto it = pendingOffloadingDecisions.find(task->task_id);
+        if (it != pendingOffloadingDecisions.end()) {
+            pendingOffloadingDecisions.erase(it);
+            EV_WARN << "RSU decision timeout for task " << task->task_id << " - falling back to local" << endl;
+
+            if (canAcceptTask(task)) {
+                if (canStartProcessing(task)) {
+                    allocateResourcesAndStart(task);
+                } else {
+                    task->state = QUEUED;
+                    pending_tasks.push(task);
+                }
+            } else {
+                task->state = REJECTED;
+                tasks_rejected++;
+                sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT");
+                delete task;
+            }
+        }
         delete msg;
         return;
     }
@@ -202,6 +228,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
             sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
             delete task;
         }
+>>>>>>> 45e3705 (Task modelling)
         delete msg;
         return;
     }
@@ -720,9 +747,11 @@ void PayloadVehicleApp::initializeTaskSystem() {
     EV_INFO << "│ Max Concurrent Tasks: " << std::setw(48) << max_concurrent_tasks << "      │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
 
+<<<<<<< HEAD
     // Data sharing freshness window for cooperative perception
     objectDetectionTtlSec = TaskPeriods::LOCAL_OBJECT_DETECTION * 4.0;
 
+=======
     EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
     EV_INFO << "│ TASK PROFILE SUMMARY                                                      │" << endl;
     EV_INFO << "├──────────────────────────────────────────────────────────────────────────┤" << endl;
@@ -737,6 +766,8 @@ void PayloadVehicleApp::initializeTaskSystem() {
     }
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
 
+    
+>>>>>>> ee6b17d (Implementation of rsu2rsu comms and changes to task porcessing)
     // Schedule per-task generation based on TaskProfile
     if (localObjDetEvent == nullptr) {
         localObjDetEvent = new cMessage("taskGenLocalObjDet");
@@ -3281,6 +3312,42 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
     taskTimings.erase(taskId);
     taskCandidates.erase(taskId);
     task_redirect_counts.erase(taskId);
+ycles << ",";
+    timingJson << "\"qos_value\":" << qosValue << ",";
+    timingJson << "\"result\":\"" << resultData << "\"";
+    timingJson << "}";
+    
+    resultMsg->setTask_output_data(timingJson.str().c_str());
+    resultMsg->setOrigin_vehicle_id(("VEHICLE_" + std::to_string(getParentModule()->getIndex())).c_str());
+    resultMsg->setProcessor_id(timing.processor_id.c_str());
+    
+    // Send to RSU
+    LAddress::L2Type rsuMac = selectBestRSU();
+    if (rsuMac != 0) {
+        populateWSM(resultMsg, rsuMac);
+        sendDown(resultMsg);
+        
+        // Calculate and log latencies
+        double decisionLatency = timing.decision_time - timing.request_time;
+        double processingLatency = completionTime - timing.start_time;
+        double totalLatency = completionTime - timing.request_time;
+        
+        EV_INFO << "Task completion report sent:" << endl;
+        EV_INFO << "  • Decision latency: " << decisionLatency << "s" << endl;
+        EV_INFO << "  • Processing latency: " << processingLatency << "s" << endl;
+        EV_INFO << "  • Total latency: " << totalLatency << "s" << endl;
+        EV_INFO << "  • Success: " << (success ? "Yes" : "No") << endl;
+        EV_INFO << "  • On-time: " << (onTime ? "Yes" : "No") << endl;
+        
+        std::cout << "COMPLETION_REPORT: Task " << taskId << " - Total latency: " << totalLatency 
+                  << "s, Success: " << success << ", On-time: " << onTime << std::endl;
+    } else {
+        EV_WARN << "No RSU available to send completion report" << endl;
+        delete resultMsg;
+    }
+    
+    // Clean up timing info
+    taskTimings.erase(taskId);
 }
 
 void PayloadVehicleApp::sendObjectDetectionData(const Task* task) {

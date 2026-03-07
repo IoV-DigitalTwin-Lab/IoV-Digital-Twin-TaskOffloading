@@ -89,6 +89,28 @@ set -u
 
 cd "$SCRIPT_DIR"
 
+# === PREFLIGHT CHECK: Clean up stale SUMO processes on port 9999 ===
+# TraCI uses port 9999. If sumo-launchd.py is running from a previous session,
+# it will cause "TraCI API version 1" errors. Kill it before starting.
+PORT_CHECK=$(ss -ltnp 2>/dev/null | grep ':9999' || true)
+if [ -n "$PORT_CHECK" ]; then
+  echo "⚠ Detected process on port 9999. Checking if it's sumo-launchd..."
+  PORT_PID=$(echo "$PORT_CHECK" | grep -oP 'pid=\K[0-9]+' | head -1)
+  if [ -n "$PORT_PID" ]; then
+    PROCESS_CMD=$(ps -fp "$PORT_PID" 2>/dev/null | grep -v "PID" | awk '{print $8, $9, $10}' || true)
+    if echo "$PROCESS_CMD" | grep -q "sumo-launchd"; then
+      echo "  └─ Found stale sumo-launchd.py (PID $PORT_PID). Terminating..."
+      kill "$PORT_PID" 2>/dev/null || true
+      sleep 1
+      echo "  └─ Port 9999 cleared for TraCI."
+    else
+      echo "  └─ Warning: Port 9999 occupied by: $PROCESS_CMD"
+      echo "  └─ This may cause TraCI connection errors. Kill manually if needed:"
+      echo "     kill $PORT_PID"
+    fi
+  fi
+fi
+
 echo "Starting IoV Digital Twin Task Offloading simulation..."
 echo "OMNeT++: $OMNETPP_HOME"
 echo "INET:    $INET_PATH"
