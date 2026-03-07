@@ -1659,6 +1659,17 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     // Store vehicle MAC address for later decision sending
     vehicle_macs[vehicle_id] = request.vehicle_mac;
     EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
+
+    // Update Digital Twin with current resource state so selectBestServiceVehicle()
+    // has fresh CPU/queue data for this vehicle
+    VehicleDigitalTwin& req_twin = getOrCreateVehicleTwin(vehicle_id);
+    req_twin.cpu_available             = msg->getLocal_cpu_available_ghz();
+    req_twin.cpu_utilization           = msg->getLocal_cpu_utilization();
+    req_twin.current_queue_length      = msg->getLocal_queue_length();
+    req_twin.current_processing_count  = msg->getLocal_processing_count();
+    req_twin.pos_x = msg->getPos_x();
+    req_twin.pos_y = msg->getPos_y();
+    req_twin.last_update_time = simTime().dbl();
     
     // Task characteristics
     request.mem_footprint_bytes = msg->getMem_footprint_bytes();
@@ -1733,51 +1744,53 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     LAddress::L2Type target_service_vehicle_mac = 0;
     
     if (!mlModelEnabled) {
-        // PLACEHOLDER: Simple rule-based decision
-        EV_INFO << "  Using placeholder rule-based decision (ML model disabled)" << endl;
-        
-        // Rule 1: If vehicle queue is long, offload to RSU
-        if (request.vehicle_queue_length > 5) {
-            decisionType = "RSU";
-            reason = "Vehicle queue overloaded (>" + std::to_string((int)request.vehicle_queue_length) + " tasks)";
-            confidence = 0.8;
-            estimated_completion_time = request.deadline_seconds * 0.6;  // Estimate 60% of deadline
-        }
-        // Rule 2: If vehicle CPU utilization is high, try service vehicle
-        else if (request.vehicle_cpu_utilization > 0.8 && serviceVehicleSelectionEnabled) {
+        // ----------------------------------------------------------------
+        // PLACEHOLDER: Round-robin rule-based decision
+        // (Will be replaced by the DRL algorithm)
+        //
+        // Routing: every 3rd offloadable request → SERVICE_VEHICLE (V2V),
+        //          others → RSU or LOCAL. Exercises all 3 execution paths
+        //          so each can be independently verified before DRL lands.
+        // ----------------------------------------------------------------
+        EV_INFO << "  Using placeholder round-robin decision (DRL not yet integrated)" << endl;
+
+        static int sv_dispatch_counter = 0;
+        bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
+
+        if (try_sv) {
             std::string sv_id = selectBestServiceVehicle(request);
-            if (!sv_id.empty()) {
+            if (!sv_id.empty() && vehicle_macs.count(sv_id)) {
                 decisionType = "SERVICE_VEHICLE";
-                target_service_vehicle_id = sv_id;
-                // TODO: Get actual MAC address from Digital Twin
-                target_service_vehicle_mac = 0;  // Placeholder
-                reason = "Vehicle CPU high (" + std::to_string((int)(request.vehicle_cpu_utilization*100)) + "%), service vehicle available";
+                target_service_vehicle_id  = sv_id;
+                target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
+                reason = "Round-robin placeholder: delegating to service vehicle " + sv_id
+                         + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
+                             vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
                 confidence = 0.75;
                 estimated_completion_time = request.deadline_seconds * 0.7;
+                std::cout << "SV_DECISION: Task " << request.task_id
+                          << " routed to service vehicle " << sv_id
+                          << " MAC=" << target_service_vehicle_mac << std::endl;
             } else {
-                // No service vehicle available, use RSU
-                decisionType = "RSU";
-                reason = "Vehicle CPU high but no service vehicle available";
-                confidence = 0.7;
-                estimated_completion_time = request.deadline_seconds * 0.6;
+                try_sv = false;  // no suitable SV → fall through to RSU/LOCAL
             }
         }
-        // Rule 3: Vehicle can handle it locally
-        // BUT: if vehicle explicitly requested offloading, never send back as LOCAL
-        else if (request.vehicle_cpu_available > 0.5 &&
-                 request.local_decision != "OFFLOAD_TO_RSU" &&
-                 request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
-            decisionType = "LOCAL";
-            reason = "Vehicle has sufficient resources (CPU available: " + std::to_string(request.vehicle_cpu_available) + " GHz)";
-            confidence = 0.85;
-            estimated_completion_time = request.deadline_seconds * 0.5;
-        }
-        // Rule 4: Borderline case - default to RSU
-        else {
-            decisionType = "RSU";
-            reason = "Borderline case, using RSU for reliability";
-            confidence = 0.65;
-            estimated_completion_time = request.deadline_seconds * 0.7;
+
+        if (!try_sv) {
+            if (request.vehicle_cpu_available > 0.5 &&
+                request.local_decision != "OFFLOAD_TO_RSU" &&
+                request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
+                decisionType = "LOCAL";
+                reason = "Vehicle has sufficient resources (CPU available: "
+                         + std::to_string(request.vehicle_cpu_available) + " GHz)";
+                confidence = 0.85;
+                estimated_completion_time = request.deadline_seconds * 0.5;
+            } else {
+                decisionType = "RSU";
+                reason = "RSU offloading (round-robin placeholder)";
+                confidence = 0.8;
+                estimated_completion_time = request.deadline_seconds * 0.6;
+            }
         }
     } else {
         // TODO: ML MODEL INFERENCE HERE
@@ -1815,18 +1828,45 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
 }
 
 std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) {
-    EV_INFO << "  Searching for best service vehicle..." << endl;
-    
-    // Query Digital Twin for available service vehicles
-    // TODO: Implement proper service vehicle selection based on:
-    // - CPU/memory availability
-    // - Distance from task vehicle
-    // - Current workload
-    // - Historical reliability
-    
-    // PLACEHOLDER: Return empty (no service vehicle available)
-    EV_INFO << "    No service vehicles available (placeholder)" << endl;
-    return "";
+    EV_INFO << "  Searching for best service vehicle (twin-based selection)..." << endl;
+
+    // Temporary placeholder selection:
+    //   Pick the least-queue-loaded vehicle whose MAC is known and whose Digital
+    //   Twin was updated within the last 3 simulation seconds.
+    //   Excludes the requesting vehicle.
+    //   DRL will replace this whole function later.
+    std::string best_id;
+    uint32_t    best_queue = UINT32_MAX;
+    double      best_cpu   = -1.0;
+    const double STALE_THRESHOLD = 3.0;  // seconds
+
+    for (const auto& kv : vehicle_macs) {
+        const std::string& candidate_id = kv.first;
+        if (candidate_id == request.vehicle_id) continue;  // never offload back to requester
+
+        auto twin_it = vehicle_twins.find(candidate_id);
+        if (twin_it == vehicle_twins.end()) continue;  // no state known
+        const VehicleDigitalTwin& twin = twin_it->second;
+
+        if (simTime().dbl() - twin.last_update_time > STALE_THRESHOLD) continue;  // stale
+
+        if (twin.current_queue_length < best_queue ||
+            (twin.current_queue_length == best_queue && twin.cpu_available > best_cpu)) {
+            best_queue = twin.current_queue_length;
+            best_cpu   = twin.cpu_available;
+            best_id    = candidate_id;
+        }
+    }
+
+    if (best_id.empty()) {
+        EV_INFO << "    No suitable service vehicle found" << endl;
+    } else {
+        EV_INFO << "    Selected service vehicle " << best_id
+                << " (queue=" << best_queue << ", cpu_avail=" << best_cpu << " GHz)" << endl;
+        std::cout << "SV_SELECTED: best=" << best_id
+                  << " queue=" << best_queue << " cpu=" << best_cpu << std::endl;
+    }
+    return best_id;
 }
 
 void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {

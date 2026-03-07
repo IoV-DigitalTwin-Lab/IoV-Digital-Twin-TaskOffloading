@@ -890,23 +890,22 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             << " QoS=" << task->qos_value
             << " Deadline=" << task->relative_deadline << "s" << endl;
     
-    // Send metadata to RSU (non-blocking)
-    sendTaskMetadataToRSU(task);
-    task->state = METADATA_SENT;
-    
     // ============================================================================
     // OFFLOADING DECISION INTEGRATION
     // ============================================================================
     
     if (!task->is_offloadable) {
         // Task is marked as local-only (e.g. LOCAL_OBJECT_DETECTION).
-        // Skip RSU path entirely and execute on vehicle.
+        // Do NOT send metadata over the air — saves wireless bandwidth.
         EV_INFO << "💻 Task is_offloadable=false → forcing local execution" << endl;
         std::cout << "LOCAL_ONLY: Task " << task->task_id
                   << " is non-offloadable, processing locally" << std::endl;
     }
     
     if (offloadingEnabled && decisionMaker && task->is_offloadable) {
+        // Only offloadable tasks send metadata to the RSU over the wireless channel
+        sendTaskMetadataToRSU(task);
+        task->state = METADATA_SENT;
         EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
         
         // Build decision context for the decision maker
@@ -1020,6 +1019,25 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         // OFFLOAD DECISION: Consult RSU for final decision
         // Local heuristic suggests offloading - get ML-based decision from RSU
         EV_INFO << "🌐 Local decision is OFFLOAD - consulting RSU for optimal placement" << endl;
+        
+        // RSSI quality gate: if estimated signal is too weak, skip RSU entirely and
+        // execute locally. Avoids wasting rsuDecisionTimeout (1s) on a doomed packet.
+        const double RSU_RELIABLE_RSSI_THRESH = -65.0;  // dBm
+        if (context.estimated_rsu_rssi < RSU_RELIABLE_RSSI_THRESH) {
+            std::cout << "OFFLOAD_SKIP: Task " << task->task_id
+                      << " RSU RSSI=" << context.estimated_rsu_rssi
+                      << "dBm below threshold (" << RSU_RELIABLE_RSSI_THRESH
+                      << "dBm), executing locally" << std::endl;
+            if (!canAcceptTask(task)) {
+                task->state = REJECTED;  tasks_rejected++;
+                sendTaskFailureToRSU(task, "OFFLOAD_SKIP_REJECTED");
+                delete task;  return;
+            }
+            if (canStartProcessing(task)) allocateResourcesAndStart(task);
+            else { task->state = QUEUED;  pending_tasks.push(task); }
+            return;
+        }
+        
         std::cout << "OFFLOAD_REQUEST: Task " << task->task_id << " requesting RSU decision" << std::endl;
         
         // Send offloading request to RSU (includes local recommendation)
@@ -1881,15 +1899,29 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
                 
                 rsuMetrics[i].distance = distance;
                 
-                // Estimate RSSI based on distance (simplified model)
-                // TX power 20mW = 13 dBm, Free space path loss at 5.89GHz
-                double lambda = 3e8 / 5.89e9;  // wavelength
-                double fspl = 20 * log10(distance) + 20 * log10(5.89e9) + 20 * log10(4 * M_PI / 3e8);
-                double estimatedRSSI = 13.0 - fspl;  // Simple estimate
+                // RSSI estimation: TwoRay Ground Reflection (matches omnetpp.ini pathLoss config)
+                // RSU TX = 2000mW = 33 dBm; antenna heights ht=hr=1.5m; carrier=5.89GHz
+                const double RSU_TX_dBm = 33.0;
+                const double freq = 5.89e9, c = 3e8;
+                const double ht = 1.5, hr = 1.5;
+                const double lambda_est = c / freq;
+                const double d_break = 4.0 * ht * hr / lambda_est;  // ~706m breakpoint
+                double estimatedRSSI;
+                if (distance < d_break) {
+                    // FSPL regime (short range, < ~706m)
+                    double fspl = 20*log10(distance) + 20*log10(freq) + 20*log10(4*M_PI/c);
+                    estimatedRSSI = RSU_TX_dBm - fspl;
+                } else {
+                    // TwoRay regime (beyond breakpoint): ~40*log10(d)
+                    double loss = 40*log10(distance) - 20*log10(ht) - 20*log10(hr);
+                    estimatedRSSI = RSU_TX_dBm - loss;
+                }
                 
-                // If we don't have a recent RSSI measurement, use estimate
+                // 70/30 blend: prevents stale RSSI misleading the quality gate as vehicle moves
                 if (rsuMetrics[i].lastRSSI < -100) {
-                    rsuMetrics[i].lastRSSI = estimatedRSSI;
+                    rsuMetrics[i].lastRSSI = estimatedRSSI;  // first observation
+                } else {
+                    rsuMetrics[i].lastRSSI = 0.7 * rsuMetrics[i].lastRSSI + 0.3 * estimatedRSSI;
                 }
                 
                 std::cout << "RSU_SELECTION: RSU[" << i << "] dist=" << distance 

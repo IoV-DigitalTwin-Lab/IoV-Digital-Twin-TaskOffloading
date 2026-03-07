@@ -140,7 +140,7 @@ private:
 // Calibrated for practical IoV load (5-51 vehicles).
 // Total offloadable task rate per vehicle ≈ 1.6/s → manageable RSU load.
 namespace TaskPeriods {
-    constexpr double LOCAL_OBJECT_DETECTION = 0.200;      // 200ms (5 Hz)  — ADAS camera/LiDAR fusion; 10Hz excessive for sim
+        constexpr double LOCAL_OBJECT_DETECTION = 1.000;      // 1s (1 Hz) — reduced from 5Hz; non-offloadable tasks must not dominate offload stats
     constexpr double COOPERATIVE_PERCEPTION = 1.000;      // 1s   (1 Hz)   — V2X CAM standard; 2s is too slow for fusion
     constexpr double ROUTE_OPTIMIZATION     = 5.000;      // 5s   (0.2 Hz) — route replanning every 5s, practical for navigation
     constexpr double SENSOR_HEALTH_CHECK    = 15.0;       // 15s           — background diagnostics, very low priority
