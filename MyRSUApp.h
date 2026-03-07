@@ -8,10 +8,17 @@
 #include "RedisDigitalTwin.h"
 #include <map>
 #include <vector>
+#include <deque>
 #include <string>
 #include <libpq-fe.h>
 
+// INET includes for Ethernet/UDP support
+#include "inet/transportlayer/contract/udp/UdpSocket.h"
+#include "inet/networklayer/common/L3AddressResolver.h"
+#include "inet/networklayer/common/L3Address.h"
+
 using namespace veins;
+using namespace inet;
 
 namespace complex_network {
 
@@ -227,10 +234,30 @@ private:
     
     // RSU state broadcast methods
     void broadcastRSUStatus();
+    void syncNeighborStatesFromRedis();
     void handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg);
     void updateNeighborState(const RSUNeighborState& state);
     bool isNeighborStateFresh(const RSUNeighborState& state);
     void cleanupStaleNeighborStates();
+    
+    // ============================================================================
+    // WIRED ETHERNET BACKHAUL (UDP/IP based RSU-to-RSU communication)
+    // ============================================================================
+    
+    // Wired backhaul configuration
+    bool wired_backhaul_enabled = false;
+    int local_udp_port = 5000;
+    int dest_udp_port = 5000;
+    
+    // UDP sockets for RSU-to-RSU communication
+    inet::UdpSocket udp_socket;
+    std::map<int, inet::L3Address> rsu_ip_addresses;  // rsu_id -> IP address
+    
+    // Wired backhaul methods
+    void initializeWiredBackhaul();
+    void sendRSUStatusViaEthernet();
+    void handleUdpData(cMessage* msg);
+    void processRSUStatusFromEthernet(cMessage* msg);
     
     // ============================================================================
     // DIGITAL TWIN TRACKING SYSTEM
@@ -299,7 +326,6 @@ private:
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
     std::string selectBestServiceVehicle(const OffloadingRequest& request);
     
-<<<<<<< HEAD
     // RSU task processing (edge server)
     // Tracks tasks currently being processed on the RSU edge server.
     struct PendingRSUTask {
@@ -314,10 +340,6 @@ private:
         cMessage* completion_event = nullptr; // pointer to scheduled completion self-msg
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
-
-=======
-    // RSU task processing (edge server) - Event-driven
->>>>>>> ee6b17d (Implementation of rsu2rsu comms and changes to task porcessing)
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so every task gets an equal share of edgeCPU_GHz.

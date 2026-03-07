@@ -26,8 +26,8 @@ LIBS += $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src -lveins$(D)
 LIBS += -L/lib/x86_64-linux-gnu -l:libcurl.so.4
 
 # PostgreSQL support (needed by MyRSUApp)
-CFLAGS += -I/home/mihiraja/.local/include
-INCLUDE_PATH += -I/home/mihiraja/postgres/src/include
+CFLAGS += -I/usr/include/postgresql
+INCLUDE_PATH += -I/usr/include/postgresql
 LIBS += -lpq
 
 # Redis support (needed by RedisDigitalTwin)

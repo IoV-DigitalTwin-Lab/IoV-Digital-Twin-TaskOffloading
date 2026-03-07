@@ -85,11 +85,7 @@ void PayloadVehicleApp::initialize(int stage) {
 }
 
 void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
-<<<<<<< HEAD
     // Handle per-type profile-based task generation events
-=======
-    // Handle task-related events
->>>>>>> 45e3705 (Task modelling)
     if (strcmp(msg->getName(), "taskGenLocalObjDet") == 0) {
         generateTask(TaskType::LOCAL_OBJECT_DETECTION);
         scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, msg);
@@ -145,7 +141,6 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "rsuDecisionTimeout") == 0) {
-<<<<<<< HEAD
         // Handle timeout waiting for RSU offloading decision
         Task* task = (Task*)msg->getContextPointer();
         EV_WARN << "⏱️ RSU decision timeout for task " << task->task_id << " - falling back to local execution" << endl;
@@ -185,50 +180,6 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
             sendTaskFailureToRSU(task, "TIMEOUT_AND_QUEUE_FULL");
             delete task;
         }
-        
-=======
-        Task* task = (Task*)msg->getContextPointer();
-        auto it = pendingOffloadingDecisions.find(task->task_id);
-        if (it != pendingOffloadingDecisions.end()) {
-            pendingOffloadingDecisions.erase(it);
-            EV_WARN << "RSU decision timeout for task " << task->task_id << " - falling back to local" << endl;
-
-            if (canAcceptTask(task)) {
-                if (canStartProcessing(task)) {
-                    allocateResourcesAndStart(task);
-                } else {
-                    task->state = QUEUED;
-                    pending_tasks.push(task);
-                }
-            } else {
-                task->state = REJECTED;
-                tasks_rejected++;
-                sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT");
-                delete task;
-            }
-        }
-        delete msg;
-        return;
-    }
-    else if (strcmp(msg->getName(), "offloadedTaskTimeout") == 0) {
-        Task* task = (Task*)msg->getContextPointer();
-        auto it = offloadedTasks.find(task->task_id);
-        if (it != offloadedTasks.end()) {
-            offloadedTasks.erase(it);
-            offloadedTaskTargets.erase(task->task_id);
-
-            task->state = FAILED;
-            tasks_failed++;
-
-            double latency = (simTime() - task->created_time).dbl();
-            if (task->is_profile_task) {
-                MetricsManager::getInstance().recordTaskFailed(task->type, latency);
-            }
-
-            sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
-            delete task;
-        }
->>>>>>> 45e3705 (Task modelling)
         delete msg;
         return;
     }
@@ -747,27 +698,8 @@ void PayloadVehicleApp::initializeTaskSystem() {
     EV_INFO << "│ Max Concurrent Tasks: " << std::setw(48) << max_concurrent_tasks << "      │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
 
-<<<<<<< HEAD
     // Data sharing freshness window for cooperative perception
     objectDetectionTtlSec = TaskPeriods::LOCAL_OBJECT_DETECTION * 4.0;
-
-=======
-    EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
-    EV_INFO << "│ TASK PROFILE SUMMARY                                                      │" << endl;
-    EV_INFO << "├──────────────────────────────────────────────────────────────────────────┤" << endl;
-    for (TaskType type : TaskProfileDatabase::getAllTaskTypes()) {
-        const auto& profile = TaskProfileDatabase::getInstance().getProfile(type);
-        EV_INFO << "│ " << std::left << std::setw(24) << TaskProfileDatabase::getTaskTypeName(type)
-                << " In=" << std::setw(8) << (profile.computation.input_size_bytes / 1024.0)
-                << "KB Out=" << std::setw(8) << (profile.computation.output_size_bytes / 1024.0)
-                << "KB CPU=" << std::setw(8) << (profile.computation.cpu_cycles / 1e9)
-                << "G DL=" << std::setw(6) << profile.timing.deadline_seconds
-                << "s │" << endl;
-    }
-    EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
-
-    
->>>>>>> ee6b17d (Implementation of rsu2rsu comms and changes to task porcessing)
     // Schedule per-task generation based on TaskProfile
     if (localObjDetEvent == nullptr) {
         localObjDetEvent = new cMessage("taskGenLocalObjDet");
@@ -2459,15 +2391,8 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
         return;
     }
     
-    // Populate candidate array in message
-    msg->setCandidate_rsu_macsArraySize(candidates.size());
-    for (size_t i = 0; i < candidates.size(); i++) {
-        msg->setCandidate_rsu_macs(i, candidates[i]);
-    }
-    
-    // Initialize redirect tracking
-    msg->setCurrent_candidate_index(0);  // Start with best candidate
-    msg->setMax_redirect_hops(max_redirect_hops);
+    // Note: Candidate RSU list maintained locally in taskCandidates map
+    // for redirect support; current OffloadingRequestMessage does not have array fields
     
     // Send to first candidate (best RSU)
     LAddress::L2Type rsuMac = candidates[0];
@@ -2749,7 +2674,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             redirectRequest->setTask_id(task->task_id.c_str());
             redirectRequest->setVehicle_id(task->vehicle_id.c_str());
             redirectRequest->setRequest_time(simTime().dbl());
-            redirectRequest->setTask_size_bytes(task->task_size_bytes);
+            // Note: task_size_bytes is not available in current OffloadingRequestMessage schema
             redirectRequest->setCpu_cycles(task->cpu_cycles);
             redirectRequest->setDeadline_seconds(task->relative_deadline);
             redirectRequest->setQos_value(task->qos_value);
@@ -2770,19 +2695,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             // Get candidates for this task from the tracking data
             auto candidateIt = taskCandidates.find(task->task_id);
             if (candidateIt != taskCandidates.end()) {
-                const auto& candidates = candidateIt->second;
-                
-                // Set candidate array
-                redirectRequest->setCandidate_rsu_macsArraySize(candidates.size());
-                for (size_t i = 0; i < candidates.size(); i++) {
-                    redirectRequest->setCandidate_rsu_macs(i, candidates[i]);
-                }
-                
-                // Update to point to the redirect target
-                redirectRequest->setCurrent_candidate_index(nextCandidateIndex);
-                redirectRequest->setMax_redirect_hops(max_redirect_hops);
-                
-                // Send to redirect target using standard WSM protocol
+                // Candidate array maintained locally; send to redirect target using standard WSM protocol
                 populateWSM(redirectRequest, redirectTargetMac);
                 sendDown(redirectRequest);
                 
@@ -3312,86 +3225,6 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
     taskTimings.erase(taskId);
     taskCandidates.erase(taskId);
     task_redirect_counts.erase(taskId);
-ycles << ",";
-    timingJson << "\"qos_value\":" << qosValue << ",";
-    timingJson << "\"result\":\"" << resultData << "\"";
-    timingJson << "}";
-    
-    resultMsg->setTask_output_data(timingJson.str().c_str());
-    resultMsg->setOrigin_vehicle_id(("VEHICLE_" + std::to_string(getParentModule()->getIndex())).c_str());
-    resultMsg->setProcessor_id(timing.processor_id.c_str());
-    
-    // Send to RSU
-    LAddress::L2Type rsuMac = selectBestRSU();
-    if (rsuMac != 0) {
-        populateWSM(resultMsg, rsuMac);
-        sendDown(resultMsg);
-        
-        // Calculate and log latencies
-        double decisionLatency = timing.decision_time - timing.request_time;
-        double processingLatency = completionTime - timing.start_time;
-        double totalLatency = completionTime - timing.request_time;
-        
-        EV_INFO << "Task completion report sent:" << endl;
-        EV_INFO << "  • Decision latency: " << decisionLatency << "s" << endl;
-        EV_INFO << "  • Processing latency: " << processingLatency << "s" << endl;
-        EV_INFO << "  • Total latency: " << totalLatency << "s" << endl;
-        EV_INFO << "  • Success: " << (success ? "Yes" : "No") << endl;
-        EV_INFO << "  • On-time: " << (onTime ? "Yes" : "No") << endl;
-        
-        std::cout << "COMPLETION_REPORT: Task " << taskId << " - Total latency: " << totalLatency 
-                  << "s, Success: " << success << ", On-time: " << onTime << std::endl;
-    } else {
-        EV_WARN << "No RSU available to send completion report" << endl;
-        delete resultMsg;
-    }
-    
-    // Clean up timing info
-    taskTimings.erase(taskId);
-}
-
-void PayloadVehicleApp::sendObjectDetectionData(const Task* task) {
-    if (task->output_size_bytes == 0) return;
-    auto* msg = new veins::ObjectDetectionDataMessage();
-    msg->setVehicle_id(task->vehicle_id.c_str());
-    msg->setTimestamp(simTime().dbl());
-    msg->setData_size_bytes(task->output_size_bytes);
-    msg->setPayload_tag("LOCAL_OBJECT_DETECTION");
-    populateWSM(msg);
-    sendDown(msg);
-    EV_INFO << "Broadcast object detection data: " << task->output_size_bytes << " bytes from vehicle "
-            << task->vehicle_id << endl;
-}
-
-void PayloadVehicleApp::handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg) {
-    std::string sender_id = msg->getVehicle_id();
-    std::string self_id = std::to_string(getParentModule()->getIndex());
-    if (sender_id == self_id) {
-        delete msg;
-        return;
-    }
-    ObjectDetectionSnapshot snapshot;
-    snapshot.timestamp = SimTime(msg->getTimestamp());
-    snapshot.size_bytes = msg->getData_size_bytes();
-    neighborObjectDetections[sender_id] = snapshot;
-    EV_INFO << "Received object detection data from vehicle " << sender_id
-            << " (size=" << snapshot.size_bytes << " bytes)" << endl;
-    delete msg;
-}
-
-uint32_t PayloadVehicleApp::countFreshNeighborDetections() {
-    uint32_t fresh_count = 0;
-    simtime_t now = simTime();
-    for (auto it = neighborObjectDetections.begin(); it != neighborObjectDetections.end(); ) {
-        double age = (now - it->second.timestamp).dbl();
-        if (age <= objectDetectionTtlSec) {
-            fresh_count++;
-            ++it;
-        } else {
-            it = neighborObjectDetections.erase(it);
-        }
-    }
-    return fresh_count;
 }
 
 } // namespace complex_network
