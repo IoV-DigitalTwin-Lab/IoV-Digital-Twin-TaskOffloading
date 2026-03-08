@@ -39,8 +39,9 @@ void MyRSUApp::initialize(int stage) {
         // Use dedicated rsuMaxConcurrent param (prevents maxVehicles from inflating the cap)
         rsu_max_concurrent = par("rsuMaxConcurrent").intValue();
         
-        // Initialize PostgreSQL database connection (always enabled)
-        initDatabase();
+        // Initialize PostgreSQL database connection (DISABLED - blocks initialization)
+        // initDatabase();  // Commented out to prevent 30s+ connection timeouts blocking sim startup
+        std::cout << "⚠ PostgreSQL initialization skipped (would block startup)" << std::endl;
         
         // Initialize Redis Digital Twin
         use_redis = par("useRedis").boolValue();
@@ -1083,10 +1084,10 @@ void MyRSUApp::initDatabase() {
     if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
         // URI format - check if parameters already exist
         conninfo_with_timeout = db_conninfo + 
-            (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
+            (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=1";
     } else {
         // Keyword=value format
-        conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+        conninfo_with_timeout = db_conninfo + " connect_timeout=1";
     }
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
     
@@ -1123,10 +1124,10 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
             // URI format - check if parameters already exist
             conninfo_with_timeout = db_conninfo + 
-                (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
+                (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=1";
         } else {
             // Keyword=value format
-            conninfo_with_timeout = db_conninfo + " connect_timeout=5";
+            conninfo_with_timeout = db_conninfo + " connect_timeout=1";
         }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());
         
