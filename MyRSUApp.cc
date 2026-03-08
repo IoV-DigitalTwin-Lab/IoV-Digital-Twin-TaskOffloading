@@ -151,7 +151,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         } else if (redis_twin && use_redis && redis_twin->isConnected()) {
             syncNeighborStatesFromRedis();
         } else {
-            broadcastRSUStatus();
+            // DISABLED: broadcastRSUStatus();  // Would create wireless packets visible in GUI
+            // RSU-to-RSU state sharing is disabled to reduce network clutter
+            // In production, use wired Ethernet backhaul or Redis instead
         }
         cleanupStaleNeighborStates();
         // Reschedule next broadcast
