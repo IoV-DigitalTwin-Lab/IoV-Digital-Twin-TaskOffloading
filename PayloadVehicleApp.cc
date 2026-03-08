@@ -1049,6 +1049,15 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             sendTaskOffloadingEvent(task->task_id, "OFFLOAD_SKIPPED",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
                 "{\"reason\":\"RSSI_WEAK\",\"rssi_dbm\":" + std::to_string(context.estimated_rsu_rssi) + "}");
+            // Populate taskTimings so sendTaskCompletionToRSU can report this back to RSU
+            {
+                TaskTimingInfo timing;
+                timing.request_time = simTime().dbl();
+                timing.decision_time = simTime().dbl();
+                timing.decision_type = "LOCAL";
+                timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+                taskTimings[task->task_id] = timing;
+            }
             if (!canAcceptTask(task)) {
                 task->state = REJECTED;  tasks_rejected++;
                 sendTaskFailureToRSU(task, "OFFLOAD_SKIP_REJECTED");
@@ -1071,6 +1080,15 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             sendTaskOffloadingEvent(task->task_id, "OFFLOAD_SKIPPED",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
                 "{\"reason\":\"DEADLINE_TOO_TIGHT\",\"remaining_s\":" + std::to_string(remaining_deadline) + "}");
+            // Populate taskTimings so sendTaskCompletionToRSU can report this back to RSU
+            {
+                TaskTimingInfo timing;
+                timing.request_time = simTime().dbl();
+                timing.decision_time = simTime().dbl();
+                timing.decision_type = "LOCAL";
+                timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
+                taskTimings[task->task_id] = timing;
+            }
             if (!canAcceptTask(task)) {
                 task->state = REJECTED;  tasks_rejected++;
                 sendTaskFailureToRSU(task, "DEADLINE_TOO_SHORT_FOR_OFFLOAD");

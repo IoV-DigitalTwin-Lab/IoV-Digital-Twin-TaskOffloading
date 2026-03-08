@@ -1784,12 +1784,17 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         }
 
         if (!try_sv) {
-            if (request.vehicle_cpu_available > 0.5 &&
+            // Use CPU utilization ratio (0-1) not raw GHz — vehicles have 3-7 GHz
+            // so a raw 0.5 GHz threshold is always satisfied and everything became LOCAL.
+            // Now: utilization < 0.3 (under 30% load) AND vehicle didn't request RSU → LOCAL.
+            // Otherwise → RSU processes the task.
+            if (request.vehicle_cpu_utilization < 0.3 &&
                 request.local_decision != "OFFLOAD_TO_RSU" &&
                 request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
                 decisionType = "LOCAL";
-                reason = "Vehicle has sufficient resources (CPU available: "
-                         + std::to_string(request.vehicle_cpu_available) + " GHz)";
+                reason = "Vehicle has low utilization ("
+                         + std::to_string((int)(request.vehicle_cpu_utilization * 100))
+                         + "%), execute locally";
                 confidence = 0.85;
                 estimated_completion_time = request.deadline_seconds * 0.5;
             } else {
@@ -2184,25 +2189,28 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         double total_latency = completion_time - request_time;
         double deadline_seconds = total_latency * 1.5;  // Estimate deadline (could be extracted from original request)
         
-        // Insert into database
-        insertOffloadedTaskCompletion(
-            task_id,
-            origin_vehicle_id,
-            decision_type,
-            processor_id,
-            request_time,
-            decision_time,
-            start_time,
-            completion_time,
-            success,
-            on_time,
-            deadline_seconds,
-            mem_footprint_bytes,
-            cpu_cycles,
-            qos_value,
-            result_data,
-            msg->getFailure_reason()
-        );
+        // Insert into offloaded_task_completions only for actual offloads (RSU / SERVICE_VEHICLE).
+        // LOCAL completions are already tracked in task_events via insertTaskCompletion.
+        if (decision_type != "LOCAL") {
+            insertOffloadedTaskCompletion(
+                task_id,
+                origin_vehicle_id,
+                decision_type,
+                processor_id,
+                request_time,
+                decision_time,
+                start_time,
+                completion_time,
+                success,
+                on_time,
+                deadline_seconds,
+                mem_footprint_bytes,
+                cpu_cycles,
+                qos_value,
+                result_data,
+                msg->getFailure_reason()
+            );
+        }
         
         std::cout << "COMPLETION_DB: Task " << task_id << " completion data inserted - "
                   << "Total latency: " << total_latency << "s, Success: " << success 
