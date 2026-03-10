@@ -270,6 +270,9 @@ private:
     void insertOffloadingRequest(const OffloadingRequest& request);
     void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
     void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
+    void insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
+                              const std::string& source, const std::string& target,
+                              const std::string& details = "{}");
     void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
                                        const std::string& decision_type, const std::string& processor_id,
                                        double request_time, double decision_time, double start_time, 
