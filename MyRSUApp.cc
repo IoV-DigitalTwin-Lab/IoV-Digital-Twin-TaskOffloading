@@ -1044,15 +1044,14 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     EV_INFO << "Database: " << db_conninfo << endl;
     
-    // Add connection timeout to prevent hanging
-    // For URI format (postgresql://...), use ? for parameters, otherwise use space
+    // Add connection timeout - use proper format based on connection string type
     std::string conninfo_with_timeout;
-    if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-        // URI format - check if parameters already exist
+    if (db_conninfo.find("://") != std::string::npos) {
+        // URL-style connection string - use ? or & for parameters
         conninfo_with_timeout = db_conninfo + 
             (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
     } else {
-        // Keyword=value format
+        // Key=value style - append with space
         conninfo_with_timeout = db_conninfo + " connect_timeout=5";
     }
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
@@ -1084,15 +1083,14 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conn) {
             PQfinish(db_conn);
         }
-        // Add connection timeout to prevent hanging
-        // For URI format (postgresql://...), use ? for parameters, otherwise use space
+        // Add connection timeout - use proper format based on connection string type
         std::string conninfo_with_timeout;
-        if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-            // URI format - check if parameters already exist
+        if (db_conninfo.find("://") != std::string::npos) {
+            // URL-style connection string - use ? or & for parameters
             conninfo_with_timeout = db_conninfo + 
                 (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
         } else {
-            // Keyword=value format
+            // Key=value style - append with space
             conninfo_with_timeout = db_conninfo + " connect_timeout=5";
         }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());

@@ -48,6 +48,7 @@ simple MyRSUApp like IBaseApplLayer
         double rsuStatusBroadcastInterval @unit(s) = default(0.5s);  // Interval for periodic status broadcast
         double neighborStateTtl @unit(s) = default(1.5s);            // Time-to-live for neighbor state cache
         int maxVehiclesInBroadcast = default(20);                     // Max vehicle IDs to include in broadcast
+        int maxRedirectHops = default(2);                             // Max redirect hops for task offloading
         
         // Overload Detection Parameters
         double overloadQueueThreshold = default(0.8);                 // Queue load threshold (80% of max)
