@@ -614,28 +614,107 @@ class SimulationStub:
                 log.error("[TaskGenerator] %s", exc)
             time.sleep(interval)
 
+    def _simulate_and_write_results(self, task_id: str, task: PendingTask):
+        """
+        Directly simulate all agent decisions (already in Redis) and write results.
+        Called only after task:{id}:decisions is confirmed complete.
+        """
+        data = self.r.hgetall(f"task:{task_id}:decisions")
+        agent_names = data.get('agents', '').split(',')
+        agent_decisions = {
+            a: (data[f'{a}_type'], data[f'{a}_target'])
+            for a in agent_names if f'{a}_type' in data and f'{a}_target' in data
+        }
+        if not agent_decisions:
+            log.warning("[DecisionDisp] incomplete decisions for %s", task_id)
+            return
+
+        # Dedup: simulate each unique target only once
+        target_to_result = {}
+        for dtype, tid in set(agent_decisions.values()):
+            target_to_result[(dtype, tid)] = self._simulate_execution(
+                task, {'decision_type': dtype, 'target_id': tid}
+            )
+
+        # Map back to per-agent results
+        result_mapping = {}
+        for agent, (dtype, tid) in agent_decisions.items():
+            res = target_to_result[(dtype, tid)]
+            result_mapping[f'{agent}_status']  = res['status']
+            result_mapping[f'{agent}_latency'] = res['total_latency']
+            result_mapping[f'{agent}_energy']  = res['energy_j']
+
+        results_key = f"task:{task_id}:results"
+        self.r.hset(results_key, mapping=result_mapping)
+        self.r.expire(results_key, 120)
+
+        ddqn_dtype, ddqn_tid = agent_decisions.get('ddqn', next(iter(agent_decisions.values())))
+        ddqn_r = target_to_result[(ddqn_dtype, ddqn_tid)]
+        log.info("← %s | %s → %s | lat=%.3fs [%s]",
+                 task_id, ddqn_dtype, ddqn_tid, ddqn_r['total_latency'], ddqn_r['status'])
+
     def _decision_dispatcher_loop(self):
         """
-        Dispatch a short-lived handler thread for each newly pending task.
-        Each handler independently polls for the DRL decision and writes the result.
+        Reactively dispatch simulation when decisions appear in Redis.
+
+        Scans for task:*:decisions keys that do not yet have task:*:results,
+        then immediately simulates and writes results. This avoids the race where
+        eagerly-spawned handlers expire before the DRL processes backlogged tasks.
         """
         log.info("[DecisionDisp] started")
+        dispatched = set()  # task_ids already processed
+
         while not self._stop_event.is_set():
-            with self._lock:
-                snapshot = dict(self._pending)
-                for task_id in snapshot:
-                    self._pending.pop(task_id, None)
+            try:
+                for dec_key in self.r.scan_iter("task:*:decisions", count=50):
+                    # Extract task_id from key  "task:{id}:decisions"
+                    parts = dec_key.split(':')
+                    if len(parts) < 3:
+                        continue
+                    task_id = parts[1]
 
-            for task_id, task in snapshot.items():
-                t = threading.Thread(
-                    target=self._handle_task,
-                    args=(task_id, task),
-                    name=f"T-{task_id[-8:]}",
-                    daemon=True,
-                )
-                t.start()
+                    if task_id in dispatched:
+                        continue
+                    if self.r.exists(f"task:{task_id}:results"):
+                        dispatched.add(task_id)
+                        continue
 
-            time.sleep(0.05)
+                    agents_str = self.r.hget(dec_key, 'agents')
+                    if not agents_str:
+                        continue  # decisions not fully written yet
+
+                    dispatched.add(task_id)
+
+                    # Reconstruct task info from the request hash
+                    req = self.r.hgetall(f"task:{task_id}:request")
+                    if not req:
+                        log.debug("[DecisionDisp] no request hash for %s — skipping", task_id)
+                        continue
+
+                    task = PendingTask(
+                        task_id=task_id,
+                        vehicle_id=req.get('vehicle_id', ''),
+                        rsu_id=req.get('rsu_id', ''),
+                        mem_footprint_bytes=int(req.get('mem_footprint_bytes', 0)),
+                        cpu_cycles=int(req.get('cpu_cycles', 0)),
+                        deadline_s=float(req.get('deadline_seconds', 1.0)),
+                        qos=float(req.get('qos_value', 1.0)),
+                        request_time=float(req.get('request_time', time.time())),
+                        decision_deadline=time.time() + 5,  # only needs time to simulate
+                    )
+
+                    t = threading.Thread(
+                        target=self._simulate_and_write_results,
+                        args=(task_id, task),
+                        name=f"T-{task_id[-8:]}",
+                        daemon=True,
+                    )
+                    t.start()
+
+            except Exception as exc:
+                log.error("[DecisionDisp] %s", exc)
+
+            time.sleep(0.1)
 
     # ─────────────────────────────────────────────────────────────────────────
     # PUBLIC INTERFACE
