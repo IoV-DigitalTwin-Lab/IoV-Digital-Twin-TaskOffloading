@@ -9,6 +9,8 @@
 #include "Task.h"
 #include "TaskMetadataMessage_m.h"
 #include "TaskOffloadingDecision.h"
+#include "EnergyModel.h"
+#include "MetricsManager.h"
 #include <queue>
 #include <set>
 #include <vector>
@@ -24,6 +26,7 @@ protected:
     virtual void handleMessage(cMessage* msg) override;
     virtual void handleSelfMsg(cMessage* msg) override;
     virtual void receiveSignal(cComponent* src, simsignal_t id, cObject* obj, cObject* details) override;
+    virtual void finish() override;
 
 private:
     veins::LAddress::L2Type myMacAddress;  // Store our own MAC address
@@ -96,17 +99,17 @@ private:
     
     double total_completion_time = 0.0;       // Sum for average calculation
     
-    // Self-message for task generation (one per task type)
+    // Self-messages for task generation (one per task type)
     cMessage* localObjDetEvent = nullptr;
     cMessage* coopPercepEvent = nullptr;
     cMessage* routeOptEvent = nullptr;
     cMessage* fleetForecastEvent = nullptr;
     cMessage* voiceCommandEvent = nullptr;
     cMessage* sensorHealthEvent = nullptr;
-
+    
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
-    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset = 0.0); // Schedule next task arrival per type
+    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset = 0.0); // Schedule next task arrival
     void generateTask(TaskType type);         // Generate new task using TaskProfile
     bool canAcceptTask(Task* task);           // Check if task can be accepted
     bool canStartProcessing(Task* task);      // Check if task can start immediately
@@ -231,12 +234,15 @@ private:
     };
     ObjectDetectionSnapshot localObjectDetection;
     std::map<std::string, ObjectDetectionSnapshot> neighborObjectDetections;
-    double objectDetectionTtlSec = 0.2;  // Data freshness window for neighbors (seconds)
+    double objectDetectionTtlSec = 0.2;  // Data freshness window for neighbors
 
     void sendObjectDetectionData(const Task* task);
     void handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg);
     uint32_t countFreshNeighborDetections();
 
+    // Energy and metrics
+    EnergyCalculator energyCalculator;
+    
     // Service vehicle capability (this vehicle can process tasks for others)
     bool serviceVehicleEnabled = false;
     int maxConcurrentServiceTasks = 3;
@@ -270,6 +276,16 @@ private:
     void updateRSUMetrics(int rsuIndex, bool messageSuccess, double rssi = -999.0);
     double calculateRSUScore(const RSUMetrics& metrics);
     double normalizeValue(double value, double min, double max);
+    
+    // Multi-RSU Candidate List (for redirect support)
+    int max_candidate_rsus = 3;                       // Maximum RSUs to include in candidate list
+    int max_redirect_hops = 2;                        // Maximum redirect attempts before fallback
+    double candidateBlacklistDuration = 5.0;          // Duration to blacklist failed RSU (seconds)
+    int candidateBlacklistThreshold = 2;              // Consecutive failures to trigger blacklist
+    double rssiThreshold = -90.0;                     // RSSI threshold for viable RSU (dBm)
+    std::vector<veins::LAddress::L2Type> buildRankedRSUCandidates();  // Build ordered candidate list
+    std::map<std::string, int> task_redirect_counts;  // Track redirects per task (task_id -> count)
+    std::map<std::string, std::vector<veins::LAddress::L2Type>> taskCandidates;  // Store candidate list per task (task_id -> [MAC addresses])
 };
 
 } // namespace complex_network

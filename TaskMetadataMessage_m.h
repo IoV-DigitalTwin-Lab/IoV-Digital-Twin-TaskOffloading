@@ -29,6 +29,7 @@ class OffloadingDecisionMessage;
 class TaskOffloadPacket;
 class TaskResultMessage;
 class TaskOffloadingEvent;
+class RSUStatusBroadcastMessage;
 
 }  // namespace veins
 
@@ -526,6 +527,11 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMess
  * 
  *     // Local Decision Recommendation
  *     string local_decision;               // "LOCAL", "OFFLOAD", or "REJECT"
+ * 
+ *     // Ranked RSU Candidates (for redirect support)
+ *     uint64_t candidate_rsu_macs[];       // Ordered list of candidate RSU MAC addresses (best to worst)
+ *     int current_candidate_index;         // Index of current RSU being tried (0 = first/best)
+ *     int max_redirect_hops;               // Maximum allowed redirects
  * }
  * </pre>
  */
@@ -549,6 +555,10 @@ class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
     double pos_y = 0;
     double speed = 0;
     ::omnetpp::opp_string local_decision;
+    uint64_t *candidate_rsu_macs = nullptr;
+    size_t candidate_rsu_macs_arraysize = 0;
+    int current_candidate_index = 0;
+    int max_redirect_hops = 0;
 
   private:
     void copy(const OffloadingRequestMessage& other);
@@ -616,13 +626,28 @@ class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
 
     virtual const char * getLocal_decision() const;
     virtual void setLocal_decision(const char * local_decision);
+
+    virtual void setCandidate_rsu_macsArraySize(size_t size);
+    virtual size_t getCandidate_rsu_macsArraySize() const;
+    virtual uint64_t getCandidate_rsu_macs(size_t k) const;
+    virtual void setCandidate_rsu_macs(size_t k, uint64_t candidate_rsu_macs);
+    virtual void insertCandidate_rsu_macs(size_t k, uint64_t candidate_rsu_macs);
+    [[deprecated]] void insertCandidate_rsu_macs(uint64_t candidate_rsu_macs) {appendCandidate_rsu_macs(candidate_rsu_macs);}
+    virtual void appendCandidate_rsu_macs(uint64_t candidate_rsu_macs);
+    virtual void eraseCandidate_rsu_macs(size_t k);
+
+    virtual int getCurrent_candidate_index() const;
+    virtual void setCurrent_candidate_index(int current_candidate_index);
+
+    virtual int getMax_redirect_hops() const;
+    virtual void setMax_redirect_hops(int max_redirect_hops);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMessage& obj) {obj.parsimPack(b);}
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:148</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:153</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -635,7 +660,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage&
  *     double decision_time;                // When decision was made
  * 
  *     // Decision
- *     string decision_type;                // "LOCAL", "RSU", "SERVICE_VEHICLE", "REJECT"
+ *     string decision_type;                // "LOCAL", "RSU", "SERVICE_VEHICLE", "REJECT", "REDIRECT", "ACCEPT"
  * 
  *     // If SERVICE_VEHICLE: target information
  *     string target_service_vehicle_id;    // Service vehicle ID (if applicable)
@@ -645,6 +670,11 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage&
  *     double confidence_score;             // ML model confidence (0-1)
  *     double estimated_completion_time;    // Estimated time to complete
  *     string decision_reason;              // Human-readable reasoning
+ * 
+ *     // Redirect Information (if decision_type == "REDIRECT")
+ *     uint64_t redirect_target_rsu_mac;    // MAC address of RSU to try next
+ *     string redirect_target_rsu_id;       // ID of RSU to try next
+ *     int next_candidate_index;            // Index in candidate list to try next
  * }
  * </pre>
  */
@@ -661,6 +691,9 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
     double confidence_score = 0;
     double estimated_completion_time = 0;
     ::omnetpp::opp_string decision_reason;
+    uint64_t redirect_target_rsu_mac = 0;
+    ::omnetpp::opp_string redirect_target_rsu_id;
+    int next_candidate_index = 0;
 
   private:
     void copy(const OffloadingDecisionMessage& other);
@@ -707,13 +740,22 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
 
     virtual const char * getDecision_reason() const;
     virtual void setDecision_reason(const char * decision_reason);
+
+    virtual uint64_t getRedirect_target_rsu_mac() const;
+    virtual void setRedirect_target_rsu_mac(uint64_t redirect_target_rsu_mac);
+
+    virtual const char * getRedirect_target_rsu_id() const;
+    virtual void setRedirect_target_rsu_id(const char * redirect_target_rsu_id);
+
+    virtual int getNext_candidate_index() const;
+    virtual void setNext_candidate_index(int next_candidate_index);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMessage& obj) {obj.parsimPack(b);}
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:170</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:180</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -796,7 +838,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:189</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:199</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -872,7 +914,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:205</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:215</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
@@ -935,6 +977,124 @@ class TaskOffloadingEvent : public ::veins::BaseFrame1609_4
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& obj) {obj.parsimPack(b);}
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
 
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:227</tt> by opp_msgtool.
+ * <pre>
+ * //
+ * // RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)
+ * //
+ * packet RSUStatusBroadcastMessage extends BaseFrame1609_4
+ * {
+ *     string rsu_id;                       // RSU identifier (e.g., "RSU_0")
+ *     LAddress::L2Type rsu_mac;            // RSU MAC address
+ *     double broadcast_time;               // When this status was broadcast
+ * 
+ *     // RSU Resource State
+ *     int queue_length;                    // Current task queue length
+ *     int processing_count;                // Currently processing tasks
+ *     int max_concurrent_tasks;            // Maximum concurrent capacity
+ *     double cpu_available_ghz;            // Available CPU (GHz)
+ *     double cpu_total_ghz;                // Total CPU capacity (GHz)
+ *     double memory_available_gb;          // Available memory (GB)
+ *     double memory_total_gb;              // Total memory (GB)
+ * 
+ *     // Coverage Information
+ *     string vehicle_ids_in_coverage[];    // Vehicle IDs currently in this RSU's coverage
+ *     int vehicle_count;                   // Number of vehicles in coverage
+ * 
+ *     // Network Topology
+ *     double pos_x;                        // RSU position X
+ *     double pos_y;                        // RSU position Y
+ * }
+ * </pre>
+ */
+class RSUStatusBroadcastMessage : public ::veins::BaseFrame1609_4
+{
+  protected:
+    ::omnetpp::opp_string rsu_id;
+    LAddress::L2Type rsu_mac;
+    double broadcast_time = 0;
+    int queue_length = 0;
+    int processing_count = 0;
+    int max_concurrent_tasks = 0;
+    double cpu_available_ghz = 0;
+    double cpu_total_ghz = 0;
+    double memory_available_gb = 0;
+    double memory_total_gb = 0;
+    ::omnetpp::opp_string *vehicle_ids_in_coverage = nullptr;
+    size_t vehicle_ids_in_coverage_arraysize = 0;
+    int vehicle_count = 0;
+    double pos_x = 0;
+    double pos_y = 0;
+
+  private:
+    void copy(const RSUStatusBroadcastMessage& other);
+
+  protected:
+    bool operator==(const RSUStatusBroadcastMessage&) = delete;
+
+  public:
+    RSUStatusBroadcastMessage(const char *name=nullptr, short kind=0);
+    RSUStatusBroadcastMessage(const RSUStatusBroadcastMessage& other);
+    virtual ~RSUStatusBroadcastMessage();
+    RSUStatusBroadcastMessage& operator=(const RSUStatusBroadcastMessage& other);
+    virtual RSUStatusBroadcastMessage *dup() const override {return new RSUStatusBroadcastMessage(*this);}
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const char * getRsu_id() const;
+    virtual void setRsu_id(const char * rsu_id);
+
+    virtual const LAddress::L2Type& getRsu_mac() const;
+    virtual LAddress::L2Type& getRsu_macForUpdate() { return const_cast<LAddress::L2Type&>(const_cast<RSUStatusBroadcastMessage*>(this)->getRsu_mac());}
+    virtual void setRsu_mac(const LAddress::L2Type& rsu_mac);
+
+    virtual double getBroadcast_time() const;
+    virtual void setBroadcast_time(double broadcast_time);
+
+    virtual int getQueue_length() const;
+    virtual void setQueue_length(int queue_length);
+
+    virtual int getProcessing_count() const;
+    virtual void setProcessing_count(int processing_count);
+
+    virtual int getMax_concurrent_tasks() const;
+    virtual void setMax_concurrent_tasks(int max_concurrent_tasks);
+
+    virtual double getCpu_available_ghz() const;
+    virtual void setCpu_available_ghz(double cpu_available_ghz);
+
+    virtual double getCpu_total_ghz() const;
+    virtual void setCpu_total_ghz(double cpu_total_ghz);
+
+    virtual double getMemory_available_gb() const;
+    virtual void setMemory_available_gb(double memory_available_gb);
+
+    virtual double getMemory_total_gb() const;
+    virtual void setMemory_total_gb(double memory_total_gb);
+
+    virtual void setVehicle_ids_in_coverageArraySize(size_t size);
+    virtual size_t getVehicle_ids_in_coverageArraySize() const;
+    virtual const char * getVehicle_ids_in_coverage(size_t k) const;
+    virtual void setVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage);
+    virtual void insertVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage);
+    [[deprecated]] void insertVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage) {appendVehicle_ids_in_coverage(vehicle_ids_in_coverage);}
+    virtual void appendVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage);
+    virtual void eraseVehicle_ids_in_coverage(size_t k);
+
+    virtual int getVehicle_count() const;
+    virtual void setVehicle_count(int vehicle_count);
+
+    virtual double getPos_x() const;
+    virtual void setPos_x(double pos_x);
+
+    virtual double getPos_y() const;
+    virtual void setPos_y(double pos_y);
+};
+
+inline void doParsimPacking(omnetpp::cCommBuffer *b, const RSUStatusBroadcastMessage& obj) {obj.parsimPack(b);}
+inline void doParsimUnpacking(omnetpp::cCommBuffer *b, RSUStatusBroadcastMessage& obj) {obj.parsimUnpack(b);}
+
 
 }  // namespace veins
 
@@ -951,6 +1111,7 @@ template<> inline veins::OffloadingDecisionMessage *fromAnyPtr(any_ptr ptr) { re
 template<> inline veins::TaskOffloadPacket *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskOffloadPacket*>(ptr.get<cObject>()); }
 template<> inline veins::TaskResultMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskResultMessage*>(ptr.get<cObject>()); }
 template<> inline veins::TaskOffloadingEvent *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskOffloadingEvent*>(ptr.get<cObject>()); }
+template<> inline veins::RSUStatusBroadcastMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::RSUStatusBroadcastMessage*>(ptr.get<cObject>()); }
 
 }  // namespace omnetpp
 

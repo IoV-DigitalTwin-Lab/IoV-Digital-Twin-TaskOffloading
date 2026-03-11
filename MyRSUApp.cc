@@ -56,10 +56,36 @@ void MyRSUApp::initialize(int stage) {
         // Insert RSU metadata (static info) once at initialization
         insertRSUMetadata();
         
+        // Initialize RSU-to-RSU broadcast parameters (try to get from config, use defaults if not set)
+        try {
+            rsu_broadcast_interval = par("rsuStatusBroadcastInterval").doubleValue();
+        } catch (...) {
+            rsu_broadcast_interval = 0.5;  // Default: 500ms
+        }
+        try {
+            neighbor_state_ttl = par("neighborStateTtl").doubleValue();
+        } catch (...) {
+            neighbor_state_ttl = 1.5;  // Default: 1.5s
+        }
+        try {
+            max_vehicles_in_broadcast = par("maxVehiclesInBroadcast").intValue();
+        } catch (...) {
+            max_vehicles_in_broadcast = 20;  // Default: 20 vehicles
+        }
+        try {
+            max_redirect_hops = par("maxRedirectHops").intValue();
+        } catch (...) {
+            max_redirect_hops = 2;  // Default: 2 hops
+        }
+        
         // Start periodic RSU status updates
         rsu_status_update_timer = new cMessage("rsuStatusUpdate");
         // First RSU status at t=0 so Redis sees RSUs immediately
         scheduleAt(simTime(), rsu_status_update_timer);
+        
+        // Start periodic RSU-to-RSU status broadcast
+        rsu_broadcast_timer = new cMessage("rsuBroadcast");
+        scheduleAt(simTime() + uniform(0.0, rsu_broadcast_interval), rsu_broadcast_timer);  // Stagger initial broadcasts
         
         // Initialize decision checker
         checkDecisionMsg = new cMessage("checkDecision");
@@ -109,6 +135,14 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
     else if (msg == rsu_status_update_timer) {
         // Handle RSU status update
         sendRSUStatusUpdate();
+    } 
+    else if (msg == rsu_broadcast_timer) {
+        // Handle RSU-to-RSU status broadcast
+        broadcastRSUStatus();
+        // Cleanup stale neighbor states periodically
+        cleanupStaleNeighborStates();
+        // Reschedule next broadcast
+        scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
     } 
     else if (msg == checkDecisionMsg) {
         // Poll Redis first (fast), fallback to PostgreSQL if needed
@@ -311,6 +345,14 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         return;
     }
     
+    // Handle RSU-to-RSU status broadcasts
+    RSUStatusBroadcastMessage* rsuStatus = dynamic_cast<RSUStatusBroadcastMessage*>(wsm);
+    if (rsuStatus) {
+        EV_DEBUG << "📥 RSU received RSUStatusBroadcastMessage" << endl;
+        handleRSUStatusBroadcast(rsuStatus);
+        return;
+    }
+    
     // Handle TaskResultMessage with completion timing data
     TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
     if (taskResult) {
@@ -430,6 +472,12 @@ void MyRSUApp::finish() {
     if (rsu_status_update_timer) {
         cancelAndDelete(rsu_status_update_timer);
         rsu_status_update_timer = nullptr;
+    }
+    
+    // Cancel and delete RSU broadcast timer
+    if (rsu_broadcast_timer) {
+        cancelAndDelete(rsu_broadcast_timer);
+        rsu_broadcast_timer = nullptr;
     }
     
     // Cancel and delete decision checker timer
@@ -996,15 +1044,14 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     EV_INFO << "Database: " << db_conninfo << endl;
     
-    // Add connection timeout to prevent hanging
-    // For URI format (postgresql://...), use ? for parameters, otherwise use space
+    // Add connection timeout - use proper format based on connection string type
     std::string conninfo_with_timeout;
-    if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-        // URI format - check if parameters already exist
+    if (db_conninfo.find("://") != std::string::npos) {
+        // URL-style connection string - use ? or & for parameters
         conninfo_with_timeout = db_conninfo + 
             (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
     } else {
-        // Keyword=value format
+        // Key=value style - append with space
         conninfo_with_timeout = db_conninfo + " connect_timeout=5";
     }
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
@@ -1036,15 +1083,14 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conn) {
             PQfinish(db_conn);
         }
-        // Add connection timeout to prevent hanging
-        // For URI format (postgresql://...), use ? for parameters, otherwise use space
+        // Add connection timeout - use proper format based on connection string type
         std::string conninfo_with_timeout;
-        if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-            // URI format - check if parameters already exist
+        if (db_conninfo.find("://") != std::string::npos) {
+            // URL-style connection string - use ? or & for parameters
             conninfo_with_timeout = db_conninfo + 
                 (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
         } else {
-            // Keyword=value format
+            // Key=value style - append with space
             conninfo_with_timeout = db_conninfo + " connect_timeout=5";
         }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());
@@ -2464,8 +2510,159 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
 }
 
 
+void MyRSUApp::broadcastRSUStatus() {
+    EV_DEBUG << "📡 RSU broadcasting status to neighbors..." << endl;
+    
+    // Create RSU status broadcast message
+    RSUStatusBroadcastMessage* msg = new RSUStatusBroadcastMessage();
+    
+    // RSU identification
+    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+    msg->setRsu_id(rsu_id_str.c_str());
+    msg->setRsu_mac(myId);
+    msg->setBroadcast_time(simTime().dbl());
+    
+    // Resource state
+    msg->setQueue_length(rsu_queue_length);
+    msg->setProcessing_count(rsu_processing_count);
+    msg->setMax_concurrent_tasks(rsu_max_concurrent);
+    msg->setCpu_available_ghz(rsu_cpu_available);
+    msg->setCpu_total_ghz(rsu_cpu_total);
+    msg->setMemory_available_gb(rsu_memory_available);
+    msg->setMemory_total_gb(rsu_memory_total);
+    
+    // Coverage information - limit vehicle list size to avoid huge packets
+    std::vector<std::string> vehicle_list;
+    int count = 0;
+    for (const auto& pair : vehicle_twins) {
+        if (count >= max_vehicles_in_broadcast) break;
+        vehicle_list.push_back(pair.first);
+        count++;
+    }
+    
+    msg->setVehicle_ids_in_coverageArraySize(vehicle_list.size());
+    for (size_t i = 0; i < vehicle_list.size(); i++) {
+        msg->setVehicle_ids_in_coverage(i, vehicle_list[i].c_str());
+    }
+    msg->setVehicle_count(vehicle_twins.size());
+    
+    // Position (from mobility or parameters)
+    cModule* mobilityModule = getParentModule()->getSubmodule("mobility");
+    if (mobilityModule) {
+        msg->setPos_x(mobilityModule->par("x").doubleValue());
+        msg->setPos_y(mobilityModule->par("y").doubleValue());
+    } else {
+        msg->setPos_x(0.0);
+        msg->setPos_y(0.0);
+    }
+    
+    // Broadcast to all RSU neighbors (wireless for now, will be wired backhaul later)
+    populateWSM(msg);  // Broadcast
+    sendDown(msg);
+    
+    EV_DEBUG << "  Broadcast: queue=" << rsu_queue_length 
+             << ", processing=" << rsu_processing_count
+             << ", cpu_avail=" << rsu_cpu_available << " GHz"
+             << ", vehicles=" << vehicle_twins.size() << endl;
+    
+    std::cout << "RSU_BROADCAST: " << rsu_id_str << " status - Q:" << rsu_queue_length 
+              << " P:" << rsu_processing_count << " CPU:" << rsu_cpu_available << "GHz" << std::endl;
+}
+
+void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
+    std::string neighbor_rsu_id = msg->getRsu_id();
+    
+    // Don't process our own broadcasts
+    std::string our_rsu_id = "RSU_" + std::to_string(rsu_id);
+    if (neighbor_rsu_id == our_rsu_id) {
+        delete msg;
+        return;
+    }
+    
+    EV_DEBUG << "📥 Processing status from neighbor " << neighbor_rsu_id << endl;
+    
+    // Build neighbor state structure
+    RSUNeighborState state;
+    state.rsu_id = neighbor_rsu_id;
+    state.rsu_mac = msg->getRsu_mac();
+    state.last_update_time = simTime().dbl();
+    
+    state.queue_length = msg->getQueue_length();
+    state.processing_count = msg->getProcessing_count();
+    state.max_concurrent_tasks = msg->getMax_concurrent_tasks();
+    state.cpu_available_ghz = msg->getCpu_available_ghz();
+    state.cpu_total_ghz = msg->getCpu_total_ghz();
+    state.memory_available_gb = msg->getMemory_available_gb();
+    state.memory_total_gb = msg->getMemory_total_gb();
+    
+    state.vehicle_count = msg->getVehicle_count();
+    state.vehicle_ids_in_coverage.clear();
+    for (size_t i = 0; i < msg->getVehicle_ids_in_coverageArraySize(); i++) {
+        state.vehicle_ids_in_coverage.push_back(msg->getVehicle_ids_in_coverage(i));
+    }
+    
+    state.pos_x = msg->getPos_x();
+    state.pos_y = msg->getPos_y();
+    
+    // Compute derived metrics
+    double cpu_util = (state.cpu_total_ghz > 0) ? 
+                      ((state.cpu_total_ghz - state.cpu_available_ghz) / state.cpu_total_ghz) : 0.0;
+    state.load_factor = cpu_util;
+    
+    // Simple overload heuristic: queue near max OR processing at max OR CPU < 10%
+    state.is_overloaded = (state.queue_length >= (state.max_concurrent_tasks * 0.8)) ||
+                          (state.processing_count >= state.max_concurrent_tasks) ||
+                          (state.cpu_available_ghz < (state.cpu_total_ghz * 0.1));
+    
+    // Update or insert neighbor state
+    updateNeighborState(state);
+    
+    EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
+             << "Q=" << state.queue_length << "/" << state.max_concurrent_tasks
+             << ", CPU=" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << " GHz"
+             << ", overloaded=" << (state.is_overloaded ? "YES" : "NO") << endl;
+    
+    std::cout << "RSU_NEIGHBOR_UPDATE: " << neighbor_rsu_id 
+              << " Q:" << state.queue_length 
+              << " P:" << state.processing_count
+              << " CPU:" << state.cpu_available_ghz << "GHz"
+              << " overload:" << (state.is_overloaded ? "YES" : "NO") << std::endl;
+    
+    delete msg;
+}
+
+void MyRSUApp::updateNeighborState(const RSUNeighborState& state) {
+    neighbor_rsus[state.rsu_id] = state;
+    
+    EV_DEBUG << "✓ Updated neighbor cache for " << state.rsu_id 
+             << " (total neighbors: " << neighbor_rsus.size() << ")" << endl;
+}
+
+bool MyRSUApp::isNeighborStateFresh(const RSUNeighborState& state) {
+    double age = simTime().dbl() - state.last_update_time;
+    return age <= neighbor_state_ttl;
+}
+
+void MyRSUApp::cleanupStaleNeighborStates() {
+    auto it = neighbor_rsus.begin();
+    int removed = 0;
+    
+    while (it != neighbor_rsus.end()) {
+        if (!isNeighborStateFresh(it->second)) {
+            EV_DEBUG << "Removing stale neighbor state for " << it->first << endl;
+            it = neighbor_rsus.erase(it);
+            removed++;
+        } else {
+            ++it;
+        }
+    }
+    
+    if (removed > 0) {
+        EV_DEBUG << "Cleaned up " << removed << " stale neighbor state(s)" << endl;
+    }
+}
+
+
+
 }  // namespace complex_network
-
-
-
 
