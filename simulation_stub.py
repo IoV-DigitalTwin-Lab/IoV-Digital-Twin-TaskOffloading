@@ -513,52 +513,78 @@ class SimulationStub:
 
     def _handle_task(self, task_id: str, task: PendingTask):
         """
-        Worker thread: poll for DRL decision, simulate execution, write result to Redis.
-        Matches the key/field schema of RedisDigitalTwin::updateTaskCompletion().
+        Worker thread: poll for multi-agent DRL decisions, deduplicate simulation,
+        and write per-agent results to Redis.
+
+        Decision schema (written atomically by IoVRedisEnv.step_multi):
+            task:{id}:decisions  HASH
+                agents           → comma-separated agent names
+                {agent}_type     → "RSU" or "SERVICE_VEHICLE"
+                {agent}_target   → target node id
+
+        Result schema (read by IoVRedisEnv._wait_for_multi_results):
+            task:{id}:results  HASH
+                {agent}_status   → COMPLETED_ON_TIME | COMPLETED_LATE | FAILED
+                {agent}_latency  → float seconds
+                {agent}_energy   → float joules
         """
-        decision_key  = f"task:{task_id}:decision"
-        state_key     = f"task:{task_id}:state"
+        decisions_key = f"task:{task_id}:decisions"
+        results_key   = f"task:{task_id}:results"
         poll_interval = self.timing["decision_poll_interval_s"]
 
         while time.time() < task.decision_deadline:
             if self._stop_event.is_set():
                 return
 
-            decision = self.r.hgetall(decision_key)
-            if decision and decision.get("target_id"):
-                result = self._simulate_execution(task, decision)
+            data = self.r.hgetall(decisions_key)
+            agents_str = data.get('agents', '')
+            if not agents_str:
+                time.sleep(poll_interval)
+                continue
 
-                # Write result — IoVRedisEnv._wait_for_result() polls this key
-                self.r.hset(state_key, mapping={
-                    "status":           result["status"],
-                    "decision_type":    result["decision_type"],
-                    "processor_id":     result["processor_id"],
-                    "processing_time":  result["processing_time"],
-                    "total_latency":    result["total_latency"],
-                    "completion_time":  result["completion_time"],
-                    "energy_j":         result["energy_j"],
-                })
-                self.r.expire(state_key, 120)
+            agent_names = agents_str.split(',')
+            agent_decisions = {}
+            for agent in agent_names:
+                dtype = data.get(f'{agent}_type', '')
+                tid   = data.get(f'{agent}_target', '')
+                if dtype and tid:
+                    agent_decisions[agent] = (dtype, tid)
 
-                log.info("← %s | %s → %s | latency=%.3fs deadline=%.1fs [%s]",
-                         task_id, result["decision_type"], result["processor_id"],
-                         result["total_latency"], task.deadline_s, result["status"])
-                return
+            if len(agent_decisions) < len(agent_names):
+                # Decisions not fully written yet (race guard)
+                time.sleep(poll_interval)
+                continue
 
-            time.sleep(poll_interval)
+            # ── Dedup: simulate each unique (type, target) only once ──────────
+            target_to_result = {}
+            for dtype, tid in set(agent_decisions.values()):
+                target_to_result[(dtype, tid)] = self._simulate_execution(
+                    task, {'decision_type': dtype, 'target_id': tid}
+                )
 
-        # Decision timeout: DRL did not respond in time
-        self.r.hset(state_key, mapping={
-            "status":          "FAILED",
-            "decision_type":   "TIMEOUT",
-            "processor_id":    "",
-            "processing_time": 0,
-            "total_latency":   999.0,
-            "completion_time": 0,
-            "energy_j":        0,
-        })
-        self.r.expire(state_key, 120)
-        log.warning("✗ Timeout: no DRL decision received for task %s", task_id)
+            # ── Map results back to each agent ────────────────────────────────
+            result_mapping = {}
+            for agent, (dtype, tid) in agent_decisions.items():
+                r = target_to_result[(dtype, tid)]
+                result_mapping[f'{agent}_status']  = r['status']
+                result_mapping[f'{agent}_latency'] = r['total_latency']
+                result_mapping[f'{agent}_energy']  = r['energy_j']
+
+            self.r.hset(results_key, mapping=result_mapping)
+            self.r.expire(results_key, 120)
+
+            # Log only the ddqn decision to keep output clean
+            ddqn_dtype, ddqn_tid = agent_decisions.get('ddqn', next(iter(agent_decisions.values())))
+            ddqn_r = target_to_result[(ddqn_dtype, ddqn_tid)]
+            log.info("← %s | %s → %s | lat=%.3fs deadline=%.1fs [%s]",
+                     task_id, ddqn_dtype, ddqn_tid,
+                     ddqn_r['total_latency'], task.deadline_s, ddqn_r['status'])
+            return
+
+        # Decision timeout: write a sentinel so DRL side can detect it
+        self.r.hset(results_key, mapping={'_timeout': '1'})
+        self.r.expire(results_key, 120)
+        log.warning("✗ Timeout: no multi-agent decisions for task %s", task_id)
 
     # ─────────────────────────────────────────────────────────────────────────
     # BACKGROUND THREADS
