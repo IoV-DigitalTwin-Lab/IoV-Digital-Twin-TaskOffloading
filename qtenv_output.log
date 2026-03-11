@@ -1,0 +1,61 @@
+nohup: ignoring input
+OMNeT++ Discrete Event Simulation  (C) 1992-2024 Andras Varga, OpenSim Ltd.
+Version: 6.1, build: 241008-f7568267cd, edition: Academic Public License -- NOT FOR COMMERCIAL USE
+See the license for distribution terms and warranty disclaimer
+
+Setting up Qtenv...
+
+Loading NED files from .:  7
+Loading NED files from ../inet4.5/src:  1187
+Loading NED files from /opt/omnet/veins/src/veins:  44
+
+Loading images from '/opt/omnet/omnetpp-6.1/images': *: 0  abstract/*: 90  background/*: 4  block/*: 325  device/*: 195  logo/*: 3  maps/*: 9  misc/*: 70  msg/*: 55  old/*: 111  status/*: 28 
+Loading images from '/opt/omnet/omnetpp-6.1/images': *: 0  abstract/*: 90  background/*: 4  block/*: 325  device/*: 195  logo/*: 3  maps/*: 9  misc/*: 70  msg/*: 55  old/*: 111  status/*: 28 
+
+✓ RSU[0] PostgreSQL connected
+✓ RSU[0] Redis Digital Twin connected
+RSU_METADATA: RSU_0 @ (675,750) - 16 GHz, 64 GB
+CONSOLE: MyRSUApp rsu[0] initialized with edge resources:
+  - RSU ID: 0
+  - CPU: 16 GHz
+  - Memory: 64 GB
+  - Max Vehicles: 50
+  - Base Processing Delay: 5 ms
+=== CONSOLE: MyRSUApp INITIALIZED ===
+CONSOLE: MyRSUApp - Beacon interval: 4s
+CONSOLE: MyRSUApp - Starting RSUHttpPoster...
+CONSOLE: MyRSUApp - Direct PostgreSQL insertion enabled (HTTP poster disabled)
+=== MyRSUApp READY ===
+✓ RSU[1] PostgreSQL connected
+✓ RSU[1] Redis Digital Twin connected
+RSU_METADATA: RSU_1 @ (2150,1000) - 16 GHz, 64 GB
+CONSOLE: MyRSUApp rsu[1] initialized with edge resources:
+  - RSU ID: 1
+  - CPU: 16 GHz
+  - Memory: 64 GB
+  - Max Vehicles: 50
+  - Base Processing Delay: 5 ms
+=== CONSOLE: MyRSUApp INITIALIZED ===
+CONSOLE: MyRSUApp - Beacon interval: 4s
+CONSOLE: MyRSUApp - Starting RSUHttpPoster...
+CONSOLE: MyRSUApp - Direct PostgreSQL insertion enabled (HTTP poster disabled)
+=== MyRSUApp READY ===
+✓ RSU[2] PostgreSQL connected
+✓ RSU[2] Redis Digital Twin connected
+RSU_METADATA: RSU_2 @ (1250,1400) - 16 GHz, 64 GB
+CONSOLE: MyRSUApp rsu[2] initialized with edge resources:
+  - RSU ID: 2
+  - CPU: 16 GHz
+  - Memory: 64 GB
+  - Max Vehicles: 50
+  - Base Processing Delay: 5 ms
+=== CONSOLE: MyRSUApp INITIALIZED ===
+CONSOLE: MyRSUApp - Beacon interval: 4s
+CONSOLE: MyRSUApp - Starting RSUHttpPoster...
+CONSOLE: MyRSUApp - Direct PostgreSQL insertion enabled (HTTP poster disabled)
+=== MyRSUApp READY ===
+undisposed object: (omnetpp::cMessage) ComplexNetwork.rsu[0].appl.checkDecision -- check module destructor
+undisposed object: (omnetpp::cMessage) ComplexNetwork.rsu[1].appl.checkDecision -- check module destructor
+undisposed object: (omnetpp::cMessage) ComplexNetwork.rsu[2].appl.checkDecision -- check module destructor
+
+End.
