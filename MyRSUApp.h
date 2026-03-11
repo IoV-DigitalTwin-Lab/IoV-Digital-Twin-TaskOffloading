@@ -3,7 +3,7 @@
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
-#include "rsu_http_poster.h"
+// #include "rsu_http_poster.h"  // Disabled - using direct PostgreSQL
 #include "TaskMetadataMessage_m.h"
 #include "RedisDigitalTwin.h"
 #include <map>
@@ -94,6 +94,63 @@ struct TaskRecord {
     bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
 };
 
+/**
+ * RSU Neighbor State (for RSU-to-RSU communication)
+ */
+struct RSUNeighborState {
+    std::string rsu_id;
+    LAddress::L2Type rsu_mac;
+    double last_update_time;
+    
+    // Resource state
+    int queue_length;
+    int processing_count;
+    int max_concurrent_tasks;
+    double cpu_available_ghz;
+    double cpu_total_ghz;
+    double memory_available_gb;
+    double memory_total_gb;
+    
+    // Coverage information
+    std::vector<std::string> vehicle_ids_in_coverage;
+    int vehicle_count;
+    
+    // Position
+    double pos_x;
+    double pos_y;
+    
+    // Computed metrics
+    double load_factor = 0.0;        // CPU utilization factor (0-1)
+    bool is_overloaded = false;      // Overload flag
+};
+
+/**
+ * RSU Active Task (for task queue and processing)
+ */
+struct RSUActiveTask {
+    std::string task_id;
+    std::string vehicle_id;
+    LAddress::L2Type vehicle_mac;
+    
+    // Task parameters
+    uint64_t cpu_cycles;
+    uint64_t task_size_bytes;
+    double deadline_seconds;
+    
+    // Timing
+    double arrival_time;      // When task arrived at RSU (for queue wait tracking)
+    double start_time;         // When task started processing
+    double allocated_cpu_ghz;  // CPU allocated to this task
+    double estimated_completion_time;  // Expected completion time
+    
+    // State
+    enum State { QUEUED, PROCESSING, COMPLETED, FAILED } state;
+    std::string failure_reason;
+    
+    // Self-message for completion event
+    cMessage* completion_msg = nullptr;
+};
+
 class MyRSUApp : public DemoBaseApplLayer {
 public:
     void initialize(int stage) override;
@@ -106,12 +163,15 @@ protected:
     void handleMessage(cMessage* msg) override;
 
 private:
-    RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};
+    // RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};  // Disabled - using direct PostgreSQL
     // self-message used for periodic beacons; keep as member so we can cancel/delete safely
     omnetpp::cMessage* beaconMsg{nullptr};
     
     // Decision polling timer (for reading ML decisions from database)
     cMessage* checkDecisionMsg = nullptr;
+    
+    // RSU status broadcast timer (for RSU-to-RSU communication)
+    cMessage* rsu_broadcast_timer = nullptr;
     
     // Vehicle MAC address mapping (for sending decisions)
     std::map<std::string, LAddress::L2Type> vehicle_macs;  // vehicle_id -> MAC address
@@ -148,6 +208,25 @@ private:
     // Status update timing
     double rsu_status_update_interval = 0.5;  // Update every 0.5 second
     cMessage* rsu_status_update_timer = nullptr;
+    
+    // ============================================================================
+    // RSU-TO-RSU COMMUNICATION (I2I)
+    // ============================================================================
+    
+    // Neighbor RSU states (learned via broadcast)
+    std::map<std::string, RSUNeighborState> neighbor_rsus;  // rsu_id -> state
+    
+    // RSU broadcast parameters
+    double rsu_broadcast_interval = 0.5;      // Broadcast every 500ms
+    double neighbor_state_ttl = 1.5;          // Consider state stale after 1.5s
+    int max_vehicles_in_broadcast = 20;       // Limit vehicle list size to avoid huge packets
+    
+    // Task redirect parameters
+    int max_redirect_hops = 2;                // Maximum allowed redirect hops
+    
+    // Task queue and active tasks
+    std::deque<RSUActiveTask> task_queue;           // FIFO queue for pending tasks
+    std::map<std::string, RSUActiveTask> active_tasks;  // Currently processing tasks (task_id -> task)
     
     // ============================================================================
     // DIGITAL TWIN TRACKING SYSTEM
@@ -285,6 +364,27 @@ private:
     void insertRSUMetadata();
     void insertVehicleMetadata(const std::string& vehicle_id);
     void sendRSUStatusUpdate();
+    
+    // ============================================================================
+    // RSU-TO-RSU COMMUNICATION METHODS
+    // ============================================================================
+    void broadcastRSUStatus();
+    void handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg);
+    void updateNeighborState(const RSUNeighborState& state);
+    bool isNeighborStateFresh(const RSUNeighborState& state);
+    void cleanupStaleNeighborStates();
+    
+    // ============================================================================
+    // TASK PROCESSING METHODS
+    // ============================================================================
+    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
+    void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id, 
+                                  LAddress::L2Type vehicle_mac, bool success);
+    void queueTaskForProcessing(const RSUActiveTask& active_task);
+    void startNextQueuedTask();
+    double calculateProcessingTime(const RSUActiveTask& task);
+    void deallocateTaskResources(const RSUActiveTask& task);
+    void checkDeadlineAndNotify(const RSUActiveTask& task);
 };
 
 } // namespace complex_network

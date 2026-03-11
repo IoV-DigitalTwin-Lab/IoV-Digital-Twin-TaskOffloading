@@ -1,12 +1,14 @@
 #
 # OMNeT++/OMNEST Makefile for IoV-Digital-Twin-TaskOffloading
+# OMNeT++/OMNEST Makefile for IoV-Digital-Twin-TaskOffloading
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -DINET_IMPORT -DVEINS_IMPORT -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\) -lINET$$\(D\) -lveins$$\(D\) -Xcurl -Xdb -X.venv -XTask-Offloading-Algorithm
+#  opp_makemake -f --deep -O out -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\)
 #
 
 # Name of target to be created (-o option)
 TARGET_DIR = .
+TARGET_NAME = IoV-Digital-Twin-TaskOffloading$(D)
 TARGET_NAME = IoV-Digital-Twin-TaskOffloading$(D)
 TARGET = $(TARGET_NAME)$(EXE_SUFFIX)
 TARGET_IMPLIB = $(TARGET_NAME)$(IMPLIB_SUFFIX)
@@ -31,7 +33,7 @@ INCLUDE_PATH = \
 EXTRA_OBJS =
 
 # Additional libraries (-L, -l options)
-LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D) -lINET$(D) -lveins$(D)
+LIBS = $(LDFLAG_LIBPATH)$(INET4_5_PROJ)/src $(LDFLAG_LIBPATH)$(VEINS_PROJ)/src  -lINET$(D) -lveins$(D)
 
 # Output directory
 PROJECT_OUTPUT_DIR = out
@@ -40,14 +42,16 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
 OBJS = \
+    $O/EnergyModel.o \
+    $O/MetricsManager.o \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
     $O/RedisDigitalTwin.o \
-    $O/rsu_http_poster.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
     $O/Task.o \
     $O/TaskOffloadingDecision.o \
+    $O/TaskProfile.o \
     $O/TaskProfile.o \
     $O/UnicastVisualizer.o \
     $O/VehicleApp.o \

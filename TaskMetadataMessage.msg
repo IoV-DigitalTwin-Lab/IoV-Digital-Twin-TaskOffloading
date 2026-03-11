@@ -52,6 +52,16 @@ packet ObjectDetectionDataMessage extends BaseFrame1609_4 {
 }
 
 //
+// Object Detection Data Message - Vehicle → Vehicle broadcast (cooperative perception)
+//
+packet ObjectDetectionDataMessage extends BaseFrame1609_4 {
+    string vehicle_id;           // Sender vehicle ID
+    double timestamp;            // When detection was produced
+    uint64_t data_size_bytes;    // Size of object list payload
+    string payload_tag;          // Lightweight tag for tracing (no raw data)
+}
+
+//
 // Task Completion Message - Sent from vehicle to RSU when task completes
 //
 packet TaskCompletionMessage extends BaseFrame1609_4 {
@@ -140,6 +150,11 @@ packet OffloadingRequestMessage extends BaseFrame1609_4 {
     
     // Local Decision Recommendation
     string local_decision;               // "LOCAL", "OFFLOAD", or "REJECT"
+    
+    // Ranked RSU Candidates (for redirect support)
+    uint64_t candidate_rsu_macs[];       // Ordered list of candidate RSU MAC addresses (best to worst)
+    int current_candidate_index;         // Index of current RSU being tried (0 = first/best)
+    int max_redirect_hops;               // Maximum allowed redirects
 }
 
 //
@@ -152,7 +167,7 @@ packet OffloadingDecisionMessage extends BaseFrame1609_4 {
     double decision_time;                // When decision was made
     
     // Decision
-    string decision_type;                // "LOCAL", "RSU", "SERVICE_VEHICLE", "REJECT"
+    string decision_type;                // "LOCAL", "RSU", "SERVICE_VEHICLE", "REJECT", "REDIRECT", "ACCEPT"
     
     // If SERVICE_VEHICLE: target information
     string target_service_vehicle_id;    // Service vehicle ID (if applicable)
@@ -162,6 +177,11 @@ packet OffloadingDecisionMessage extends BaseFrame1609_4 {
     double confidence_score;             // ML model confidence (0-1)
     double estimated_completion_time;    // Estimated time to complete
     string decision_reason;              // Human-readable reasoning
+    
+    // Redirect Information (if decision_type == "REDIRECT")
+    uint64_t redirect_target_rsu_mac;    // MAC address of RSU to try next
+    string redirect_target_rsu_id;       // ID of RSU to try next
+    int next_candidate_index;            // Index in candidate list to try next
 }
 
 //
@@ -209,5 +229,31 @@ packet TaskOffloadingEvent extends BaseFrame1609_4 {
     string target_entity_id;             // Target entity (if applicable)
     double event_time;                   // When event occurred
     string event_details;                // JSON with additional details
+}
+
+//
+// RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)
+//
+packet RSUStatusBroadcastMessage extends BaseFrame1609_4 {
+    string rsu_id;                       // RSU identifier (e.g., "RSU_0")
+    LAddress::L2Type rsu_mac;            // RSU MAC address
+    double broadcast_time;               // When this status was broadcast
+    
+    // RSU Resource State
+    int queue_length;                    // Current task queue length
+    int processing_count;                // Currently processing tasks
+    int max_concurrent_tasks;            // Maximum concurrent capacity
+    double cpu_available_ghz;            // Available CPU (GHz)
+    double cpu_total_ghz;                // Total CPU capacity (GHz)
+    double memory_available_gb;          // Available memory (GB)
+    double memory_total_gb;              // Total memory (GB)
+    
+    // Coverage Information
+    string vehicle_ids_in_coverage[];    // Vehicle IDs currently in this RSU's coverage
+    int vehicle_count;                   // Number of vehicles in coverage
+    
+    // Network Topology
+    double pos_x;                        // RSU position X
+    double pos_y;                        // RSU position Y
 }
 

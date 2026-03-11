@@ -59,6 +59,16 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         double serviceMemoryReservation = default(512e6);     // Memory reserved for service (512 MB)
         
         // ============================================================================
+        // MULTI-RSU CANDIDATE SELECTION & REDIRECT PARAMETERS
+        // ============================================================================
+        
+        int maxCandidateRsus = default(3);                    // Max RSUs to include in candidate list
+        int maxRedirectHops = default(2);                     // Max redirect attempts before fallback
+        double candidateBlacklistDuration @unit(s) = default(5.0s);  // Duration to blacklist failed RSU
+        int candidateBlacklistThreshold = default(2);         // Consecutive failures to trigger blacklist
+        double rssiThreshold_dBm = default(-90);              // RSSI threshold for viable RSU
+        
+        // ============================================================================
         
         // ---- Legacy task parameters (kept for compatibility) ----
         double taskGenIntervalS @unit(s) = default(2.0s);     // mean cadence for task arrivals

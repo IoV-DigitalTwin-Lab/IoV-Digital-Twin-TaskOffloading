@@ -2981,6 +2981,7 @@ OffloadingRequestMessage::OffloadingRequestMessage(const OffloadingRequestMessag
 
 OffloadingRequestMessage::~OffloadingRequestMessage()
 {
+    delete [] this->candidate_rsu_macs;
 }
 
 OffloadingRequestMessage& OffloadingRequestMessage::operator=(const OffloadingRequestMessage& other)
@@ -3010,6 +3011,14 @@ void OffloadingRequestMessage::copy(const OffloadingRequestMessage& other)
     this->pos_y = other.pos_y;
     this->speed = other.speed;
     this->local_decision = other.local_decision;
+    delete [] this->candidate_rsu_macs;
+    this->candidate_rsu_macs = (other.candidate_rsu_macs_arraysize==0) ? nullptr : new uint64_t[other.candidate_rsu_macs_arraysize];
+    candidate_rsu_macs_arraysize = other.candidate_rsu_macs_arraysize;
+    for (size_t i = 0; i < candidate_rsu_macs_arraysize; i++) {
+        this->candidate_rsu_macs[i] = other.candidate_rsu_macs[i];
+    }
+    this->current_candidate_index = other.current_candidate_index;
+    this->max_redirect_hops = other.max_redirect_hops;
 }
 
 void OffloadingRequestMessage::parsimPack(omnetpp::cCommBuffer *b) const
@@ -3032,6 +3041,10 @@ void OffloadingRequestMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->pos_y);
     doParsimPacking(b,this->speed);
     doParsimPacking(b,this->local_decision);
+    b->pack(candidate_rsu_macs_arraysize);
+    doParsimArrayPacking(b,this->candidate_rsu_macs,candidate_rsu_macs_arraysize);
+    doParsimPacking(b,this->current_candidate_index);
+    doParsimPacking(b,this->max_redirect_hops);
 }
 
 void OffloadingRequestMessage::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -3054,6 +3067,16 @@ void OffloadingRequestMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->pos_y);
     doParsimUnpacking(b,this->speed);
     doParsimUnpacking(b,this->local_decision);
+    delete [] this->candidate_rsu_macs;
+    b->unpack(candidate_rsu_macs_arraysize);
+    if (candidate_rsu_macs_arraysize == 0) {
+        this->candidate_rsu_macs = nullptr;
+    } else {
+        this->candidate_rsu_macs = new uint64_t[candidate_rsu_macs_arraysize];
+        doParsimArrayUnpacking(b,this->candidate_rsu_macs,candidate_rsu_macs_arraysize);
+    }
+    doParsimUnpacking(b,this->current_candidate_index);
+    doParsimUnpacking(b,this->max_redirect_hops);
 }
 
 const LAddress::L2Type& OffloadingRequestMessage::getSenderAddress() const
@@ -3226,6 +3249,92 @@ void OffloadingRequestMessage::setLocal_decision(const char * local_decision)
     this->local_decision = local_decision;
 }
 
+size_t OffloadingRequestMessage::getCandidate_rsu_macsArraySize() const
+{
+    return candidate_rsu_macs_arraysize;
+}
+
+uint64_t OffloadingRequestMessage::getCandidate_rsu_macs(size_t k) const
+{
+    if (k >= candidate_rsu_macs_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)candidate_rsu_macs_arraysize, (unsigned long)k);
+    return this->candidate_rsu_macs[k];
+}
+
+void OffloadingRequestMessage::setCandidate_rsu_macsArraySize(size_t newSize)
+{
+    uint64_t *candidate_rsu_macs2 = (newSize==0) ? nullptr : new uint64_t[newSize];
+    size_t minSize = candidate_rsu_macs_arraysize < newSize ? candidate_rsu_macs_arraysize : newSize;
+    for (size_t i = 0; i < minSize; i++)
+        candidate_rsu_macs2[i] = this->candidate_rsu_macs[i];
+    for (size_t i = minSize; i < newSize; i++)
+        candidate_rsu_macs2[i] = 0;
+    delete [] this->candidate_rsu_macs;
+    this->candidate_rsu_macs = candidate_rsu_macs2;
+    candidate_rsu_macs_arraysize = newSize;
+}
+
+void OffloadingRequestMessage::setCandidate_rsu_macs(size_t k, uint64_t candidate_rsu_macs)
+{
+    if (k >= candidate_rsu_macs_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)candidate_rsu_macs_arraysize, (unsigned long)k);
+    this->candidate_rsu_macs[k] = candidate_rsu_macs;
+}
+
+void OffloadingRequestMessage::insertCandidate_rsu_macs(size_t k, uint64_t candidate_rsu_macs)
+{
+    if (k > candidate_rsu_macs_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)candidate_rsu_macs_arraysize, (unsigned long)k);
+    size_t newSize = candidate_rsu_macs_arraysize + 1;
+    uint64_t *candidate_rsu_macs2 = new uint64_t[newSize];
+    size_t i;
+    for (i = 0; i < k; i++)
+        candidate_rsu_macs2[i] = this->candidate_rsu_macs[i];
+    candidate_rsu_macs2[k] = candidate_rsu_macs;
+    for (i = k + 1; i < newSize; i++)
+        candidate_rsu_macs2[i] = this->candidate_rsu_macs[i-1];
+    delete [] this->candidate_rsu_macs;
+    this->candidate_rsu_macs = candidate_rsu_macs2;
+    candidate_rsu_macs_arraysize = newSize;
+}
+
+void OffloadingRequestMessage::appendCandidate_rsu_macs(uint64_t candidate_rsu_macs)
+{
+    insertCandidate_rsu_macs(candidate_rsu_macs_arraysize, candidate_rsu_macs);
+}
+
+void OffloadingRequestMessage::eraseCandidate_rsu_macs(size_t k)
+{
+    if (k >= candidate_rsu_macs_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)candidate_rsu_macs_arraysize, (unsigned long)k);
+    size_t newSize = candidate_rsu_macs_arraysize - 1;
+    uint64_t *candidate_rsu_macs2 = (newSize == 0) ? nullptr : new uint64_t[newSize];
+    size_t i;
+    for (i = 0; i < k; i++)
+        candidate_rsu_macs2[i] = this->candidate_rsu_macs[i];
+    for (i = k; i < newSize; i++)
+        candidate_rsu_macs2[i] = this->candidate_rsu_macs[i+1];
+    delete [] this->candidate_rsu_macs;
+    this->candidate_rsu_macs = candidate_rsu_macs2;
+    candidate_rsu_macs_arraysize = newSize;
+}
+
+int OffloadingRequestMessage::getCurrent_candidate_index() const
+{
+    return this->current_candidate_index;
+}
+
+void OffloadingRequestMessage::setCurrent_candidate_index(int current_candidate_index)
+{
+    this->current_candidate_index = current_candidate_index;
+}
+
+int OffloadingRequestMessage::getMax_redirect_hops() const
+{
+    return this->max_redirect_hops;
+}
+
+void OffloadingRequestMessage::setMax_redirect_hops(int max_redirect_hops)
+{
+    this->max_redirect_hops = max_redirect_hops;
+}
+
 class OffloadingRequestMessageDescriptor : public omnetpp::cClassDescriptor
 {
   private:
@@ -3248,6 +3357,9 @@ class OffloadingRequestMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_pos_y,
         FIELD_speed,
         FIELD_local_decision,
+        FIELD_candidate_rsu_macs,
+        FIELD_current_candidate_index,
+        FIELD_max_redirect_hops,
     };
   public:
     OffloadingRequestMessageDescriptor();
@@ -3314,7 +3426,7 @@ const char *OffloadingRequestMessageDescriptor::getProperty(const char *property
 int OffloadingRequestMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 17+base->getFieldCount() : 17;
+    return base ? 20+base->getFieldCount() : 20;
 }
 
 unsigned int OffloadingRequestMessageDescriptor::getFieldTypeFlags(int field) const
@@ -3343,8 +3455,11 @@ unsigned int OffloadingRequestMessageDescriptor::getFieldTypeFlags(int field) co
         FD_ISEDITABLE,    // FIELD_pos_y
         FD_ISEDITABLE,    // FIELD_speed
         FD_ISEDITABLE,    // FIELD_local_decision
+        FD_ISARRAY | FD_ISEDITABLE | FD_ISRESIZABLE,    // FIELD_candidate_rsu_macs
+        FD_ISEDITABLE,    // FIELD_current_candidate_index
+        FD_ISEDITABLE,    // FIELD_max_redirect_hops
     };
-    return (field >= 0 && field < 17) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 20) ? fieldTypeFlags[field] : 0;
 }
 
 const char *OffloadingRequestMessageDescriptor::getFieldName(int field) const
@@ -3373,8 +3488,11 @@ const char *OffloadingRequestMessageDescriptor::getFieldName(int field) const
         "pos_y",
         "speed",
         "local_decision",
+        "candidate_rsu_macs",
+        "current_candidate_index",
+        "max_redirect_hops",
     };
-    return (field >= 0 && field < 17) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 20) ? fieldNames[field] : nullptr;
 }
 
 int OffloadingRequestMessageDescriptor::findField(const char *fieldName) const
@@ -3398,6 +3516,9 @@ int OffloadingRequestMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 14;
     if (strcmp(fieldName, "speed") == 0) return baseIndex + 15;
     if (strcmp(fieldName, "local_decision") == 0) return baseIndex + 16;
+    if (strcmp(fieldName, "candidate_rsu_macs") == 0) return baseIndex + 17;
+    if (strcmp(fieldName, "current_candidate_index") == 0) return baseIndex + 18;
+    if (strcmp(fieldName, "max_redirect_hops") == 0) return baseIndex + 19;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -3427,8 +3548,11 @@ const char *OffloadingRequestMessageDescriptor::getFieldTypeString(int field) co
         "double",    // FIELD_pos_y
         "double",    // FIELD_speed
         "string",    // FIELD_local_decision
+        "uint64_t",    // FIELD_candidate_rsu_macs
+        "int",    // FIELD_current_candidate_index
+        "int",    // FIELD_max_redirect_hops
     };
-    return (field >= 0 && field < 17) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 20) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **OffloadingRequestMessageDescriptor::getFieldPropertyNames(int field) const
@@ -3467,6 +3591,7 @@ int OffloadingRequestMessageDescriptor::getFieldArraySize(omnetpp::any_ptr objec
     }
     OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_candidate_rsu_macs: return pp->getCandidate_rsu_macsArraySize();
         default: return 0;
     }
 }
@@ -3483,6 +3608,7 @@ void OffloadingRequestMessageDescriptor::setFieldArraySize(omnetpp::any_ptr obje
     }
     OffloadingRequestMessage *pp = omnetpp::fromAnyPtr<OffloadingRequestMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_candidate_rsu_macs: pp->setCandidate_rsu_macsArraySize(size); break;
         default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'OffloadingRequestMessage'", field);
     }
 }
@@ -3528,6 +3654,9 @@ std::string OffloadingRequestMessageDescriptor::getFieldValueAsString(omnetpp::a
         case FIELD_pos_y: return double2string(pp->getPos_y());
         case FIELD_speed: return double2string(pp->getSpeed());
         case FIELD_local_decision: return oppstring2string(pp->getLocal_decision());
+        case FIELD_candidate_rsu_macs: return uint642string(pp->getCandidate_rsu_macs(i));
+        case FIELD_current_candidate_index: return long2string(pp->getCurrent_candidate_index());
+        case FIELD_max_redirect_hops: return long2string(pp->getMax_redirect_hops());
         default: return "";
     }
 }
@@ -3560,6 +3689,9 @@ void OffloadingRequestMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr 
         case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
         case FIELD_speed: pp->setSpeed(string2double(value)); break;
         case FIELD_local_decision: pp->setLocal_decision((value)); break;
+        case FIELD_candidate_rsu_macs: pp->setCandidate_rsu_macs(i,string2uint64(value)); break;
+        case FIELD_current_candidate_index: pp->setCurrent_candidate_index(string2long(value)); break;
+        case FIELD_max_redirect_hops: pp->setMax_redirect_hops(string2long(value)); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingRequestMessage'", field);
     }
 }
@@ -3591,6 +3723,9 @@ omnetpp::cValue OffloadingRequestMessageDescriptor::getFieldValue(omnetpp::any_p
         case FIELD_pos_y: return pp->getPos_y();
         case FIELD_speed: return pp->getSpeed();
         case FIELD_local_decision: return pp->getLocal_decision();
+        case FIELD_candidate_rsu_macs: return (omnetpp::intval_t)(pp->getCandidate_rsu_macs(i));
+        case FIELD_current_candidate_index: return pp->getCurrent_candidate_index();
+        case FIELD_max_redirect_hops: return pp->getMax_redirect_hops();
         default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'OffloadingRequestMessage' as cValue -- field index out of range?", field);
     }
 }
@@ -3623,6 +3758,9 @@ void OffloadingRequestMessageDescriptor::setFieldValue(omnetpp::any_ptr object, 
         case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
         case FIELD_speed: pp->setSpeed(value.doubleValue()); break;
         case FIELD_local_decision: pp->setLocal_decision(value.stringValue()); break;
+        case FIELD_candidate_rsu_macs: pp->setCandidate_rsu_macs(i,omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_current_candidate_index: pp->setCurrent_candidate_index(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_max_redirect_hops: pp->setMax_redirect_hops(omnetpp::checked_int_cast<int>(value.intValue())); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingRequestMessage'", field);
     }
 }
@@ -3706,6 +3844,9 @@ void OffloadingDecisionMessage::copy(const OffloadingDecisionMessage& other)
     this->confidence_score = other.confidence_score;
     this->estimated_completion_time = other.estimated_completion_time;
     this->decision_reason = other.decision_reason;
+    this->redirect_target_rsu_mac = other.redirect_target_rsu_mac;
+    this->redirect_target_rsu_id = other.redirect_target_rsu_id;
+    this->next_candidate_index = other.next_candidate_index;
 }
 
 void OffloadingDecisionMessage::parsimPack(omnetpp::cCommBuffer *b) const
@@ -3721,6 +3862,9 @@ void OffloadingDecisionMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->confidence_score);
     doParsimPacking(b,this->estimated_completion_time);
     doParsimPacking(b,this->decision_reason);
+    doParsimPacking(b,this->redirect_target_rsu_mac);
+    doParsimPacking(b,this->redirect_target_rsu_id);
+    doParsimPacking(b,this->next_candidate_index);
 }
 
 void OffloadingDecisionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -3736,6 +3880,9 @@ void OffloadingDecisionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->confidence_score);
     doParsimUnpacking(b,this->estimated_completion_time);
     doParsimUnpacking(b,this->decision_reason);
+    doParsimUnpacking(b,this->redirect_target_rsu_mac);
+    doParsimUnpacking(b,this->redirect_target_rsu_id);
+    doParsimUnpacking(b,this->next_candidate_index);
 }
 
 const LAddress::L2Type& OffloadingDecisionMessage::getSenderAddress() const
@@ -3838,6 +3985,36 @@ void OffloadingDecisionMessage::setDecision_reason(const char * decision_reason)
     this->decision_reason = decision_reason;
 }
 
+uint64_t OffloadingDecisionMessage::getRedirect_target_rsu_mac() const
+{
+    return this->redirect_target_rsu_mac;
+}
+
+void OffloadingDecisionMessage::setRedirect_target_rsu_mac(uint64_t redirect_target_rsu_mac)
+{
+    this->redirect_target_rsu_mac = redirect_target_rsu_mac;
+}
+
+const char * OffloadingDecisionMessage::getRedirect_target_rsu_id() const
+{
+    return this->redirect_target_rsu_id.c_str();
+}
+
+void OffloadingDecisionMessage::setRedirect_target_rsu_id(const char * redirect_target_rsu_id)
+{
+    this->redirect_target_rsu_id = redirect_target_rsu_id;
+}
+
+int OffloadingDecisionMessage::getNext_candidate_index() const
+{
+    return this->next_candidate_index;
+}
+
+void OffloadingDecisionMessage::setNext_candidate_index(int next_candidate_index)
+{
+    this->next_candidate_index = next_candidate_index;
+}
+
 class OffloadingDecisionMessageDescriptor : public omnetpp::cClassDescriptor
 {
   private:
@@ -3853,6 +4030,9 @@ class OffloadingDecisionMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_confidence_score,
         FIELD_estimated_completion_time,
         FIELD_decision_reason,
+        FIELD_redirect_target_rsu_mac,
+        FIELD_redirect_target_rsu_id,
+        FIELD_next_candidate_index,
     };
   public:
     OffloadingDecisionMessageDescriptor();
@@ -3919,7 +4099,7 @@ const char *OffloadingDecisionMessageDescriptor::getProperty(const char *propert
 int OffloadingDecisionMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 10+base->getFieldCount() : 10;
+    return base ? 13+base->getFieldCount() : 13;
 }
 
 unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) const
@@ -3941,8 +4121,11 @@ unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) c
         FD_ISEDITABLE,    // FIELD_confidence_score
         FD_ISEDITABLE,    // FIELD_estimated_completion_time
         FD_ISEDITABLE,    // FIELD_decision_reason
+        FD_ISEDITABLE,    // FIELD_redirect_target_rsu_mac
+        FD_ISEDITABLE,    // FIELD_redirect_target_rsu_id
+        FD_ISEDITABLE,    // FIELD_next_candidate_index
     };
-    return (field >= 0 && field < 10) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 13) ? fieldTypeFlags[field] : 0;
 }
 
 const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
@@ -3964,8 +4147,11 @@ const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
         "confidence_score",
         "estimated_completion_time",
         "decision_reason",
+        "redirect_target_rsu_mac",
+        "redirect_target_rsu_id",
+        "next_candidate_index",
     };
-    return (field >= 0 && field < 10) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 13) ? fieldNames[field] : nullptr;
 }
 
 int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
@@ -3982,6 +4168,9 @@ int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "confidence_score") == 0) return baseIndex + 7;
     if (strcmp(fieldName, "estimated_completion_time") == 0) return baseIndex + 8;
     if (strcmp(fieldName, "decision_reason") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "redirect_target_rsu_mac") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "redirect_target_rsu_id") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "next_candidate_index") == 0) return baseIndex + 12;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -4004,8 +4193,11 @@ const char *OffloadingDecisionMessageDescriptor::getFieldTypeString(int field) c
         "double",    // FIELD_confidence_score
         "double",    // FIELD_estimated_completion_time
         "string",    // FIELD_decision_reason
+        "uint64_t",    // FIELD_redirect_target_rsu_mac
+        "string",    // FIELD_redirect_target_rsu_id
+        "int",    // FIELD_next_candidate_index
     };
-    return (field >= 0 && field < 10) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 13) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **OffloadingDecisionMessageDescriptor::getFieldPropertyNames(int field) const
@@ -4098,6 +4290,9 @@ std::string OffloadingDecisionMessageDescriptor::getFieldValueAsString(omnetpp::
         case FIELD_confidence_score: return double2string(pp->getConfidence_score());
         case FIELD_estimated_completion_time: return double2string(pp->getEstimated_completion_time());
         case FIELD_decision_reason: return oppstring2string(pp->getDecision_reason());
+        case FIELD_redirect_target_rsu_mac: return uint642string(pp->getRedirect_target_rsu_mac());
+        case FIELD_redirect_target_rsu_id: return oppstring2string(pp->getRedirect_target_rsu_id());
+        case FIELD_next_candidate_index: return long2string(pp->getNext_candidate_index());
         default: return "";
     }
 }
@@ -4123,6 +4318,9 @@ void OffloadingDecisionMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr
         case FIELD_confidence_score: pp->setConfidence_score(string2double(value)); break;
         case FIELD_estimated_completion_time: pp->setEstimated_completion_time(string2double(value)); break;
         case FIELD_decision_reason: pp->setDecision_reason((value)); break;
+        case FIELD_redirect_target_rsu_mac: pp->setRedirect_target_rsu_mac(string2uint64(value)); break;
+        case FIELD_redirect_target_rsu_id: pp->setRedirect_target_rsu_id((value)); break;
+        case FIELD_next_candidate_index: pp->setNext_candidate_index(string2long(value)); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
     }
 }
@@ -4147,6 +4345,9 @@ omnetpp::cValue OffloadingDecisionMessageDescriptor::getFieldValue(omnetpp::any_
         case FIELD_confidence_score: return pp->getConfidence_score();
         case FIELD_estimated_completion_time: return pp->getEstimated_completion_time();
         case FIELD_decision_reason: return pp->getDecision_reason();
+        case FIELD_redirect_target_rsu_mac: return (omnetpp::intval_t)(pp->getRedirect_target_rsu_mac());
+        case FIELD_redirect_target_rsu_id: return pp->getRedirect_target_rsu_id();
+        case FIELD_next_candidate_index: return pp->getNext_candidate_index();
         default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'OffloadingDecisionMessage' as cValue -- field index out of range?", field);
     }
 }
@@ -4172,6 +4373,9 @@ void OffloadingDecisionMessageDescriptor::setFieldValue(omnetpp::any_ptr object,
         case FIELD_confidence_score: pp->setConfidence_score(value.doubleValue()); break;
         case FIELD_estimated_completion_time: pp->setEstimated_completion_time(value.doubleValue()); break;
         case FIELD_decision_reason: pp->setDecision_reason(value.stringValue()); break;
+        case FIELD_redirect_target_rsu_mac: pp->setRedirect_target_rsu_mac(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
+        case FIELD_redirect_target_rsu_id: pp->setRedirect_target_rsu_id(value.stringValue()); break;
+        case FIELD_next_candidate_index: pp->setNext_candidate_index(omnetpp::checked_int_cast<int>(value.intValue())); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
     }
 }
@@ -5713,6 +5917,713 @@ void TaskOffloadingEventDescriptor::setFieldStructValuePointer(omnetpp::any_ptr 
     TaskOffloadingEvent *pp = omnetpp::fromAnyPtr<TaskOffloadingEvent>(object); (void)pp;
     switch (field) {
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskOffloadingEvent'", field);
+    }
+}
+
+Register_Class(RSUStatusBroadcastMessage)
+
+RSUStatusBroadcastMessage::RSUStatusBroadcastMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
+{
+}
+
+RSUStatusBroadcastMessage::RSUStatusBroadcastMessage(const RSUStatusBroadcastMessage& other) : ::veins::BaseFrame1609_4(other)
+{
+    copy(other);
+}
+
+RSUStatusBroadcastMessage::~RSUStatusBroadcastMessage()
+{
+    delete [] this->vehicle_ids_in_coverage;
+}
+
+RSUStatusBroadcastMessage& RSUStatusBroadcastMessage::operator=(const RSUStatusBroadcastMessage& other)
+{
+    if (this == &other) return *this;
+    ::veins::BaseFrame1609_4::operator=(other);
+    copy(other);
+    return *this;
+}
+
+void RSUStatusBroadcastMessage::copy(const RSUStatusBroadcastMessage& other)
+{
+    this->rsu_id = other.rsu_id;
+    this->rsu_mac = other.rsu_mac;
+    this->broadcast_time = other.broadcast_time;
+    this->queue_length = other.queue_length;
+    this->processing_count = other.processing_count;
+    this->max_concurrent_tasks = other.max_concurrent_tasks;
+    this->cpu_available_ghz = other.cpu_available_ghz;
+    this->cpu_total_ghz = other.cpu_total_ghz;
+    this->memory_available_gb = other.memory_available_gb;
+    this->memory_total_gb = other.memory_total_gb;
+    delete [] this->vehicle_ids_in_coverage;
+    this->vehicle_ids_in_coverage = (other.vehicle_ids_in_coverage_arraysize==0) ? nullptr : new ::omnetpp::opp_string[other.vehicle_ids_in_coverage_arraysize];
+    vehicle_ids_in_coverage_arraysize = other.vehicle_ids_in_coverage_arraysize;
+    for (size_t i = 0; i < vehicle_ids_in_coverage_arraysize; i++) {
+        this->vehicle_ids_in_coverage[i] = other.vehicle_ids_in_coverage[i];
+    }
+    this->vehicle_count = other.vehicle_count;
+    this->pos_x = other.pos_x;
+    this->pos_y = other.pos_y;
+}
+
+void RSUStatusBroadcastMessage::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->rsu_id);
+    doParsimPacking(b,this->rsu_mac);
+    doParsimPacking(b,this->broadcast_time);
+    doParsimPacking(b,this->queue_length);
+    doParsimPacking(b,this->processing_count);
+    doParsimPacking(b,this->max_concurrent_tasks);
+    doParsimPacking(b,this->cpu_available_ghz);
+    doParsimPacking(b,this->cpu_total_ghz);
+    doParsimPacking(b,this->memory_available_gb);
+    doParsimPacking(b,this->memory_total_gb);
+    b->pack(vehicle_ids_in_coverage_arraysize);
+    doParsimArrayPacking(b,this->vehicle_ids_in_coverage,vehicle_ids_in_coverage_arraysize);
+    doParsimPacking(b,this->vehicle_count);
+    doParsimPacking(b,this->pos_x);
+    doParsimPacking(b,this->pos_y);
+}
+
+void RSUStatusBroadcastMessage::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->rsu_id);
+    doParsimUnpacking(b,this->rsu_mac);
+    doParsimUnpacking(b,this->broadcast_time);
+    doParsimUnpacking(b,this->queue_length);
+    doParsimUnpacking(b,this->processing_count);
+    doParsimUnpacking(b,this->max_concurrent_tasks);
+    doParsimUnpacking(b,this->cpu_available_ghz);
+    doParsimUnpacking(b,this->cpu_total_ghz);
+    doParsimUnpacking(b,this->memory_available_gb);
+    doParsimUnpacking(b,this->memory_total_gb);
+    delete [] this->vehicle_ids_in_coverage;
+    b->unpack(vehicle_ids_in_coverage_arraysize);
+    if (vehicle_ids_in_coverage_arraysize == 0) {
+        this->vehicle_ids_in_coverage = nullptr;
+    } else {
+        this->vehicle_ids_in_coverage = new ::omnetpp::opp_string[vehicle_ids_in_coverage_arraysize];
+        doParsimArrayUnpacking(b,this->vehicle_ids_in_coverage,vehicle_ids_in_coverage_arraysize);
+    }
+    doParsimUnpacking(b,this->vehicle_count);
+    doParsimUnpacking(b,this->pos_x);
+    doParsimUnpacking(b,this->pos_y);
+}
+
+const char * RSUStatusBroadcastMessage::getRsu_id() const
+{
+    return this->rsu_id.c_str();
+}
+
+void RSUStatusBroadcastMessage::setRsu_id(const char * rsu_id)
+{
+    this->rsu_id = rsu_id;
+}
+
+const LAddress::L2Type& RSUStatusBroadcastMessage::getRsu_mac() const
+{
+    return this->rsu_mac;
+}
+
+void RSUStatusBroadcastMessage::setRsu_mac(const LAddress::L2Type& rsu_mac)
+{
+    this->rsu_mac = rsu_mac;
+}
+
+double RSUStatusBroadcastMessage::getBroadcast_time() const
+{
+    return this->broadcast_time;
+}
+
+void RSUStatusBroadcastMessage::setBroadcast_time(double broadcast_time)
+{
+    this->broadcast_time = broadcast_time;
+}
+
+int RSUStatusBroadcastMessage::getQueue_length() const
+{
+    return this->queue_length;
+}
+
+void RSUStatusBroadcastMessage::setQueue_length(int queue_length)
+{
+    this->queue_length = queue_length;
+}
+
+int RSUStatusBroadcastMessage::getProcessing_count() const
+{
+    return this->processing_count;
+}
+
+void RSUStatusBroadcastMessage::setProcessing_count(int processing_count)
+{
+    this->processing_count = processing_count;
+}
+
+int RSUStatusBroadcastMessage::getMax_concurrent_tasks() const
+{
+    return this->max_concurrent_tasks;
+}
+
+void RSUStatusBroadcastMessage::setMax_concurrent_tasks(int max_concurrent_tasks)
+{
+    this->max_concurrent_tasks = max_concurrent_tasks;
+}
+
+double RSUStatusBroadcastMessage::getCpu_available_ghz() const
+{
+    return this->cpu_available_ghz;
+}
+
+void RSUStatusBroadcastMessage::setCpu_available_ghz(double cpu_available_ghz)
+{
+    this->cpu_available_ghz = cpu_available_ghz;
+}
+
+double RSUStatusBroadcastMessage::getCpu_total_ghz() const
+{
+    return this->cpu_total_ghz;
+}
+
+void RSUStatusBroadcastMessage::setCpu_total_ghz(double cpu_total_ghz)
+{
+    this->cpu_total_ghz = cpu_total_ghz;
+}
+
+double RSUStatusBroadcastMessage::getMemory_available_gb() const
+{
+    return this->memory_available_gb;
+}
+
+void RSUStatusBroadcastMessage::setMemory_available_gb(double memory_available_gb)
+{
+    this->memory_available_gb = memory_available_gb;
+}
+
+double RSUStatusBroadcastMessage::getMemory_total_gb() const
+{
+    return this->memory_total_gb;
+}
+
+void RSUStatusBroadcastMessage::setMemory_total_gb(double memory_total_gb)
+{
+    this->memory_total_gb = memory_total_gb;
+}
+
+size_t RSUStatusBroadcastMessage::getVehicle_ids_in_coverageArraySize() const
+{
+    return vehicle_ids_in_coverage_arraysize;
+}
+
+const char * RSUStatusBroadcastMessage::getVehicle_ids_in_coverage(size_t k) const
+{
+    if (k >= vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
+    return this->vehicle_ids_in_coverage[k].c_str();
+}
+
+void RSUStatusBroadcastMessage::setVehicle_ids_in_coverageArraySize(size_t newSize)
+{
+    ::omnetpp::opp_string *vehicle_ids_in_coverage2 = (newSize==0) ? nullptr : new ::omnetpp::opp_string[newSize];
+    size_t minSize = vehicle_ids_in_coverage_arraysize < newSize ? vehicle_ids_in_coverage_arraysize : newSize;
+    for (size_t i = 0; i < minSize; i++)
+        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i];
+    delete [] this->vehicle_ids_in_coverage;
+    this->vehicle_ids_in_coverage = vehicle_ids_in_coverage2;
+    vehicle_ids_in_coverage_arraysize = newSize;
+}
+
+void RSUStatusBroadcastMessage::setVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage)
+{
+    if (k >= vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
+    this->vehicle_ids_in_coverage[k] = vehicle_ids_in_coverage;
+}
+
+void RSUStatusBroadcastMessage::insertVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage)
+{
+    if (k > vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
+    size_t newSize = vehicle_ids_in_coverage_arraysize + 1;
+    ::omnetpp::opp_string *vehicle_ids_in_coverage2 = new ::omnetpp::opp_string[newSize];
+    size_t i;
+    for (i = 0; i < k; i++)
+        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i];
+    vehicle_ids_in_coverage2[k] = vehicle_ids_in_coverage;
+    for (i = k + 1; i < newSize; i++)
+        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i-1];
+    delete [] this->vehicle_ids_in_coverage;
+    this->vehicle_ids_in_coverage = vehicle_ids_in_coverage2;
+    vehicle_ids_in_coverage_arraysize = newSize;
+}
+
+void RSUStatusBroadcastMessage::appendVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage)
+{
+    insertVehicle_ids_in_coverage(vehicle_ids_in_coverage_arraysize, vehicle_ids_in_coverage);
+}
+
+void RSUStatusBroadcastMessage::eraseVehicle_ids_in_coverage(size_t k)
+{
+    if (k >= vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
+    size_t newSize = vehicle_ids_in_coverage_arraysize - 1;
+    ::omnetpp::opp_string *vehicle_ids_in_coverage2 = (newSize == 0) ? nullptr : new ::omnetpp::opp_string[newSize];
+    size_t i;
+    for (i = 0; i < k; i++)
+        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i];
+    for (i = k; i < newSize; i++)
+        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i+1];
+    delete [] this->vehicle_ids_in_coverage;
+    this->vehicle_ids_in_coverage = vehicle_ids_in_coverage2;
+    vehicle_ids_in_coverage_arraysize = newSize;
+}
+
+int RSUStatusBroadcastMessage::getVehicle_count() const
+{
+    return this->vehicle_count;
+}
+
+void RSUStatusBroadcastMessage::setVehicle_count(int vehicle_count)
+{
+    this->vehicle_count = vehicle_count;
+}
+
+double RSUStatusBroadcastMessage::getPos_x() const
+{
+    return this->pos_x;
+}
+
+void RSUStatusBroadcastMessage::setPos_x(double pos_x)
+{
+    this->pos_x = pos_x;
+}
+
+double RSUStatusBroadcastMessage::getPos_y() const
+{
+    return this->pos_y;
+}
+
+void RSUStatusBroadcastMessage::setPos_y(double pos_y)
+{
+    this->pos_y = pos_y;
+}
+
+class RSUStatusBroadcastMessageDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_rsu_id,
+        FIELD_rsu_mac,
+        FIELD_broadcast_time,
+        FIELD_queue_length,
+        FIELD_processing_count,
+        FIELD_max_concurrent_tasks,
+        FIELD_cpu_available_ghz,
+        FIELD_cpu_total_ghz,
+        FIELD_memory_available_gb,
+        FIELD_memory_total_gb,
+        FIELD_vehicle_ids_in_coverage,
+        FIELD_vehicle_count,
+        FIELD_pos_x,
+        FIELD_pos_y,
+    };
+  public:
+    RSUStatusBroadcastMessageDescriptor();
+    virtual ~RSUStatusBroadcastMessageDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(RSUStatusBroadcastMessageDescriptor)
+
+RSUStatusBroadcastMessageDescriptor::RSUStatusBroadcastMessageDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::RSUStatusBroadcastMessage)), "veins::BaseFrame1609_4")
+{
+    propertyNames = nullptr;
+}
+
+RSUStatusBroadcastMessageDescriptor::~RSUStatusBroadcastMessageDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool RSUStatusBroadcastMessageDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<RSUStatusBroadcastMessage *>(obj)!=nullptr;
+}
+
+const char **RSUStatusBroadcastMessageDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *RSUStatusBroadcastMessageDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int RSUStatusBroadcastMessageDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 14+base->getFieldCount() : 14;
+}
+
+unsigned int RSUStatusBroadcastMessageDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,    // FIELD_rsu_id
+        0,    // FIELD_rsu_mac
+        FD_ISEDITABLE,    // FIELD_broadcast_time
+        FD_ISEDITABLE,    // FIELD_queue_length
+        FD_ISEDITABLE,    // FIELD_processing_count
+        FD_ISEDITABLE,    // FIELD_max_concurrent_tasks
+        FD_ISEDITABLE,    // FIELD_cpu_available_ghz
+        FD_ISEDITABLE,    // FIELD_cpu_total_ghz
+        FD_ISEDITABLE,    // FIELD_memory_available_gb
+        FD_ISEDITABLE,    // FIELD_memory_total_gb
+        FD_ISARRAY | FD_ISEDITABLE | FD_ISRESIZABLE,    // FIELD_vehicle_ids_in_coverage
+        FD_ISEDITABLE,    // FIELD_vehicle_count
+        FD_ISEDITABLE,    // FIELD_pos_x
+        FD_ISEDITABLE,    // FIELD_pos_y
+    };
+    return (field >= 0 && field < 14) ? fieldTypeFlags[field] : 0;
+}
+
+const char *RSUStatusBroadcastMessageDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "rsu_id",
+        "rsu_mac",
+        "broadcast_time",
+        "queue_length",
+        "processing_count",
+        "max_concurrent_tasks",
+        "cpu_available_ghz",
+        "cpu_total_ghz",
+        "memory_available_gb",
+        "memory_total_gb",
+        "vehicle_ids_in_coverage",
+        "vehicle_count",
+        "pos_x",
+        "pos_y",
+    };
+    return (field >= 0 && field < 14) ? fieldNames[field] : nullptr;
+}
+
+int RSUStatusBroadcastMessageDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "rsu_id") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "rsu_mac") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "broadcast_time") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "queue_length") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "processing_count") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "max_concurrent_tasks") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "cpu_available_ghz") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "cpu_total_ghz") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "memory_available_gb") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "memory_total_gb") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "vehicle_ids_in_coverage") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "vehicle_count") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 13;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *RSUStatusBroadcastMessageDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "string",    // FIELD_rsu_id
+        "veins::LAddress::L2Type",    // FIELD_rsu_mac
+        "double",    // FIELD_broadcast_time
+        "int",    // FIELD_queue_length
+        "int",    // FIELD_processing_count
+        "int",    // FIELD_max_concurrent_tasks
+        "double",    // FIELD_cpu_available_ghz
+        "double",    // FIELD_cpu_total_ghz
+        "double",    // FIELD_memory_available_gb
+        "double",    // FIELD_memory_total_gb
+        "string",    // FIELD_vehicle_ids_in_coverage
+        "int",    // FIELD_vehicle_count
+        "double",    // FIELD_pos_x
+        "double",    // FIELD_pos_y
+    };
+    return (field >= 0 && field < 14) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **RSUStatusBroadcastMessageDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *RSUStatusBroadcastMessageDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int RSUStatusBroadcastMessageDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_ids_in_coverage: return pp->getVehicle_ids_in_coverageArraySize();
+        default: return 0;
+    }
+}
+
+void RSUStatusBroadcastMessageDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_ids_in_coverage: pp->setVehicle_ids_in_coverageArraySize(size); break;
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'RSUStatusBroadcastMessage'", field);
+    }
+}
+
+const char *RSUStatusBroadcastMessageDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string RSUStatusBroadcastMessageDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_rsu_id: return oppstring2string(pp->getRsu_id());
+        case FIELD_rsu_mac: return "";
+        case FIELD_broadcast_time: return double2string(pp->getBroadcast_time());
+        case FIELD_queue_length: return long2string(pp->getQueue_length());
+        case FIELD_processing_count: return long2string(pp->getProcessing_count());
+        case FIELD_max_concurrent_tasks: return long2string(pp->getMax_concurrent_tasks());
+        case FIELD_cpu_available_ghz: return double2string(pp->getCpu_available_ghz());
+        case FIELD_cpu_total_ghz: return double2string(pp->getCpu_total_ghz());
+        case FIELD_memory_available_gb: return double2string(pp->getMemory_available_gb());
+        case FIELD_memory_total_gb: return double2string(pp->getMemory_total_gb());
+        case FIELD_vehicle_ids_in_coverage: return oppstring2string(pp->getVehicle_ids_in_coverage(i));
+        case FIELD_vehicle_count: return long2string(pp->getVehicle_count());
+        case FIELD_pos_x: return double2string(pp->getPos_x());
+        case FIELD_pos_y: return double2string(pp->getPos_y());
+        default: return "";
+    }
+}
+
+void RSUStatusBroadcastMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_rsu_id: pp->setRsu_id((value)); break;
+        case FIELD_broadcast_time: pp->setBroadcast_time(string2double(value)); break;
+        case FIELD_queue_length: pp->setQueue_length(string2long(value)); break;
+        case FIELD_processing_count: pp->setProcessing_count(string2long(value)); break;
+        case FIELD_max_concurrent_tasks: pp->setMax_concurrent_tasks(string2long(value)); break;
+        case FIELD_cpu_available_ghz: pp->setCpu_available_ghz(string2double(value)); break;
+        case FIELD_cpu_total_ghz: pp->setCpu_total_ghz(string2double(value)); break;
+        case FIELD_memory_available_gb: pp->setMemory_available_gb(string2double(value)); break;
+        case FIELD_memory_total_gb: pp->setMemory_total_gb(string2double(value)); break;
+        case FIELD_vehicle_ids_in_coverage: pp->setVehicle_ids_in_coverage(i,(value)); break;
+        case FIELD_vehicle_count: pp->setVehicle_count(string2long(value)); break;
+        case FIELD_pos_x: pp->setPos_x(string2double(value)); break;
+        case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'RSUStatusBroadcastMessage'", field);
+    }
+}
+
+omnetpp::cValue RSUStatusBroadcastMessageDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_rsu_id: return pp->getRsu_id();
+        case FIELD_rsu_mac: return omnetpp::toAnyPtr(&pp->getRsu_mac()); break;
+        case FIELD_broadcast_time: return pp->getBroadcast_time();
+        case FIELD_queue_length: return pp->getQueue_length();
+        case FIELD_processing_count: return pp->getProcessing_count();
+        case FIELD_max_concurrent_tasks: return pp->getMax_concurrent_tasks();
+        case FIELD_cpu_available_ghz: return pp->getCpu_available_ghz();
+        case FIELD_cpu_total_ghz: return pp->getCpu_total_ghz();
+        case FIELD_memory_available_gb: return pp->getMemory_available_gb();
+        case FIELD_memory_total_gb: return pp->getMemory_total_gb();
+        case FIELD_vehicle_ids_in_coverage: return pp->getVehicle_ids_in_coverage(i);
+        case FIELD_vehicle_count: return pp->getVehicle_count();
+        case FIELD_pos_x: return pp->getPos_x();
+        case FIELD_pos_y: return pp->getPos_y();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'RSUStatusBroadcastMessage' as cValue -- field index out of range?", field);
+    }
+}
+
+void RSUStatusBroadcastMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_rsu_id: pp->setRsu_id(value.stringValue()); break;
+        case FIELD_broadcast_time: pp->setBroadcast_time(value.doubleValue()); break;
+        case FIELD_queue_length: pp->setQueue_length(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_processing_count: pp->setProcessing_count(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_max_concurrent_tasks: pp->setMax_concurrent_tasks(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_cpu_available_ghz: pp->setCpu_available_ghz(value.doubleValue()); break;
+        case FIELD_cpu_total_ghz: pp->setCpu_total_ghz(value.doubleValue()); break;
+        case FIELD_memory_available_gb: pp->setMemory_available_gb(value.doubleValue()); break;
+        case FIELD_memory_total_gb: pp->setMemory_total_gb(value.doubleValue()); break;
+        case FIELD_vehicle_ids_in_coverage: pp->setVehicle_ids_in_coverage(i,value.stringValue()); break;
+        case FIELD_vehicle_count: pp->setVehicle_count(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_pos_x: pp->setPos_x(value.doubleValue()); break;
+        case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'RSUStatusBroadcastMessage'", field);
+    }
+}
+
+const char *RSUStatusBroadcastMessageDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr RSUStatusBroadcastMessageDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        case FIELD_rsu_mac: return omnetpp::toAnyPtr(&pp->getRsu_mac()); break;
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void RSUStatusBroadcastMessageDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'RSUStatusBroadcastMessage'", field);
     }
 }
 
