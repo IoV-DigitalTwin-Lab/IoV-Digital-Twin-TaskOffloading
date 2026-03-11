@@ -402,15 +402,6 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
         handleObjectDetectionDataMessage(odMsg);
         return;
     }
-
-    // ========================================================================
-    // HANDLE OBJECT DETECTION DATA (COOPERATIVE PERCEPTION)
-    // ========================================================================
-    veins::ObjectDetectionDataMessage* odMsg = dynamic_cast<veins::ObjectDetectionDataMessage*>(msg);
-    if (odMsg) {
-        handleObjectDetectionDataMessage(odMsg);
-        return;
-    }
     
     // ========================================================================
     // HANDLE SERVICE TASK REQUESTS (if service vehicle enabled)
@@ -2813,7 +2804,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             redirectRequest->setTask_id(task->task_id.c_str());
             redirectRequest->setVehicle_id(task->vehicle_id.c_str());
             redirectRequest->setRequest_time(simTime().dbl());
-            redirectRequest->setTask_size_bytes(task->task_size_bytes);
+            redirectRequest->setMem_footprint_bytes(task->input_size_bytes);
             redirectRequest->setCpu_cycles(task->cpu_cycles);
             redirectRequest->setDeadline_seconds(task->relative_deadline);
             redirectRequest->setQos_value(task->qos_value);
@@ -3426,50 +3417,6 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
     taskTimings.erase(taskId);
     taskCandidates.erase(taskId);
     task_redirect_counts.erase(taskId);
-}
-
-void PayloadVehicleApp::sendObjectDetectionData(const Task* task) {
-    if (task->output_size_bytes == 0) return;
-    auto* msg = new veins::ObjectDetectionDataMessage();
-    msg->setVehicle_id(task->vehicle_id.c_str());
-    msg->setTimestamp(simTime().dbl());
-    msg->setData_size_bytes(task->output_size_bytes);
-    msg->setPayload_tag("LOCAL_OBJECT_DETECTION");
-    populateWSM(msg);
-    sendDown(msg);
-    EV_INFO << "Broadcast object detection data: " << task->output_size_bytes << " bytes from vehicle "
-            << task->vehicle_id << endl;
-}
-
-void PayloadVehicleApp::handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg) {
-    std::string sender_id = msg->getVehicle_id();
-    std::string self_id = std::to_string(getParentModule()->getIndex());
-    if (sender_id == self_id) {
-        delete msg;
-        return;
-    }
-    ObjectDetectionSnapshot snapshot;
-    snapshot.timestamp = SimTime(msg->getTimestamp());
-    snapshot.size_bytes = msg->getData_size_bytes();
-    neighborObjectDetections[sender_id] = snapshot;
-    EV_INFO << "Received object detection data from vehicle " << sender_id
-            << " (size=" << snapshot.size_bytes << " bytes)" << endl;
-    delete msg;
-}
-
-uint32_t PayloadVehicleApp::countFreshNeighborDetections() {
-    uint32_t fresh_count = 0;
-    simtime_t now = simTime();
-    for (auto it = neighborObjectDetections.begin(); it != neighborObjectDetections.end(); ) {
-        double age = (now - it->second.timestamp).dbl();
-        if (age <= objectDetectionTtlSec) {
-            fresh_count++;
-            ++it;
-        } else {
-            it = neighborObjectDetections.erase(it);
-        }
-    }
-    return fresh_count;
 }
 
 } // namespace complex_network

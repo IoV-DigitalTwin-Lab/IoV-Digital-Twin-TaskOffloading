@@ -109,7 +109,7 @@ private:
     
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
-    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg); // Schedule next task arrival
+    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset = 0.0); // Schedule next task arrival
     void generateTask(TaskType type);         // Generate new task using TaskProfile
     bool canAcceptTask(Task* task);           // Check if task can be accepted
     bool canStartProcessing(Task* task);      // Check if task can start immediately

@@ -374,12 +374,6 @@ private:
     bool isNeighborStateFresh(const RSUNeighborState& state);
     void cleanupStaleNeighborStates();
     
-    // ============================================================================
-    // TASK PROCESSING METHODS
-    // ============================================================================
-    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
-    void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id, 
-                                  LAddress::L2Type vehicle_mac, bool success);
     void queueTaskForProcessing(const RSUActiveTask& active_task);
     void startNextQueuedTask();
     double calculateProcessingTime(const RSUActiveTask& task);

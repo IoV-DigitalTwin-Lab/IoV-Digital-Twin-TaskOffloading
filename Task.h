@@ -89,9 +89,6 @@ public:
 
     // Factory for TaskProfile-based tasks
     static Task* createFromProfile(TaskType task_type, const std::string& vid, uint64_t seq_num);
-
-    // Factory for TaskProfile-based tasks
-    static Task* createFromProfile(TaskType task_type, const std::string& vid, uint64_t seq_num);
 };
 
 /**

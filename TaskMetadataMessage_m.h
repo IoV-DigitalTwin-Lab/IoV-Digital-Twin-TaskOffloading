@@ -21,7 +21,6 @@ namespace veins {
 
 class TaskMetadataMessage;
 class ObjectDetectionDataMessage;
-class ObjectDetectionDataMessage;
 class TaskCompletionMessage;
 class TaskFailureMessage;
 class VehicleResourceStatusMessage;
@@ -166,7 +165,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskMetadataMessage& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskMetadataMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:34</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:47</tt> by opp_msgtool.
  * <pre>
  * //
  * // Object Detection Data Message - Vehicle → Vehicle broadcast (cooperative perception)
@@ -174,7 +173,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskMetadataMessage& obj)
  * packet ObjectDetectionDataMessage extends BaseFrame1609_4
  * {
  *     string vehicle_id;           // Sender vehicle ID
- *     double timestamp;            // When detection was produced
+ *     double timestamp;            // When detection was produced (sim time)
  *     uint64_t data_size_bytes;    // Size of object list payload
  *     string payload_tag;          // Lightweight tag for tracing (no raw data)
  * }
@@ -220,7 +219,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const ObjectDetectionDataMe
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, ObjectDetectionDataMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:44</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:57</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Completion Message - Sent from vehicle to RSU when task completes
@@ -284,7 +283,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskCompletionMessage
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskCompletionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:56</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:69</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Failure Message - Sent from vehicle to RSU when task fails/is rejected
@@ -343,7 +342,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskFailureMessage& o
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:67</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:80</tt> by opp_msgtool.
  * <pre>
  * //
  * // Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
@@ -496,7 +495,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatus
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:104</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:117</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
@@ -648,7 +647,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:140</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:153</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -756,7 +755,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:167</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:180</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -839,7 +838,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:186</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:199</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -915,7 +914,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:202</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:215</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
@@ -979,7 +978,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:214</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:227</tt> by opp_msgtool.
  * <pre>
  * //
  * // RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)
