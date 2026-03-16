@@ -144,19 +144,14 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         sendRSUStatusUpdate();
     }
     else if (msg == rsu_broadcast_timer) {
-        // RSU-to-RSU state sharing: prioritize wired Ethernet backhaul,
-        // fallback to Redis, then wireless broadcast as last resort.
-        if (wired_backhaul_enabled) {
-            sendRSUStatusViaEthernet();
-        } else if (redis_twin && use_redis && redis_twin->isConnected()) {
-            syncNeighborStatesFromRedis();
-        } else {
-            // DISABLED: broadcastRSUStatus();  // Would create wireless packets visible in GUI
-            // RSU-to-RSU state sharing is disabled to reduce network clutter
-            // In production, use wired Ethernet backhaul or Redis instead
-        }
+        // RSU-to-RSU state sharing: DISABLED to reduce network clutter in GUI
+        // In production, would use wired Ethernet backhaul or Redis Digital Twin
+        // For now, RSUs maintain local state only (no neighbor coordination)
+        
+        // Still cleanup stale neighbor states (in case we enable later)
         cleanupStaleNeighborStates();
-        // Reschedule next broadcast
+        
+        // Reschedule timer (keep timer alive for future use)
         scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
     }
     else if (strcmp(msg->getName(), "taskCompletion") == 0) {
@@ -2970,61 +2965,10 @@ void MyRSUApp::initializeWiredBackhaul() {
 }
 
 void MyRSUApp::sendRSUStatusViaEthernet() {
-    if (rsu_ip_addresses.empty()) {
-        EV_WARN << "No neighbor RSUs discovered, falling back to wireless" << endl;
-        broadcastRSUStatus();
-        return;
-    }
-    
-    EV_DEBUG << "📤 Sending RSU status via Ethernet to " << rsu_ip_addresses.size() << " neighbors" << endl;
-    
-    // Create status message with current RSU state
-    auto* status_msg = new veins::RSUStatusBroadcastMessage();
-    std::string our_rsu_id = "RSU_" + std::to_string(rsu_id);
-    status_msg->setRsu_id(our_rsu_id.c_str());
-    status_msg->setRsu_mac(myId);
-    status_msg->setBroadcast_time(simTime().dbl());
-    
-    // Resource state
-    status_msg->setQueue_length(rsu_queue_length);
-    status_msg->setProcessing_count(rsu_processing_count);
-    status_msg->setMax_concurrent_tasks(rsu_max_concurrent);
-    status_msg->setCpu_available_ghz(rsu_cpu_available);
-    status_msg->setCpu_total_ghz(rsu_cpu_total);
-    status_msg->setMemory_available_gb(rsu_memory_available);
-    status_msg->setMemory_total_gb(rsu_memory_total);
-    
-    // Vehicle coverage (limit list size)
-    std::vector<std::string> vehicle_ids;
-    for (const auto& twin_pair : vehicle_twins) {
-        if (vehicle_ids.size() >= static_cast<size_t>(max_vehicles_in_broadcast)) break;
-        vehicle_ids.push_back(twin_pair.first);
-    }
-    status_msg->setVehicle_ids_in_coverageArraySize(vehicle_ids.size());
-    for (size_t i = 0; i < vehicle_ids.size(); i++) {
-        status_msg->setVehicle_ids_in_coverage(i, vehicle_ids[i].c_str());
-    }
-    status_msg->setVehicle_count(vehicle_twins.size());
-    
-    // Position
-    status_msg->setPos_x(curPosition.x);
-    status_msg->setPos_y(curPosition.y);
-    
-    // Send to each neighbor via UDP
-    for (const auto& [neighbor_id, neighbor_addr] : rsu_ip_addresses) {
-        auto* msg_copy = status_msg->dup();
-        msg_copy->setName("RSUStatusEthernet");
-        
-        // Create INET Packet and encapsulate Veins message
-        inet::Packet* packet = new inet::Packet("RSUStatusPacket");
-        packet->encapsulate(msg_copy);
-        
-        udp_socket.sendTo(packet, neighbor_addr, dest_udp_port);
-        
-        EV_DEBUG << "  → Sent to RSU[" << neighbor_id << "] at " << neighbor_addr.str() << endl;
-    }
-    
-    delete status_msg;
+    // DISABLED: Wired Ethernet backhaul not implemented (requires INET Ethernet stack)
+    // This function would send RSU status to neighbors via wired backhaul
+    // For now, RSUs operate independently without neighbor coordination
+    EV_DEBUG << "⚠️ RSU status sharing disabled (no wired backhaul configured)" << endl;
 }
 
 void MyRSUApp::handleUdpData(cMessage* msg) {
