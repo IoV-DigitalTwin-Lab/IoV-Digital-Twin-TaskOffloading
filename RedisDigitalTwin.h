@@ -131,6 +131,39 @@ public:
                               double pos_x, double pos_y,
                               int max_concurrent_tasks);
 
+    // ── RSU-to-RSU Task Forwarding (Point 6) ────────────────────────────────
+    //
+    // Uses Redis as the transport layer — no new .msg types needed.
+    // Forwarded tasks are stored in  rsu:{target}:forwarded_task:{task_id}  (hash)
+    // and the task_id is LPUSHed to   rsu:{target}:forwarded_queue          (list).
+    // The receiving RSU polls its queue in its periodic rsu_status_update_timer.
+
+    void forwardTaskToNeighborRSU(const std::string& target_rsu_id,
+                                  const std::string& task_id,
+                                  const std::string& vehicle_id,
+                                  uint64_t cpu_cycles,
+                                  uint64_t task_size_bytes,
+                                  double deadline_seconds,
+                                  double qos_value,
+                                  double request_time,
+                                  const std::string& source_rsu_id);
+
+    /** RPOP one task_id from rsu:{my_rsu_id}:forwarded_queue. Returns "" if empty. */
+    std::string pollForwardedTask(const std::string& my_rsu_id);
+
+    /** Fetch+delete the forwarded task metadata hash; returns field->value map. */
+    std::map<std::string, std::string> fetchForwardedTaskData(
+        const std::string& my_rsu_id, const std::string& task_id);
+
+    /**
+     * Scan all_rsu_ids (excluding my_rsu_id) and return the one with the
+     * highest cpu_available and queue_length < max_concurrent.  Returns ""
+     * if no suitable neighbor RSU is found in Redis.
+     */
+    std::string getBestNeighborRSU(const std::vector<std::string>& all_rsu_ids,
+                                   const std::string& my_rsu_id);
+    // ────────────────────────────────────────────────────────────────────────
+
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);
     
     // Batch query for ML decision

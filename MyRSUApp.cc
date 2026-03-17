@@ -1802,11 +1802,59 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         // PLACEHOLDER: Round-robin rule-based decision
         // (Will be replaced by the DRL algorithm)
         //
-        // Routing: every 3rd offloadable request → SERVICE_VEHICLE (V2V),
-        //          others → RSU or LOCAL. Exercises all 3 execution paths
-        //          so each can be independently verified before DRL lands.
+        // Routing priority:
+        //   1. If RSU is overloaded (>80% utilization), try forwarding to
+        //      the best neighbor RSU via Redis (Point 6).
+        //   2. Every 3rd offloadable request → SERVICE_VEHICLE (V2V).
+        //   3. Vehicle low utilization → LOCAL.
+        //   4. Otherwise → this RSU processes the task.
         // ----------------------------------------------------------------
         EV_INFO << "  Using placeholder round-robin decision (DRL not yet integrated)" << endl;
+
+        // ── POINT 6: Neighbor RSU forwarding ─────────────────────────────
+        bool forwarded_to_neighbor = false;
+        if (redis_twin && use_redis) {
+            bool rsu_overloaded = (rsu_processing_count >= rsu_max_concurrent) ||
+                                  (rsu_cpu_available < edgeCPU_GHz * 0.2);
+            if (rsu_overloaded) {
+                // Build list of all RSU IDs (RSU_0..RSU_{N-1})
+                // In OMNeT++ each MyRSUApp must know its siblings' IDs.
+                // We query how many RSU modules exist.
+                std::vector<std::string> all_rsu_ids;
+                int num_siblings = getSystemModule()->getSubmodule("rsu", 0) ?
+                    getSystemModule()->getSubmodule("rsu")->getVectorSize() : 3;
+                for (int i = 0; i < num_siblings; i++)
+                    all_rsu_ids.push_back("RSU_" + std::to_string(i));
+
+                std::string my_rsu_id = "RSU_" + std::to_string(rsu_id);
+                std::string best_neighbor = redis_twin->getBestNeighborRSU(all_rsu_ids, my_rsu_id);
+
+                if (!best_neighbor.empty()) {
+                    redis_twin->forwardTaskToNeighborRSU(
+                        best_neighbor,
+                        request.task_id,
+                        request.vehicle_id,
+                        request.cpu_cycles,
+                        request.mem_footprint_bytes,
+                        request.deadline_seconds,
+                        request.qos_value,
+                        request.request_time,
+                        my_rsu_id
+                    );
+                    EV_INFO << "  [Point 6] Task " << request.task_id
+                            << " forwarded to neighbor " << best_neighbor
+                            << " (RSU overloaded: proc=" << rsu_processing_count
+                            << "/" << rsu_max_concurrent << ")" << endl;
+                    // Tell vehicle to expect result from neighbor RSU
+                    decisionType = "RSU";
+                    reason = "Forwarded to neighbor RSU " + best_neighbor + " (overload relief)";
+                    confidence = 0.7;
+                    estimated_completion_time = request.deadline_seconds * 0.8;
+                    forwarded_to_neighbor = true;
+                }
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         static int sv_dispatch_counter = 0;
         bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
@@ -1830,7 +1878,7 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
             }
         }
 
-        if (!try_sv) {
+        if (!try_sv && !forwarded_to_neighbor) {
             // Use CPU utilization ratio (0-1) not raw GHz — vehicles have 3-7 GHz
             // so a raw 0.5 GHz threshold is always satisfied and everything became LOCAL.
             // Now: utilization < 0.3 (under 30% load) AND vehicle didn't request RSU → LOCAL.

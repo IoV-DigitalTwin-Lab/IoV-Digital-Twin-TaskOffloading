@@ -514,6 +514,148 @@ void RedisDigitalTwin::writeRSUStaticFields(const std::string& rsu_id,
     }
 }
 
+// ============================================================================
+// RSU-to-RSU Task Forwarding  (Point 6)
+// ============================================================================
+
+void RedisDigitalTwin::forwardTaskToNeighborRSU(
+    const std::string& target_rsu_id,
+    const std::string& task_id,
+    const std::string& vehicle_id,
+    uint64_t cpu_cycles,
+    uint64_t task_size_bytes,
+    double deadline_seconds,
+    double qos_value,
+    double request_time,
+    const std::string& source_rsu_id)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    // 1. Write task metadata hash
+    std::string data_key = "rsu:" + target_rsu_id + ":forwarded_task:" + task_id;
+    redisReply* r1 = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s "
+        "task_id %s "
+        "vehicle_id %s "
+        "cpu_cycles %llu "
+        "task_size_bytes %llu "
+        "deadline_seconds %f "
+        "qos_value %f "
+        "request_time %f "
+        "source_rsu_id %s",
+        data_key.c_str(),
+        task_id.c_str(),
+        vehicle_id.c_str(),
+        (unsigned long long)cpu_cycles,
+        (unsigned long long)task_size_bytes,
+        deadline_seconds,
+        qos_value,
+        request_time,
+        source_rsu_id.c_str()
+    );
+    if (r1) {
+        if (r1->type == REDIS_REPLY_ERROR)
+            EV_ERROR << "forwardTask HMSET error: " << r1->str << std::endl;
+        freeReplyObject(r1);
+    }
+    // Expire after 2x the typical deadline to avoid accumulation
+    redisReply* ex = (redisReply*)redisCommand(
+        redis_ctx, "EXPIRE %s %d", data_key.c_str(), 60);
+    if (ex) freeReplyObject(ex);
+
+    // 2. Push task_id onto the target RSU's forwarded queue
+    std::string queue_key = "rsu:" + target_rsu_id + ":forwarded_queue";
+    redisReply* r2 = (redisReply*)redisCommand(
+        redis_ctx, "LPUSH %s %s", queue_key.c_str(), task_id.c_str());
+    if (r2) {
+        if (r2->type == REDIS_REPLY_ERROR)
+            EV_ERROR << "forwardTask LPUSH error: " << r2->str << std::endl;
+        else
+            EV_INFO << "✓ Task " << task_id << " forwarded to " << target_rsu_id << std::endl;
+        freeReplyObject(r2);
+    }
+    std::cout << "RSU_FORWARD: task=" << task_id
+              << " src=" << source_rsu_id
+              << " dst=" << target_rsu_id << std::endl;
+}
+
+std::string RedisDigitalTwin::pollForwardedTask(const std::string& my_rsu_id)
+{
+    if (!redis_ctx || !is_connected) return "";
+    std::string queue_key = "rsu:" + my_rsu_id + ":forwarded_queue";
+    redisReply* r = (redisReply*)redisCommand(
+        redis_ctx, "RPOP %s", queue_key.c_str());
+    std::string task_id;
+    if (r) {
+        if (r->type == REDIS_REPLY_STRING)
+            task_id = r->str;
+        freeReplyObject(r);
+    }
+    return task_id;
+}
+
+std::map<std::string, std::string>
+RedisDigitalTwin::fetchForwardedTaskData(
+    const std::string& my_rsu_id, const std::string& task_id)
+{
+    std::map<std::string, std::string> result;
+    if (!redis_ctx || !is_connected) return result;
+    std::string key = "rsu:" + my_rsu_id + ":forwarded_task:" + task_id;
+    redisReply* r = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+    if (r && r->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i + 1 < r->elements; i += 2)
+            result[r->element[i]->str] = r->element[i + 1]->str;
+    }
+    if (r) freeReplyObject(r);
+    // Delete after reading (one-shot delivery)
+    if (!result.empty()) {
+        redisReply* del = (redisReply*)redisCommand(
+            redis_ctx, "DEL %s", key.c_str());
+        if (del) freeReplyObject(del);
+    }
+    return result;
+}
+
+std::string RedisDigitalTwin::getBestNeighborRSU(
+    const std::vector<std::string>& all_rsu_ids,
+    const std::string& my_rsu_id)
+{
+    if (!redis_ctx || !is_connected) return "";
+
+    std::string best_id;
+    double best_cpu = -1.0;
+
+    for (const auto& rsu_id : all_rsu_ids) {
+        if (rsu_id == my_rsu_id) continue;
+        std::string key = "rsu:" + rsu_id + ":resources";
+
+        // Fetch cpu_available, queue_length, max_concurrent
+        auto getField = [&](const char* field) -> double {
+            redisReply* r = (redisReply*)redisCommand(
+                redis_ctx, "HGET %s %s", key.c_str(), field);
+            double val = 0.0;
+            if (r && r->type == REDIS_REPLY_STRING)
+                try { val = std::stod(r->str); } catch (...) {}
+            if (r) freeReplyObject(r);
+            return val;
+        };
+
+        double cpu_avail    = getField("cpu_available");
+        double queue_len    = getField("queue_length");
+        double max_conc     = getField("max_concurrent");
+        if (max_conc <= 0) max_conc = 10;  // safe default
+
+        // Must have CPU headroom and queue space
+        if (cpu_avail > 0.0 && queue_len < max_conc) {
+            if (cpu_avail > best_cpu) {
+                best_cpu = cpu_avail;
+                best_id  = rsu_id;
+            }
+        }
+    }
+    return best_id;
+}
+
 std::map<std::string, std::string> RedisDigitalTwin::getRSUState(const std::string& rsu_id) {
     std::map<std::string, std::string> state;
     if (!redis_ctx || !is_connected) return state;
