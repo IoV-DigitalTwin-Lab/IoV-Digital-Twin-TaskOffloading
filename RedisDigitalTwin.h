@@ -109,7 +109,28 @@ public:
                            int queue_length, int processing_count,
                            double sim_time,
                            double pos_x, double pos_y);
-    
+
+    /**
+     * Write static RSU capacity fields into rsu:{id}:resources once at simulation startup.
+     * These fields are permanent for the lifetime of the RSU:
+     *   cpu_total        — total CPU capacity (GHz)
+     *   memory_total     — total memory capacity (GB)
+     *   bandwidth        — 802.11p channel bandwidth (Mbps)
+     *   pos_x, pos_y     — fixed geographic position
+     *   max_concurrent   — max simultaneous tasks
+     *
+     * The Python IoVRedisEnv._fetch_rsu_state() reads cpu_total and pos_x/pos_y
+     * from the same rsu:{id}:resources key. Without this call, cpu_total is
+     * missing and the utilization formula (1 - cpu_avail / cpu_total) always
+     * returns 0, making state features degenerate.
+     */
+    void writeRSUStaticFields(const std::string& rsu_id,
+                              double cpu_total_ghz,
+                              double memory_total_gb,
+                              double bandwidth_mbps,
+                              double pos_x, double pos_y,
+                              int max_concurrent_tasks);
+
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);
     
     // Batch query for ML decision

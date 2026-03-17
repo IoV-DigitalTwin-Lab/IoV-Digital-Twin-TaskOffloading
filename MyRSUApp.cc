@@ -2499,6 +2499,25 @@ void MyRSUApp::insertRSUMetadata() {
     }
     
     PQclear(res);
+
+    // ── POINT 5: Write static RSU capacity fields to Redis ───────────────
+    // These let IoVRedisEnv._fetch_rsu_state() return correct cpu_total so
+    // cpu_utilization = 1 − (cpu_available / cpu_total) is non-zero.
+    // Bandwidth: 802.11p OCB default 10 MHz × OCB64-QAM-3/4 = ~27 Mbps;
+    //            params["bandwidth_mbps"] = 27.0 (stored as 100Mbps above,
+    //            override here with real value).
+    if (redis_twin && use_redis) {
+        constexpr double BANDWIDTH_MBPS = 27.0;   // 802.11p OCB 10 MHz channel
+        redis_twin->writeRSUStaticFields(
+            rsu_id_str,
+            edgeCPU_GHz,          // cpu_total (GHz)
+            edgeMemory_GB,        // memory_total (GB)
+            BANDWIDTH_MBPS,       // bandwidth (Mbps)
+            pos_x, pos_y,
+            rsu_max_concurrent    // max_concurrent_tasks
+        );
+    }
+    // ─────────────────────────────────────────────────────────────────────
 }
 
 void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {

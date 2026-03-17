@@ -466,6 +466,54 @@ void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
     }
 }
 
+void RedisDigitalTwin::writeRSUStaticFields(const std::string& rsu_id,
+                                            double cpu_total_ghz,
+                                            double memory_total_gb,
+                                            double bandwidth_mbps,
+                                            double pos_x, double pos_y,
+                                            int max_concurrent_tasks)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    // Write into the same key that updateRSUResources() and
+    // IoVRedisEnv._fetch_rsu_state() both use: rsu:{id}:resources
+    // These fields are static so we do NOT set a TTL (they survive restarts).
+    std::string key = "rsu:" + rsu_id + ":resources";
+
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s "
+        "cpu_total %f "
+        "memory_total %f "
+        "bandwidth %f "
+        "pos_x %f "
+        "pos_y %f "
+        "max_concurrent %d",
+        key.c_str(),
+        cpu_total_ghz,
+        memory_total_gb,
+        bandwidth_mbps,
+        pos_x, pos_y,
+        max_concurrent_tasks
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis writeRSUStaticFields error: " << reply->str << std::endl;
+        } else {
+            EV_INFO << "✓ RSU static fields written for " << rsu_id
+                    << " cpu_total=" << cpu_total_ghz << "GHz"
+                    << " mem_total=" << memory_total_gb << "GB"
+                    << " bw=" << bandwidth_mbps << "Mbps"
+                    << " pos=(" << pos_x << "," << pos_y << ")" << std::endl;
+            std::cout << "REDIS_RSU_STATIC: " << rsu_id
+                      << " cpu=" << cpu_total_ghz << "GHz"
+                      << " mem=" << memory_total_gb << "GB"
+                      << " bw=" << bandwidth_mbps << "Mbps" << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
 std::map<std::string, std::string> RedisDigitalTwin::getRSUState(const std::string& rsu_id) {
     std::map<std::string, std::string> state;
     if (!redis_ctx || !is_connected) return state;
