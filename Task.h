@@ -4,7 +4,6 @@
 #include <string>
 #include <omnetpp.h>
 #include "TaskProfile.h"
-#include "TaskProfile.h"
 
 using namespace omnetpp;
 
@@ -36,15 +35,14 @@ public:
     std::string vehicle_id;           // Originating vehicle identifier
     TaskType type = TaskType::LOCAL_OBJECT_DETECTION; // Task type (from TaskProfile)
     bool is_profile_task = false;     // True if created from TaskProfile
-    
     // Task Characteristics
     // mem_footprint_bytes: working-set memory reserved on the processing entity during execution.
     // Equals input_size_bytes (the data that must be resident in memory while the task runs).
     // Separate from output_size_bytes which is post-processing result size.
     uint64_t mem_footprint_bytes;     // Working memory footprint on processing entity (= input_size_bytes)
     uint64_t cpu_cycles;              // Required CPU cycles (C_task)
-    uint64_t input_size_bytes;        // Input size (bytes)
-    uint64_t output_size_bytes;       // Output size (bytes)
+    uint64_t input_size_bytes;        // Input data transmitted to processing entity (bytes)
+    uint64_t output_size_bytes;       // Output data returned after processing (bytes)
     
     // Timing Information
     simtime_t created_time;           // When task was generated
@@ -59,7 +57,6 @@ public:
     PriorityLevel priority = PriorityLevel::MEDIUM; // Priority mapping
     bool is_offloadable = true;       // Can this task be offloaded?
     bool is_safety_critical = false;  // Safety-critical tasks should stay local
-    
     // Processing State
     TaskState state;                  // Current task state
     uint64_t cpu_cycles_executed;     // CPU cycles already executed
@@ -72,11 +69,12 @@ public:
     // Constructor (generic random-parameter task)
     Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cycles,
          double deadline_sec, double qos);
-        Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
-            uint64_t input_size, uint64_t output_size, uint64_t cycles,
-            double deadline_sec, double qos, PriorityLevel task_priority,
-            bool offloadable, bool safety_critical);
-    
+
+    // Constructor (profile-based task with full characteristics)
+    Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
+         uint64_t input_size, uint64_t output_size, uint64_t cycles,
+         double deadline_sec, double qos, PriorityLevel task_priority,
+         bool offloadable, bool safety_critical);
     // Destructor
     ~Task();
     

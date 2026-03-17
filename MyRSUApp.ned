@@ -24,7 +24,7 @@ simple MyRSUApp like IBaseApplLayer
         bool avoidBeaconSynchronization = default(true);
         double maxOffset @unit(s) = default(0.005s);
         bool sendWSA = default(false);
-    double wsaInterval @unit(s) = default(1s);
+        double wsaInterval @unit(s) = default(1s);
         int currentOfferedServiceId = default(42);
         
         // Redis digital twin integration
@@ -38,12 +38,11 @@ simple MyRSUApp like IBaseApplLayer
         int maxVehicles;                 // Max concurrent vehicles
         int rsuMaxConcurrent = default(6); // Hard cap on simultaneous tasks
         double processingDelay_ms;       // Base processing delay in ms
-        
+
         // RSU-to-RSU Communication (Neighbor Discovery)
-        double rsuStatusBroadcastInterval @unit(s) = default(0.5s);  // Interval for periodic status broadcast
-        double neighborStateTtl @unit(s) = default(1.5s);            // Time-to-live for neighbor state cache
+        double rsuStatusBroadcastInterval @unit(s) = default(0.1s);  // Interval for periodic status sync
+        double neighborStateTtl @unit(s) = default(0.3s);            // Time-to-live for neighbor state cache
         int maxVehiclesInBroadcast = default(20);                     // Max vehicle IDs to include in broadcast
-        int maxRedirectHops = default(2);                             // Max redirect hops for task offloading
         
         // Overload Detection Parameters
         double overloadQueueThreshold = default(0.8);                 // Queue load threshold (80% of max)
@@ -54,6 +53,11 @@ simple MyRSUApp like IBaseApplLayer
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
 
+        // Wired Ethernet Backhaul Parameters
+        bool wiredBackhaulEnabled = default(true);                    // Enable Ethernet RSU-to-RSU communication
+        int localPort = default(5000);                                // UDP port for receiving status
+        int destPort = default(5000);                                 // UDP port for sending status
+        
     gates:
         input lowerLayerIn;
         output lowerLayerOut;

@@ -64,10 +64,14 @@ fi
 # Run the simulation
 # Use one of these depending on your preference:
 
+# Set framework paths (relative defaults for clone-and-run)
+INET_PATH="${INET_PATH:-${INET_PROJ:-../../inet4.5}}"
+VEINS_PATH="${VEINS_PATH:-${VEINS_PROJ:-../../veins-5.3.1}}"
+
 # For GUI mode (default):
 echo "Starting simulation in GUI mode..."
-$EXECUTABLE "$@"
+./IoV-Digital-Twin-TaskOffloading -n .:$INET_PATH/src:$VEINS_PATH/src/veins -l $INET_PATH/src/INET -l $VEINS_PATH/src/veins "$@"
 
 # For command-line mode, uncomment this instead:
 # echo "Starting simulation in command-line mode..."
-# $EXECUTABLE -u Cmdenv "$@"
+# ./IoV-Digital-Twin-TaskOffloading -u Cmdenv -n .:$INET_PATH/src:$VEINS_PATH/src/veins -l $INET_PATH/src/INET -l $VEINS_PATH/src/veins "$@"

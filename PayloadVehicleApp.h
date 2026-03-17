@@ -106,10 +106,10 @@ private:
     cMessage* fleetForecastEvent = nullptr;
     cMessage* voiceCommandEvent = nullptr;
     cMessage* sensorHealthEvent = nullptr;
-    
+
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
-    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset = 0.0); // Schedule next task arrival
+    void scheduleNextTaskGeneration(TaskType type, cMessage* eventMsg, double extra_offset = 0.0); // Schedule next task arrival per type
     void generateTask(TaskType type);         // Generate new task using TaskProfile
     bool canAcceptTask(Task* task);           // Check if task can be accepted
     bool canStartProcessing(Task* task);      // Check if task can start immediately
@@ -216,9 +216,6 @@ private:
     void sendTaskToRSU(Task* task);
     void sendTaskToServiceVehicle(Task* task, const std::string& serviceVehicleId, veins::LAddress::L2Type serviceMac);
     void handleTaskResult(veins::TaskResultMessage* msg);
-    void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
-                                   const std::string& sourceEntity, const std::string& targetEntity,
-                                   const std::string& details);
     void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType, 
                                   const std::string& sourceEntity, const std::string& targetEntity);
     void sendTaskCompletionToRSU(Task* task, bool success, const std::string& failureReason = "");
@@ -242,7 +239,6 @@ private:
 
     // Energy and metrics
     EnergyCalculator energyCalculator;
-    
     // Service vehicle capability (this vehicle can process tasks for others)
     bool serviceVehicleEnabled = false;
     int maxConcurrentServiceTasks = 3;
