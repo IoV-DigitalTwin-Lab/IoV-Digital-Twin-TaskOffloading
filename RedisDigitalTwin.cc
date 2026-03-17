@@ -246,6 +246,53 @@ void RedisDigitalTwin::updateTaskCompletion(const std::string& task_id,
     }
 }
 
+void RedisDigitalTwin::pushTaskResult(const std::string& task_id,
+                                      bool success,
+                                      double total_latency,
+                                      double completion_time,
+                                      double request_time,
+                                      double energy_joules)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    // Key polled by IoVRedisEnv._wait_for_result(): task:{id}:result
+    std::string key = "task:" + task_id + ":result";
+
+    // Field names must match exactly what environment.py reads:
+    //   result_data.get('completed'), 'success', 'latency',
+    //   'completion_time', 'request_time', 'energy'
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s "
+        "completed 1 "
+        "success %s "
+        "latency %f "
+        "completion_time %f "
+        "request_time %f "
+        "energy %f",
+        key.c_str(),
+        success ? "True" : "False",
+        total_latency,
+        completion_time,
+        request_time,
+        energy_joules
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis pushTaskResult error: " << reply->str << std::endl;
+        } else {
+            EV_INFO << "✓ Redis task:result written for " << task_id
+                    << " latency=" << total_latency
+                    << "s energy=" << energy_joules << "J" << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    // Auto-expire after task_ttl seconds so stale results don't accumulate
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", key.c_str(), task_ttl);
+    if (reply) freeReplyObject(reply);
+}
+
 std::map<std::string, std::string> RedisDigitalTwin::getTaskState(const std::string& task_id) {
     std::map<std::string, std::string> state;
     if (!redis_ctx || !is_connected) return state;

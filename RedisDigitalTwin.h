@@ -62,6 +62,25 @@ public:
                               double processing_time,
                               double total_latency,
                               double completion_time);
+
+    /**
+     * Write the task:id:result key that the DRL agent (IoVRedisEnv._wait_for_result)
+     * polls to unblock after a task completes.
+     *
+     * @param task_id         task identifier
+     * @param success         true = completed on-time, false = failed / late
+     * @param total_latency   end-to-end latency in seconds (completion_time - request_time)
+     * @param completion_time absolute simulation time of task completion
+     * @param request_time    simulation time when the vehicle first sent the request
+     * @param energy_joules   actual energy consumed (Joules), from EnergyCalculator
+     */
+    void pushTaskResult(const std::string& task_id,
+                        bool success,
+                        double total_latency,
+                        double completion_time,
+                        double request_time,
+                        double energy_joules);
+
     void deleteTask(const std::string& task_id);
     std::map<std::string, std::string> getTaskState(const std::string& task_id);
     

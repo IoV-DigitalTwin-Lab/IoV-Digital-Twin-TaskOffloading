@@ -1,4 +1,5 @@
 #include "MyRSUApp.h"
+#include "EnergyModel.h"
 #include <sstream>
 #include <fstream>
 #include <chrono>
@@ -2262,6 +2263,37 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                   << "Total latency: " << total_latency << "s, Success: " << success 
                   << ", On-time: " << on_time << std::endl;
 
+        // ── POINT 2: Compute real energy using IEEE-standard EnergyCalculator ──────
+        // Transmission rate used: 802.11p OCB, 6 Mbps default
+        constexpr double TX_RATE_BPS = 6e6;
+        EnergyCalculator energy_calc;
+        double energy_joules = 0.0;
+
+        if (decision_type == "LOCAL") {
+            // E_loc = κ_v × f² × c   (IEEE TMC 2018 cubic simplified to f² × c since
+            // execution time t = c / f cancels one power, see Commit 2 for full upgrade)
+            energy_joules = energy_calc.calcLocalExecutionEnergy(
+                cpu_cycles,
+                static_cast<uint32_t>(mem_footprint_bytes),
+                completion_time - start_time,
+                EnergyConstants::FREQ_NOMINAL,
+                EnergyConstants::FREQ_NOMINAL
+            );
+        } else {
+            // Offloaded (RSU or SERVICE_VEHICLE):
+            //   E_total = E_tx  (vehicle transmits data)  +  E_rsu  (remote compute)
+            energy_joules = energy_calc.calcOffloadEnergy(
+                static_cast<uint32_t>(mem_footprint_bytes),
+                TX_RATE_BPS,
+                cpu_cycles,
+                completion_time - start_time
+            );
+        }
+        std::cout << "ENERGY_COMPUTED: Task " << task_id
+                  << " decision=" << decision_type
+                  << " energy=" << energy_joules << "J" << std::endl;
+        // ─────────────────────────────────────────────────────────────────────────
+
         // Update Redis task status with full timing and decision data
         if (redis_twin && use_redis) {
             std::string status = on_time ? "COMPLETED_ON_TIME" : "COMPLETED_LATE";
@@ -2275,10 +2307,23 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                 total_latency,
                 completion_time
             );
+
+            // ── POINT 1: Write task:id:result so the DRL agent can unblock ─────────
+            redis_twin->pushTaskResult(
+                task_id,
+                success,          // true = completed on-time
+                total_latency,    // end-to-end latency (s)
+                completion_time,
+                request_time,
+                energy_joules     // real energy in Joules (Point 2)
+            );
+            // ──────────────────────────────────────────────────────────────────────
+
             std::cout << "REDIS_UPDATE: Task " << task_id << " status -> " << status
                       << " decision_type=" << decision_type
                       << " processor=" << processor_id
-                      << " latency=" << total_latency << "s" << std::endl;
+                      << " latency=" << total_latency << "s"
+                      << " energy=" << energy_joules << "J" << std::endl;
         }
 
     } catch (const std::exception& e) {
