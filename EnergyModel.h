@@ -19,27 +19,25 @@ using complex_network::TaskProfileDatabase;
  */
 
 namespace EnergyConstants {
-    // Switching capacitance coefficient (Joules per (Hz × bits × cycles))
-    // Vehicle (Jetson Nano-class): κ_v ≈ 5e-27
-    // RSU (High-performance server): κ_m ≈ 2e-27 (more efficient CPU)
-    constexpr double KAPPA_VEHICLE = 5e-27;      // C² per V (vehicle)
-    constexpr double KAPPA_RSU = 2e-27;          // C² per V (RSU server)
-    
-    // Transmit power (Watts)
-    // 802.11p V2X: ~30dBm = 1W typical
-    constexpr double TX_POWER = 1.0;             // Watts (1W for 802.11p)
-    
-    // Receive power (listening to channel)
-    constexpr double RX_POWER = 0.8;             // Watts
-    
-    // Idle power (device on but not computing)
-    constexpr double IDLE_POWER = 0.2;           // Watts
-    
-    // Frequency scaling (affects energy quadratically in RADiT model)
-    // Typical: 1.0 GHz to 1.5 GHz for Jetson Nano   
-    constexpr double FREQ_NOMINAL = 1.0e9;       // Hz (1.0 GHz)
-    constexpr double FREQ_MAX = 1.5e9;           // Hz (1.5 GHz, boost)
-    constexpr double FREQ_MIN = 0.5e9;           // Hz (0.5 GHz, power-save)
+    // Effective switching capacitance (Joules / Hz² / cycle)
+    // Values from IEEE TMC 2018 (Chen & Huang) and IoV MEC literature:
+    //   Vehicle (ARM Cortex-A57 / Jetson Nano-class):  κ_v ≈ 10e-28
+    //   RSU edge server (x86 server-class CPU):        κ_rsu ≈ 5e-28
+    // These give physically realistic local execution energies in the
+    // 0.1 mJ – 10 mJ range for 10^8 – 10^9 cycle tasks at ~1 GHz.
+    constexpr double KAPPA_VEHICLE = 10e-28;    // J / (Hz² · cycle)  — vehicle
+    constexpr double KAPPA_RSU    = 5e-28;     // J / (Hz² · cycle)  — RSU server
+
+    // Transmit power (Watts)  —  802.11p OCB: ~30 dBm = 1 W
+    constexpr double TX_POWER  = 1.0;   // W
+    // Receive / idle power
+    constexpr double RX_POWER  = 0.8;   // W
+    constexpr double IDLE_POWER = 0.2;  // W
+
+    // Reference CPU frequencies (Hz)
+    constexpr double FREQ_NOMINAL = 1.0e9;  // 1.0 GHz
+    constexpr double FREQ_MAX     = 1.5e9;  // 1.5 GHz  (burst)
+    constexpr double FREQ_MIN     = 0.5e9;  // 0.5 GHz  (power-save)
 }
 
 /**
@@ -127,16 +125,19 @@ public:
     
 private:
     /**
-     * Raw energy formula from RADiT:
-     * E = κ × (f_alloc - f_actual)² × data_size × cpu_cycles
-     * 
-     * Rearranged for computation energy and execution time
+     * IEEE TMC 2018 cubic energy formula:
+     *   E = κ × f² × cpu_cycles
+     *
+     * Derivation:
+     *   Dynamic CMOS power:  P = κ × f³
+     *   Execution time:      t = cpu_cycles / f
+     *   Energy:              E = P × t = κ × f² × cpu_cycles
+     *
+     * @param kappa      effective switching capacitance (J / Hz² / cycle)
+     * @param freq_hz    operating CPU frequency (Hz)
+     * @param cpu_cycles total CPU cycles for the task
      */
-    double energyFormula(double kappa,
-                        double freq_allocated,
-                        double freq_actual,
-                        uint64_t cpu_cycles,
-                        uint32_t data_size_bytes);
+    double energyFormula(double kappa, double freq_hz, uint64_t cpu_cycles);
 };
 
 #endif /* ENERGYMODEL_H_ */

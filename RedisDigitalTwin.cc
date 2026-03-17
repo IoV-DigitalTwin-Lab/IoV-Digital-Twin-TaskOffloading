@@ -255,42 +255,74 @@ void RedisDigitalTwin::pushTaskResult(const std::string& task_id,
 {
     if (!redis_ctx || !is_connected) return;
 
-    // Key polled by IoVRedisEnv._wait_for_result(): task:{id}:result
-    std::string key = "task:" + task_id + ":result";
+    // ── Key schema (matches IoVRedisEnv._wait_for_multi_results): ──────────
+    //   task:{id}:results  →  hash with fields:
+    //     {agent}_status   = "COMPLETED_ON_TIME" | "FAILED"
+    //     {agent}_latency  = float seconds
+    //     {agent}_energy   = float Joules
+    // ───────────────────────────────────────────────────────────────────────
+    std::string results_key  = "task:" + task_id + ":results";
+    std::string decisions_key = "task:" + task_id + ":decisions";
 
-    // Field names must match exactly what environment.py reads:
-    //   result_data.get('completed'), 'success', 'latency',
-    //   'completion_time', 'request_time', 'energy'
-    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
-        "HMSET %s "
-        "completed 1 "
-        "success %s "
-        "latency %f "
-        "completion_time %f "
-        "request_time %f "
-        "energy %f",
-        key.c_str(),
-        success ? "True" : "False",
-        total_latency,
-        completion_time,
-        request_time,
-        energy_joules
-    );
+    // Read which agents wrote decisions for this task
+    redisReply* agents_reply = (redisReply*)redisCommand(
+        redis_ctx, "HGET %s agents", decisions_key.c_str());
 
-    if (reply) {
-        if (reply->type == REDIS_REPLY_ERROR) {
-            EV_ERROR << "Redis pushTaskResult error: " << reply->str << std::endl;
-        } else {
-            EV_INFO << "✓ Redis task:result written for " << task_id
-                    << " latency=" << total_latency
-                    << "s energy=" << energy_joules << "J" << std::endl;
+    // Default to "ddqn" if no decisions key is present yet
+    std::vector<std::string> agents = {"ddqn"};
+    if (agents_reply && agents_reply->type == REDIS_REPLY_STRING) {
+        // agents field is a comma-separated list: "ddqn,random"
+        std::string agents_str(agents_reply->str);
+        agents.clear();
+        size_t pos = 0;
+        while (pos < agents_str.size()) {
+            size_t comma = agents_str.find(',', pos);
+            if (comma == std::string::npos) comma = agents_str.size();
+            std::string a = agents_str.substr(pos, comma - pos);
+            if (!a.empty()) agents.push_back(a);
+            pos = comma + 1;
         }
-        freeReplyObject(reply);
+    }
+    if (agents_reply) freeReplyObject(agents_reply);
+
+    const char* status_str = success ? "COMPLETED_ON_TIME" : "FAILED";
+
+    // Build one HMSET command covering all agents in a single round-trip
+    // Max agents in practice ≤ 5 so building the command inline is fine.
+    for (const auto& agent : agents) {
+        std::string f_status  = agent + "_status";
+        std::string f_latency = agent + "_latency";
+        std::string f_energy  = agent + "_energy";
+
+        redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+            "HMSET %s %s %s %s %f %s %f",
+            results_key.c_str(),
+            f_status.c_str(),  status_str,
+            f_latency.c_str(), total_latency,
+            f_energy.c_str(),  energy_joules
+        );
+        if (reply) {
+            if (reply->type == REDIS_REPLY_ERROR) {
+                EV_ERROR << "Redis pushTaskResult (" << agent << "): "
+                         << reply->str << std::endl;
+            }
+            freeReplyObject(reply);
+        }
     }
 
-    // Auto-expire after task_ttl seconds so stale results don't accumulate
-    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", key.c_str(), task_ttl);
-    if (reply) freeReplyObject(reply);
+    EV_INFO << "✓ Redis task:results written for " << task_id
+            << " agents=[";
+    for (size_t i = 0; i < agents.size(); ++i) {
+        EV_INFO << agents[i] << (i + 1 < agents.size() ? "," : "");
+    }
+    EV_INFO << "] status=" << status_str
+            << " latency=" << total_latency
+            << "s energy=" << energy_joules << "J" << std::endl;
+
+    // Auto-expire so stale results don't accumulate
+    redisReply* ex = (redisReply*)redisCommand(
+        redis_ctx, "EXPIRE %s %d", results_key.c_str(), task_ttl);
+    if (ex) freeReplyObject(ex);
 }
 
 std::map<std::string, std::string> RedisDigitalTwin::getTaskState(const std::string& task_id) {
