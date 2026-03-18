@@ -3,22 +3,15 @@
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
-#include "rsu_http_poster.h"
+// #include "rsu_http_poster.h"  // Disabled - using direct PostgreSQL
 #include "TaskMetadataMessage_m.h"
 #include "RedisDigitalTwin.h"
 #include <map>
 #include <vector>
-#include <deque>
 #include <string>
 #include <libpq-fe.h>
 
-// INET includes for Ethernet/UDP support
-#include "inet/transportlayer/contract/udp/UdpSocket.h"
-#include "inet/networklayer/common/L3AddressResolver.h"
-#include "inet/networklayer/common/L3Address.h"
-
 using namespace veins;
-using namespace inet;
 
 namespace complex_network {
 
@@ -102,7 +95,37 @@ struct TaskRecord {
 };
 
 /**
- * RSU Active Task tracking for event-driven processing
+ * RSU Neighbor State (for RSU-to-RSU communication)
+ */
+struct RSUNeighborState {
+    std::string rsu_id;
+    LAddress::L2Type rsu_mac;
+    double last_update_time;
+    
+    // Resource state
+    int queue_length;
+    int processing_count;
+    int max_concurrent_tasks;
+    double cpu_available_ghz;
+    double cpu_total_ghz;
+    double memory_available_gb;
+    double memory_total_gb;
+    
+    // Coverage information
+    std::vector<std::string> vehicle_ids_in_coverage;
+    int vehicle_count;
+    
+    // Position
+    double pos_x;
+    double pos_y;
+    
+    // Computed metrics
+    double load_factor = 0.0;        // CPU utilization factor (0-1)
+    bool is_overloaded = false;      // Overload flag
+};
+
+/**
+ * RSU Active Task (for task queue and processing)
  */
 struct RSUActiveTask {
     std::string task_id;
@@ -140,12 +163,15 @@ protected:
     void handleMessage(cMessage* msg) override;
 
 private:
-    RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};
+    // RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};  // Disabled - using direct PostgreSQL
     // self-message used for periodic beacons; keep as member so we can cancel/delete safely
     omnetpp::cMessage* beaconMsg{nullptr};
     
     // Decision polling timer (for reading ML decisions from database)
     cMessage* checkDecisionMsg = nullptr;
+    
+    // RSU status broadcast timer (for RSU-to-RSU communication)
+    cMessage* rsu_broadcast_timer = nullptr;
     
     // Vehicle MAC address mapping (for sending decisions)
     std::map<std::string, LAddress::L2Type> vehicle_macs;  // vehicle_id -> MAC address
@@ -184,80 +210,23 @@ private:
     cMessage* rsu_status_update_timer = nullptr;
     
     // ============================================================================
-    // RSU-TO-RSU STATE SHARING (for load-aware redirect)
+    // RSU-TO-RSU COMMUNICATION (I2I)
     // ============================================================================
     
-    // Neighbor RSU state cache
-    struct RSUNeighborState {
-        std::string rsu_id;
-        LAddress::L2Type rsu_mac;
-        double last_update_time;
-        
-        // Resource state
-        int queue_length;
-        int processing_count;
-        int max_concurrent_tasks;
-        double cpu_available_ghz;
-        double cpu_total_ghz;
-        double memory_available_gb;
-        double memory_total_gb;
-        
-        // Coverage information
-        std::vector<std::string> vehicle_ids_in_coverage;
-        int vehicle_count;
-        
-        // Position
-        double pos_x;
-        double pos_y;
-        
-        // Computed metrics
-        bool is_overloaded;
-        double load_factor;  // 0.0 = idle, 1.0 = full
-    };
-    
+    // Neighbor RSU states (learned via broadcast)
     std::map<std::string, RSUNeighborState> neighbor_rsus;  // rsu_id -> state
     
-    // RSU state broadcast configuration
+    // RSU broadcast parameters
     double rsu_broadcast_interval = 0.5;      // Broadcast every 500ms
     double neighbor_state_ttl = 1.5;          // Consider state stale after 1.5s
     int max_vehicles_in_broadcast = 20;       // Limit vehicle list size to avoid huge packets
-    cMessage* rsu_broadcast_timer = nullptr;
     
-    // Overload detection configuration
-    double overload_queue_threshold = 0.8;    // % of max capacity
-    double overload_cpu_headroom = 0.1;       // Minimum CPU headroom (10%)
-    int max_concurrent_processing = 10;       // Max tasks processing simultaneously
+    // Task redirect parameters
+    int max_redirect_hops = 2;                // Maximum allowed redirect hops
     
-    // Decision strategy configuration
-    bool ml_model_enabled = false;            // Enable ML-based decisions (DRL)
-    std::string decision_strategy = "LOAD_AWARE";  // LOAD_AWARE | ROUND_ROBIN | DRL
-    
-    // RSU state broadcast methods
-    void broadcastRSUStatus();
-    void syncNeighborStatesFromRedis();
-    void handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg);
-    void updateNeighborState(const RSUNeighborState& state);
-    bool isNeighborStateFresh(const RSUNeighborState& state);
-    void cleanupStaleNeighborStates();
-    
-    // ============================================================================
-    // WIRED ETHERNET BACKHAUL (UDP/IP based RSU-to-RSU communication)
-    // ============================================================================
-    
-    // Wired backhaul configuration
-    bool wired_backhaul_enabled = false;
-    int local_udp_port = 5000;
-    int dest_udp_port = 5000;
-    
-    // UDP sockets for RSU-to-RSU communication
-    inet::UdpSocket udp_socket;
-    std::map<int, inet::L3Address> rsu_ip_addresses;  // rsu_id -> IP address
-    
-    // Wired backhaul methods
-    void initializeWiredBackhaul();
-    void sendRSUStatusViaEthernet();
-    void handleUdpData(cMessage* msg);
-    void processRSUStatusFromEthernet(cMessage* msg);
+    // Task queue and active tasks
+    std::deque<RSUActiveTask> task_queue;           // FIFO queue for pending tasks
+    std::map<std::string, RSUActiveTask> active_tasks;  // Currently processing tasks (task_id -> task)
     
     // ============================================================================
     // DIGITAL TWIN TRACKING SYSTEM
@@ -290,9 +259,6 @@ private:
         LAddress::L2Type vehicle_mac;
         double request_time;
         std::string local_decision;
-        std::vector<LAddress::L2Type> candidate_rsu_macs;
-        int current_candidate_index = 0;
-        int max_redirect_hops = 0;
         
         // Task characteristics
         uint64_t mem_footprint_bytes;  // working memory on processing entity
@@ -340,25 +306,13 @@ private:
         cMessage* completion_event = nullptr; // pointer to scheduled completion self-msg
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
+
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so every task gets an equal share of edgeCPU_GHz.
     void reallocateRSUTasks(double new_cpu_per_task_Hz);
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                   LAddress::L2Type vehicle_mac, bool success, double processing_time);
-    
-    // Event-driven task processing methods
-    void queueTaskForProcessing(const RSUActiveTask& active_task);
-    void processNextQueuedTask();
-    void handleTaskCompletionEvent(cMessage* msg);
-    double calculateProcessingTime(const RSUActiveTask& task);
-    void deallocateTaskResources(const RSUActiveTask& task);
-    void checkDeadlineAndNotify(const RSUActiveTask& task);
-    
-    // RSU task queue management
-    std::deque<RSUActiveTask> task_queue;           // FIFO queue for pending tasks
-    std::map<std::string, RSUActiveTask> active_tasks;  // Currently processing tasks (task_id -> task)
-    double cpu_time_slice = 0.01;  // Min CPU allocation per task (10ms)
     
     // Configuration parameters
     bool mlModelEnabled = false;
@@ -395,6 +349,9 @@ private:
     void insertOffloadingRequest(const OffloadingRequest& request);
     void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
     void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
+    void insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
+                              const std::string& source, const std::string& target,
+                              const std::string& details = "{}");
     void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
                                        const std::string& decision_type, const std::string& processor_id,
                                        double request_time, double decision_time, double start_time, 
@@ -407,6 +364,21 @@ private:
     void insertRSUMetadata();
     void insertVehicleMetadata(const std::string& vehicle_id);
     void sendRSUStatusUpdate();
+    
+    // ============================================================================
+    // RSU-TO-RSU COMMUNICATION METHODS
+    // ============================================================================
+    void broadcastRSUStatus();
+    void handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg);
+    void updateNeighborState(const RSUNeighborState& state);
+    bool isNeighborStateFresh(const RSUNeighborState& state);
+    void cleanupStaleNeighborStates();
+    
+    void queueTaskForProcessing(const RSUActiveTask& active_task);
+    void startNextQueuedTask();
+    double calculateProcessingTime(const RSUActiveTask& task);
+    void deallocateTaskResources(const RSUActiveTask& task);
+    void checkDeadlineAndNotify(const RSUActiveTask& task);
 };
 
 } // namespace complex_network

@@ -89,56 +89,6 @@ set -u
 
 cd "$SCRIPT_DIR"
 
-# === PREFLIGHT CHECK: Clean up stale SUMO processes on port 9999 ===
-# TraCI uses port 9999. If sumo-launchd.py is running from a previous session,
-# it will cause "TraCI API version 1" errors. Kill it before starting.
-PORT_CHECK=$(ss -ltnp 2>/dev/null | grep ':9999' || true)
-if [ -n "$PORT_CHECK" ]; then
-  echo "⚠ Detected process on port 9999. Checking if it's sumo-launchd..."
-  PORT_PID=$(echo "$PORT_CHECK" | grep -oP 'pid=\K[0-9]+' | head -1)
-  if [ -n "$PORT_PID" ]; then
-    PROCESS_CMD=$(ps -fp "$PORT_PID" 2>/dev/null | grep -v "PID" | awk '{print $8, $9, $10}' || true)
-    if echo "$PROCESS_CMD" | grep -q "sumo-launchd"; then
-      echo "  └─ Found stale sumo-launchd.py (PID $PORT_PID). Terminating..."
-      kill "$PORT_PID" 2>/dev/null || true
-      sleep 1
-      echo "  └─ Port 9999 cleared for TraCI."
-    else
-      echo "  └─ Warning: Port 9999 occupied by: $PROCESS_CMD"
-      echo "  └─ This may cause TraCI connection errors. Kill manually if needed:"
-      echo "     kill $PORT_PID"
-    fi
-  fi
-fi
-
-# Start SUMO explicitly to avoid TraCI connection races at t=0.
-SUMO_PID=""
-cleanup() {
-  if [ -n "$SUMO_PID" ] && kill -0 "$SUMO_PID" 2>/dev/null; then
-    kill "$SUMO_PID" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT INT TERM
-
-if ! ss -ltn 2>/dev/null | grep -q ':9999'; then
-  # Always use headless sumo for reliable remote execution
-  SUMO_BIN="sumo"
-
-  if command -v "$SUMO_BIN" >/dev/null 2>&1; then
-    echo "Starting SUMO TraCI server..."
-    "$SUMO_BIN" --remote-port 9999 -c erlangen.sumo.cfg >/tmp/iov_sumo.log 2>&1 &
-    SUMO_PID=$!
-    sleep 1
-    if ! kill -0 "$SUMO_PID" 2>/dev/null; then
-      echo "Warning: SUMO failed to start. Check /tmp/iov_sumo.log" >&2
-    fi
-  else
-    echo "Warning: SUMO binary not found in PATH (sumo/sumo-gui)." >&2
-  fi
-else
-  echo "Port 9999 already in use; reusing existing TraCI server."
-fi
-
 echo "Starting IoV Digital Twin Task Offloading simulation..."
 echo "OMNeT++: $OMNETPP_HOME"
 echo "INET:    $INET_PATH"

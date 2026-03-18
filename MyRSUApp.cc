@@ -6,12 +6,6 @@
 #include <iomanip>
 #include <cmath>
 
-// INET packet includes for UDP communication
-#include "inet/common/packet/Packet.h"
-#include "inet/common/packet/chunk/BytesChunk.h"
-#include "inet/common/TagBase_m.h"
-#include "inet/networklayer/contract/ipv4/Ipv4Address.h"
-
 using namespace veins;
 
 namespace complex_network {
@@ -39,9 +33,8 @@ void MyRSUApp::initialize(int stage) {
         // Use dedicated rsuMaxConcurrent param (prevents maxVehicles from inflating the cap)
         rsu_max_concurrent = par("rsuMaxConcurrent").intValue();
         
-        // Initialize PostgreSQL database connection (DISABLED - blocks initialization)
-        // initDatabase();  // Commented out to prevent 30s+ connection timeouts blocking sim startup
-        std::cout << "⚠ PostgreSQL initialization skipped (would block startup)" << std::endl;
+        // Initialize PostgreSQL database connection (always enabled)
+        initDatabase();
         
         // Initialize Redis Digital Twin
         use_redis = par("useRedis").boolValue();
@@ -60,30 +53,30 @@ void MyRSUApp::initialize(int stage) {
             }
         }
         
-        // Initialize RSU-to-RSU broadcast parameters
-        rsu_broadcast_interval = par("rsuStatusBroadcastInterval").doubleValue();
-        neighbor_state_ttl = par("neighborStateTtl").doubleValue();
-        max_vehicles_in_broadcast = par("maxVehiclesInBroadcast").intValue();
-        // Keep RSU status publishing cadence aligned with neighbor sync cadence.
-        rsu_status_update_interval = rsu_broadcast_interval;
-        
-        // Initialize overload detection parameters
-        overload_queue_threshold = par("overloadQueueThreshold").doubleValue();
-        overload_cpu_headroom = par("overloadCpuHeadroom").doubleValue();
-        max_concurrent_processing = par("maxConcurrentProcessing").intValue();
-        
-        // Initialize decision strategy
-        ml_model_enabled = par("mlModelEnabled").boolValue();
-        decision_strategy = par("decisionStrategy").stdstringValue();
-        
-        // Initialize wired Ethernet backhaul
-        wired_backhaul_enabled = par("wiredBackhaulEnabled").boolValue();
-        // NOTE: Wired backhaul via Ethernet disabled for now (INET stack complexity)
-        // RSU-to-RSU communication falls back to Redis or wireless broadcast
-        wired_backhaul_enabled = false;  // Force disable for now
-        
         // Insert RSU metadata (static info) once at initialization
         insertRSUMetadata();
+        
+        // Initialize RSU-to-RSU broadcast parameters (try to get from config, use defaults if not set)
+        try {
+            rsu_broadcast_interval = par("rsuStatusBroadcastInterval").doubleValue();
+        } catch (...) {
+            rsu_broadcast_interval = 0.5;  // Default: 500ms
+        }
+        try {
+            neighbor_state_ttl = par("neighborStateTtl").doubleValue();
+        } catch (...) {
+            neighbor_state_ttl = 1.5;  // Default: 1.5s
+        }
+        try {
+            max_vehicles_in_broadcast = par("maxVehiclesInBroadcast").intValue();
+        } catch (...) {
+            max_vehicles_in_broadcast = 20;  // Default: 20 vehicles
+        }
+        try {
+            max_redirect_hops = par("maxRedirectHops").intValue();
+        } catch (...) {
+            max_redirect_hops = 2;  // Default: 2 hops
+        }
         
         // Start periodic RSU status updates
         rsu_status_update_timer = new cMessage("rsuStatusUpdate");
@@ -142,22 +135,15 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
     else if (msg == rsu_status_update_timer) {
         // Handle RSU status update
         sendRSUStatusUpdate();
-    }
+    } 
     else if (msg == rsu_broadcast_timer) {
-        // RSU-to-RSU state sharing: DISABLED to reduce network clutter in GUI
-        // In production, would use wired Ethernet backhaul or Redis Digital Twin
-        // For now, RSUs maintain local state only (no neighbor coordination)
-        
-        // Still cleanup stale neighbor states (in case we enable later)
+        // Handle RSU-to-RSU status broadcast
+        broadcastRSUStatus();
+        // Cleanup stale neighbor states periodically
         cleanupStaleNeighborStates();
-        
-        // Reschedule timer (keep timer alive for future use)
+        // Reschedule next broadcast
         scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
-    }
-    else if (strcmp(msg->getName(), "taskCompletion") == 0) {
-        // Handle task completion event (event-driven processing)
-        handleTaskCompletionEvent(msg);
-    }
+    } 
     else if (msg == checkDecisionMsg) {
         // Poll Redis first (fast), fallback to PostgreSQL if needed
         int decisions_found = 0;
@@ -359,11 +345,10 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         return;
     }
     
-    // Handle RSU status broadcast from neighbor RSUs
+    // Handle RSU-to-RSU status broadcasts
     RSUStatusBroadcastMessage* rsuStatus = dynamic_cast<RSUStatusBroadcastMessage*>(wsm);
     if (rsuStatus) {
-        EV_INFO << "📥 RSU received RSU status broadcast from neighbor" << endl;
-        std::cout << "RSU_NEIGHBOR: Received status from " << rsuStatus->getRsu_id() << std::endl;
+        EV_DEBUG << "📥 RSU received RSUStatusBroadcastMessage" << endl;
         handleRSUStatusBroadcast(rsuStatus);
         return;
     }
@@ -516,14 +501,6 @@ void MyRSUApp::handleMessage(cMessage* msg) {
               << " at time " << simTime() << std::endl;
 
     // ========================================================================
-    // HANDLE UDP PACKETS (Ethernet backhaul)
-    // ========================================================================
-        if (wired_backhaul_enabled && msg->arrivedOn("udpIn")) {
-        handleUdpData(msg);
-        return;
-    }
-
-    // ========================================================================
     // HANDLE OFFLOADING REQUEST MESSAGES
     // ========================================================================
     veins::OffloadingRequestMessage* offloadReq = dynamic_cast<veins::OffloadingRequestMessage*>(msg);
@@ -672,8 +649,6 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     if (!checkDecisionMsg->isScheduled()) {
         scheduleAt(simTime() + 0.1, checkDecisionMsg);
     }
-
-    delete msg;
 }
 
 void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
@@ -730,8 +705,6 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
-
-    delete msg;
 }
 
 void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
@@ -789,8 +762,6 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
-
-    delete msg;
 }
 
 void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
@@ -857,8 +828,6 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     EV_INFO << "  Memory Utilization: " << (twin.mem_utilization * 100.0) << "%" << endl;
     EV_INFO << "  Queue Length: " << twin.current_queue_length << endl;
     EV_INFO << "  Processing Count: " << twin.current_processing_count << endl;
-
-    delete msg;
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
@@ -1075,16 +1044,15 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     EV_INFO << "Database: " << db_conninfo << endl;
     
-    // Add connection timeout to prevent hanging
-    // For URI format (postgresql://...), use ? for parameters, otherwise use space
+    // Add connection timeout - use proper format based on connection string type
     std::string conninfo_with_timeout;
-    if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-        // URI format - check if parameters already exist
+    if (db_conninfo.find("://") != std::string::npos) {
+        // URL-style connection string - use ? or & for parameters
         conninfo_with_timeout = db_conninfo + 
-            (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=1";
+            (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
     } else {
-        // Keyword=value format
-        conninfo_with_timeout = db_conninfo + " connect_timeout=1";
+        // Key=value style - append with space
+        conninfo_with_timeout = db_conninfo + " connect_timeout=5";
     }
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
     
@@ -1115,16 +1083,15 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conn) {
             PQfinish(db_conn);
         }
-        // Add connection timeout to prevent hanging
-        // For URI format (postgresql://...), use ? for parameters, otherwise use space
+        // Add connection timeout - use proper format based on connection string type
         std::string conninfo_with_timeout;
-        if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-            // URI format - check if parameters already exist
+        if (db_conninfo.find("://") != std::string::npos) {
+            // URL-style connection string - use ? or & for parameters
             conninfo_with_timeout = db_conninfo + 
-                (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=1";
+                (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
         } else {
-            // Keyword=value format
-            conninfo_with_timeout = db_conninfo + " connect_timeout=1";
+            // Key=value style - append with space
+            conninfo_with_timeout = db_conninfo + " connect_timeout=5";
         }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());
         
@@ -1359,7 +1326,7 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
                  << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
                  << "}";
     
-    const char* paramValues[25];
+    const char* paramValues[24];
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string update_time = std::to_string(simTime().dbl());
@@ -1734,16 +1701,21 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     request.vehicle_mac = msg->getSenderAddress();  // Inherited from BaseFrame1609_4
     request.request_time = simTime().dbl();
     request.local_decision = msg->getLocal_decision();
-    request.current_candidate_index = msg->getCurrent_candidate_index();
-    request.max_redirect_hops = msg->getMax_redirect_hops();
-    request.candidate_rsu_macs.clear();
-    for (int i = 0; i < msg->getCandidate_rsu_macsArraySize(); ++i) {
-        request.candidate_rsu_macs.push_back(msg->getCandidate_rsu_macs(i));
-    }
     
     // Store vehicle MAC address for later decision sending
     vehicle_macs[vehicle_id] = request.vehicle_mac;
     EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
+
+    // Update Digital Twin with current resource state so selectBestServiceVehicle()
+    // has fresh CPU/queue data for this vehicle
+    VehicleDigitalTwin& req_twin = getOrCreateVehicleTwin(vehicle_id);
+    req_twin.cpu_available             = msg->getLocal_cpu_available_ghz();
+    req_twin.cpu_utilization           = msg->getLocal_cpu_utilization();
+    req_twin.current_queue_length      = msg->getLocal_queue_length();
+    req_twin.current_processing_count  = msg->getLocal_processing_count();
+    req_twin.pos_x = msg->getPos_x();
+    req_twin.pos_y = msg->getPos_y();
+    req_twin.last_update_time = simTime().dbl();
     
     // Task characteristics
     request.mem_footprint_bytes = msg->getMem_footprint_bytes();
@@ -1787,11 +1759,18 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     if (decision) {
         // Store decision in Digital Twin database
         insertOffloadingDecision(task_id, decision);
-        
+        insertLifecycleEvent(task_id, "DECISION_MADE",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\","
+            "\"confidence\":" + std::to_string(decision->getConfidence_score()) + "}");
+
         // Send decision back to vehicle
         populateWSM(decision, request.vehicle_mac);
         sendDown(decision);
-        
+        insertLifecycleEvent(task_id, "DECISION_SENT",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
+
         EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
         std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id 
                   << ": " << decision->getDecision_type() << std::endl;
@@ -1804,188 +1783,148 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
 }
 
 veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const OffloadingRequest& request) {
-    EV_INFO << "🤖 RSU: Making offloading decision with redirect support..." << endl;
-    
-    // Create decision message
-    veins::OffloadingDecisionMessage* decision = new veins::OffloadingDecisionMessage();
-    decision->setSenderAddress(myId);
-    decision->setTask_id(request.task_id.c_str());
-    decision->setVehicle_id(request.vehicle_id.c_str());
-    decision->setDecision_time(simTime().dbl());
+    EV_INFO << "🤖 RSU: Making ML-based offloading decision..." << endl;
     
     // ========================================================================
-    // PHASE 1: CHECK LOCAL RSU ADMISSION (Can this RSU accept the task?)
-    // ========================================================================
-    
-    // Convert task size to bytes and compute projected queue load
-    double projected_queue_load = rsu_queue_length + 1;  // +1 for incoming task
-    double available_queue_slots = rsu_max_concurrent * 0.8;  // Keep 20% headroom
-    
-    // Check overload conditions
-    bool is_rsu_overloaded = (projected_queue_load >= available_queue_slots) ||
-                             (rsu_processing_count >= rsu_max_concurrent) ||
-                             (rsu_cpu_available < (rsu_cpu_total * 0.1));  // Less than 10% CPU
-    
-    EV_DEBUG << "  RSU admission check: queue=" << rsu_queue_length 
-             << ", processing=" << rsu_processing_count
-             << ", cpu_avail=" << rsu_cpu_available << " GHz"
-             << ", overloaded=" << (is_rsu_overloaded ? "YES" : "NO") << endl;
-    
-    std::cout << "RSU_ADMISSION: task=" << request.task_id
-              << " queue=" << rsu_queue_length
-              << " overloaded=" << (is_rsu_overloaded ? "YES" : "NO") << std::endl;
-    
-    // ========================================================================
-    // PHASE 2: DECISION LOGIC
+    // ML DECISION ENGINE (PLACEHOLDER - REPLACE WITH ACTUAL ML MODEL)
     // ========================================================================
     
     std::string decisionType;
     std::string reason;
-    double confidence = 0.8;
-    double estimated_completion_time = request.deadline_seconds * 0.6;
-    std::string redirect_target_rsu_id;
-    LAddress::L2Type redirect_target_rsu_mac = 0;
-    int next_candidate_index = request.current_candidate_index + 1;
+    double confidence = 0.0;
+    double estimated_completion_time = 0.0;
+    std::string target_service_vehicle_id;
+    LAddress::L2Type target_service_vehicle_mac = 0;
     
-    if (!is_rsu_overloaded) {
-        // ====================================================================
-        // THIS RSU CAN ACCEPT - Check if DRL should make decision or use rules
-        // ====================================================================
-        
-        if (mlModelEnabled) {
-            // TODO: Send decision to DRL/Python API, set decision_type from response
-            // For now, use default RSU acceptance
-            decisionType = "RSU";
-            reason = "RSU has capacity, ML model will process";
-            confidence = 0.7;
-        } else {
-            // Use rule-based decision
-            if (request.vehicle_cpu_utilization > 0.75) {
-                // Vehicle is heavily loaded, offload to RSU
-                decisionType = "RSU";
-                reason = "Vehicle CPU high (" + std::to_string((int)(request.vehicle_cpu_utilization*100)) + "%), RSU has capacity";
-                confidence = 0.8;
+    if (!mlModelEnabled) {
+        // ----------------------------------------------------------------
+        // PLACEHOLDER: Round-robin rule-based decision
+        // (Will be replaced by the DRL algorithm)
+        //
+        // Routing: every 3rd offloadable request → SERVICE_VEHICLE (V2V),
+        //          others → RSU or LOCAL. Exercises all 3 execution paths
+        //          so each can be independently verified before DRL lands.
+        // ----------------------------------------------------------------
+        EV_INFO << "  Using placeholder round-robin decision (DRL not yet integrated)" << endl;
+
+        static int sv_dispatch_counter = 0;
+        bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
+
+        if (try_sv) {
+            std::string sv_id = selectBestServiceVehicle(request);
+            if (!sv_id.empty() && vehicle_macs.count(sv_id)) {
+                decisionType = "SERVICE_VEHICLE";
+                target_service_vehicle_id  = sv_id;
+                target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
+                reason = "Round-robin placeholder: delegating to service vehicle " + sv_id
+                         + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
+                             vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
+                confidence = 0.75;
+                estimated_completion_time = request.deadline_seconds * 0.7;
+                std::cout << "SV_DECISION: Task " << request.task_id
+                          << " routed to service vehicle " << sv_id
+                          << " MAC=" << target_service_vehicle_mac << std::endl;
             } else {
-                // Vehicle has sufficient local resources
+                try_sv = false;  // no suitable SV → fall through to RSU/LOCAL
+            }
+        }
+
+        if (!try_sv) {
+            // Use CPU utilization ratio (0-1) not raw GHz — vehicles have 3-7 GHz
+            // so a raw 0.5 GHz threshold is always satisfied and everything became LOCAL.
+            // Now: utilization < 0.3 (under 30% load) AND vehicle didn't request RSU → LOCAL.
+            // Otherwise → RSU processes the task.
+            if (request.vehicle_cpu_utilization < 0.3 &&
+                request.local_decision != "OFFLOAD_TO_RSU" &&
+                request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
                 decisionType = "LOCAL";
-                reason = "Vehicle has sufficient resources";
+                reason = "Vehicle has low utilization ("
+                         + std::to_string((int)(request.vehicle_cpu_utilization * 100))
+                         + "%), execute locally";
                 confidence = 0.85;
+                estimated_completion_time = request.deadline_seconds * 0.5;
+            } else {
+                decisionType = "RSU";
+                reason = "RSU offloading (round-robin placeholder)";
+                confidence = 0.8;
+                estimated_completion_time = request.deadline_seconds * 0.6;
             }
         }
-        
-        EV_INFO << "✅ ACCEPT: " << decisionType << " - " << reason << endl;
-        std::cout << "RSU_DECISION: ACCEPT - decision_type=" << decisionType << std::endl;
     } else {
-        // ====================================================================
-        // THIS RSU IS OVERLOADED - Try to redirect to neighbor
-        // ====================================================================
-        
-        EV_INFO << "🔴 RSU OVERLOADED - Attempting redirect to neighbor..." << endl;
-        
-        decisionType = "";  // Will be set if we find a redirect target
-        bool found_redirect_target = false;
-        
-        // Scan through candidate RSUs starting from current_candidate_index + 1
-        for (size_t i = request.current_candidate_index + 1; i < request.candidate_rsu_macs.size(); i++) {
-            LAddress::L2Type candidate_mac = request.candidate_rsu_macs[i];
-            
-            // Find this candidate in our neighbor cache
-            std::string candidate_rsu_id;
-            RSUNeighborState* neighbor_state = nullptr;
-            
-            for (auto& pair : neighbor_rsus) {
-                if (pair.second.rsu_mac == candidate_mac) {
-                    candidate_rsu_id = pair.first;
-                    neighbor_state = &pair.second;
-                    break;
-                }
-            }
-            
-            // Validate candidate
-            if (neighbor_state == nullptr) {
-                EV_DEBUG << "    Candidate[" << i << "] MAC=" << candidate_mac 
-                         << " - NOT in neighbor cache (stale/unknown)" << endl;
-                continue;  // Skip unknown RSUs
-            }
-            
-            if (!isNeighborStateFresh(*neighbor_state)) {
-                EV_DEBUG << "    Candidate[" << i << "] " << candidate_rsu_id 
-                         << " - state too stale" << endl;
-                continue;  // Skip stale states
-            }
-            
-            if (neighbor_state->is_overloaded) {
-                EV_DEBUG << "    Candidate[" << i << "] " << candidate_rsu_id 
-                         << " - also overloaded (Q=" << neighbor_state->queue_length << ")" << endl;
-                continue;  // Skip overloaded RSUs
-            }
-            
-            // Found viable redirect target!
-            found_redirect_target = true;
-            redirect_target_rsu_id = candidate_rsu_id;
-            redirect_target_rsu_mac = candidate_mac;
-            next_candidate_index = i + 1;
-            
-            EV_INFO << "  ✅ Found redirect target: " << candidate_rsu_id 
-                    << " at candidate index " << i
-                    << " (Q=" << neighbor_state->queue_length 
-                    << "/< " << neighbor_state->max_concurrent_tasks
-                    << ", CPU=" << neighbor_state->cpu_available_ghz << "GHz)" << endl;
-            
-            std::cout << "RSU_REDIRECT: Redirecting to " << candidate_rsu_id 
-                      << " (candidate[" << i << "])" << std::endl;
-            
-            break;  // Use first viable candidate (as per design)
-        }
-        
-        if (found_redirect_target) {
-            decisionType = "REDIRECT";
-            reason = "This RSU overloaded, redirecting to " + redirect_target_rsu_id;
-            confidence = 0.6;
-        } else {
-            decisionType = "REJECT";
-            reason = "This RSU and all neighbors overloaded";
-            confidence = 0.4;
-            EV_INFO << "❌ No viable redirect target found" << endl;
-            std::cout << "RSU_DECISION: REJECT - no viable alternatives" << std::endl;
-        }
+        // TODO: ML MODEL INFERENCE HERE
+        // Extract features from request and Digital Twin
+        // Call ML model prediction
+        // Parse ML model output
+        EV_INFO << "  ML model inference (NOT YET IMPLEMENTED)" << endl;
+        decisionType = "LOCAL";  // Fallback
+        reason = "ML model not yet integrated";
+        confidence = 0.5;
+        estimated_completion_time = request.deadline_seconds * 0.8;
     }
     
-    // ========================================================================
-    // POPULATE DECISION MESSAGE
-    // ========================================================================
+    EV_INFO << "  Decision: " << decisionType << endl;
+    EV_INFO << "  Reason: " << reason << endl;
+    EV_INFO << "  Confidence: " << confidence << endl;
     
+    // Create decision message
+    veins::OffloadingDecisionMessage* decision = new veins::OffloadingDecisionMessage();
+    decision->setSenderAddress(myId);  // Set RSU's MAC address
+    decision->setTask_id(request.task_id.c_str());
+    decision->setVehicle_id(request.vehicle_id.c_str());
     decision->setDecision_type(decisionType.c_str());
+    decision->setDecision_time(simTime().dbl());
     decision->setConfidence_score(confidence);
     decision->setEstimated_completion_time(estimated_completion_time);
     decision->setDecision_reason(reason.c_str());
     
-    // If redirect, populate redirect fields
-    if (decisionType == "REDIRECT") {
-        decision->setRedirect_target_rsu_id(redirect_target_rsu_id.c_str());
-        decision->setRedirect_target_rsu_mac(redirect_target_rsu_mac);
-        decision->setNext_candidate_index(next_candidate_index);
+    if (decisionType == "SERVICE_VEHICLE") {
+        decision->setTarget_service_vehicle_id(target_service_vehicle_id.c_str());
+        decision->setTarget_service_vehicle_mac(target_service_vehicle_mac);
     }
-    
-    EV_INFO << "  Final decision: " << decisionType 
-            << " (confidence=" << confidence << ")" << endl;
     
     return decision;
 }
 
 std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) {
-    EV_INFO << "  Searching for best service vehicle..." << endl;
-    
-    // Query Digital Twin for available service vehicles
-    // TODO: Implement proper service vehicle selection based on:
-    // - CPU/memory availability
-    // - Distance from task vehicle
-    // - Current workload
-    // - Historical reliability
-    
-    // PLACEHOLDER: Return empty (no service vehicle available)
-    EV_INFO << "    No service vehicles available (placeholder)" << endl;
-    return "";
+    EV_INFO << "  Searching for best service vehicle (twin-based selection)..." << endl;
+
+    // Temporary placeholder selection:
+    //   Pick the least-queue-loaded vehicle whose MAC is known and whose Digital
+    //   Twin was updated within the last 3 simulation seconds.
+    //   Excludes the requesting vehicle.
+    //   DRL will replace this whole function later.
+    std::string best_id;
+    uint32_t    best_queue = UINT32_MAX;
+    double      best_cpu   = -1.0;
+    const double STALE_THRESHOLD = 3.0;  // seconds
+
+    for (const auto& kv : vehicle_macs) {
+        const std::string& candidate_id = kv.first;
+        if (candidate_id == request.vehicle_id) continue;  // never offload back to requester
+
+        auto twin_it = vehicle_twins.find(candidate_id);
+        if (twin_it == vehicle_twins.end()) continue;  // no state known
+        const VehicleDigitalTwin& twin = twin_it->second;
+
+        if (simTime().dbl() - twin.last_update_time > STALE_THRESHOLD) continue;  // stale
+
+        if (twin.current_queue_length < best_queue ||
+            (twin.current_queue_length == best_queue && twin.cpu_available > best_cpu)) {
+            best_queue = twin.current_queue_length;
+            best_cpu   = twin.cpu_available;
+            best_id    = candidate_id;
+        }
+    }
+
+    if (best_id.empty()) {
+        EV_INFO << "    No suitable service vehicle found" << endl;
+    } else {
+        EV_INFO << "    Selected service vehicle " << best_id
+                << " (queue=" << best_queue << ", cpu_avail=" << best_cpu << " GHz)" << endl;
+        std::cout << "SV_SELECTED: best=" << best_id
+                  << " queue=" << best_queue << " cpu=" << best_cpu << std::endl;
+    }
+    return best_id;
 }
 
 void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
@@ -2005,8 +1944,11 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
     EV_INFO << "  Task Size: " << (msg->getMem_footprint_bytes() / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
     
-    // Process task on RSU edge server (msg will be deleted inside processTaskOnRSU)
+    // Process task on RSU edge server
     processTaskOnRSU(task_id, msg);
+    
+    // msg will be deleted in processTaskOnRSU or here
+    delete msg;
 }
 
 void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
@@ -2070,6 +2012,11 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     pending.cpu_allocated_hz      = cpu_per_task_Hz;
     pending.completion_event      = completeMsg;
     rsuPendingTasks[task_id]      = pending;
+    insertLifecycleEvent(task_id, "RSU_PROCESSING_STARTED",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"exec_time_s\":" + std::to_string(exec_time) + ","
+        "\"concurrent\":" + std::to_string(concurrent) + ","
+        "\"cpu_per_task_ghz\":" + std::to_string(cpu_per_task_Hz/1e9) + "}");
 
     EV_INFO << "⚙️ RSU: Task " << task_id << " accepted for edge processing" << endl;
     EV_INFO << "  Edge CPU: " << edgeCPU_GHz << " GHz / " << concurrent
@@ -2079,7 +2026,6 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
             << "ms overhead = " << exec_time << "s" << endl;
     std::cout << "RSU_PROCESS: Task " << task_id << " scheduled, exec=" << exec_time
               << "s (" << concurrent << " concurrent tasks)" << std::endl;
-        delete packet;
 }
 
 // ============================================================================
@@ -2119,161 +2065,6 @@ void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
     }
 }
 
-void MyRSUApp::queueTaskForProcessing(const RSUActiveTask& active_task) {
-    task_queue.push_back(active_task);
-    rsu_queue_length = task_queue.size();
-    
-    EV_INFO << "📥 Task " << active_task.task_id << " queued (queue size: " 
-            << rsu_queue_length << ")" << endl;
-    std::cout << "RSU_QUEUE: Task queued, queue_depth=" << rsu_queue_length << std::endl;
-}
-
-void MyRSUApp::processNextQueuedTask() {
-    // If queue is empty or processing is full, return
-    if (task_queue.empty() || (size_t)rsu_processing_count >= (size_t)rsu_max_concurrent) {
-        return;
-    }
-    
-    // Dequeue first task
-    RSUActiveTask task = task_queue.front();
-    task_queue.pop_front();
-    rsu_queue_length = task_queue.size();
-    
-    // Start processing
-    task.start_time = simTime().dbl();
-    task.state = RSUActiveTask::PROCESSING;
-    
-    // Allocate CPU (simple: divide available CPU equally among processing tasks + 1)
-    double cpu_per_task = rsu_cpu_available / (rsu_processing_count + 1);
-    task.allocated_cpu_ghz = std::max(cpu_per_task, 0.1);  // At least 100 MHz per task
-    
-    // Calculate processing time: time = cycles / (allocated_cpu_ghz * 1e9)
-    double service_time = calculateProcessingTime(task);
-    task.estimated_completion_time = simTime().dbl() + service_time;
-    
-    // Store active task
-    active_tasks[task.task_id] = task;
-    rsu_processing_count++;
-    
-    // Update available CPU
-    rsu_cpu_available = rsu_cpu_total - (rsu_processing_count * task.allocated_cpu_ghz);
-    rsu_cpu_available = std::max(rsu_cpu_available, 0.0);  // Prevent negative
-    
-    EV_INFO << "▶️ Task " << task.task_id << " started processing:" << endl;
-    EV_INFO << "  - Allocated CPU: " << task.allocated_cpu_ghz << " GHz" << endl;
-    EV_INFO << "  - Service time: " << service_time << " s" << endl;
-    EV_INFO << "  - Est. completion: " << task.estimated_completion_time << endl;
-    EV_INFO << "  - Processing count: " << rsu_processing_count << endl;
-    
-    std::cout << "RSU_PROCESS_START: Task " << task.task_id 
-              << " started (queue_depth=" << rsu_queue_length 
-              << ", processing=" << rsu_processing_count << ")" << std::endl;
-    
-    // Schedule completion event
-    cMessage* completion_msg = new cMessage("taskCompletion");
-    completion_msg->setContextPointer(&active_tasks[task.task_id]);
-    
-    // Store task ID in message for retrieval (since context pointer might be unsafe)
-    completion_msg->addPar("task_id").setStringValue(task.task_id.c_str());
-    
-    scheduleAt(simTime() + service_time, completion_msg);
-    active_tasks[task.task_id].completion_msg = completion_msg;
-}
-
-double MyRSUApp::calculateProcessingTime(const RSUActiveTask& task) {
-    // Base compute time: cpu_cycles / (allocated_cpu_ghz * 1e9)
-    double compute_time = task.cpu_cycles / (task.allocated_cpu_ghz * 1e9);
-    
-    // I/O overhead (proportional to task size): ~10µs per KB
-    double io_time = (task.task_size_bytes / 1024.0) * 1e-5;
-    
-    // Base overhead (context switching, scheduling): 1ms
-    double base_overhead = processingDelay_ms / 1000.0;
-    
-    double total = compute_time + io_time + base_overhead;
-    
-    EV_DEBUG << "  Processing time breakdown:" << endl;
-    EV_DEBUG << "    - Compute: " << compute_time << " s" << endl;
-    EV_DEBUG << "    - I/O: " << io_time << " s" << endl;
-    EV_DEBUG << "    - Overhead: " << base_overhead << " s" << endl;
-    EV_DEBUG << "    - Total: " << total << " s" << endl;
-    
-    return total;
-}
-
-void MyRSUApp::handleTaskCompletionEvent(cMessage* msg) {
-    std::string task_id = msg->par("task_id").stringValue();
-    
-    // Find the completed task
-    auto it = active_tasks.find(task_id);
-    if (it == active_tasks.end()) {
-        EV_WARN << "⚠️ Completion event for unknown task: " << task_id << endl;
-        delete msg;
-        return;
-    }
-    
-    RSUActiveTask task = it->second;
-    double completion_time = simTime().dbl();
-    
-    // Calculate metrics
-    double queue_wait_time = task.start_time - task.arrival_time;
-    double processing_time = completion_time - task.start_time;
-    double total_time = completion_time - task.arrival_time;
-    
-    EV_INFO << "✅ Task " << task_id << " COMPLETED:" << endl;
-    EV_INFO << "  - Queue wait: " << queue_wait_time << " s" << endl;
-    EV_INFO << "  - Processing: " << processing_time << " s" << endl;
-    EV_INFO << "  - Total time: " << total_time << " s" << endl;
-    EV_INFO << "  - Deadline: " << task.deadline_seconds << " s" << endl;
-    
-    // Check deadline
-    bool on_time = (total_time <= task.deadline_seconds);
-    EV_INFO << "  - On time: " << (on_time ? "YES ✓" : "NO ✗") << endl;
-    
-    std::cout << "RSU_COMPLETE: Task " << task_id 
-              << " completed in " << processing_time << " s"
-              << " (queue=" << queue_wait_time << " s, "
-              << "deadline=" << (on_time ? "MET" : "MISSED") << ")" << std::endl;
-    
-    // Deallocate resources
-    deallocateTaskResources(task);
-    
-    // Send result to vehicle
-    sendTaskResultToVehicle(task_id, task.vehicle_id, task.vehicle_mac, true, processing_time);
-    
-    // Remove from active tasks
-    active_tasks.erase(task_id);
-    
-    // Update statistics
-    rsu_tasks_processed++;
-    rsu_total_processing_time += processing_time;
-    rsu_total_queue_time += queue_wait_time;
-    
-    // Try to process next queued task
-    processNextQueuedTask();
-    
-    delete msg;
-}
-
-void MyRSUApp::deallocateTaskResources(const RSUActiveTask& task) {
-    rsu_processing_count--;
-    
-    // When task completes, recalculate available CPU
-    // Simple approach: if no more tasks, all CPU is available
-    if (rsu_processing_count == 0) {
-        rsu_cpu_available = rsu_cpu_total;
-    } else {
-        // Otherwise, assume remaining tasks share available CPU equally
-        // In a real system, you'd track per-task allocation, but for abstract model this works
-        rsu_cpu_available = rsu_cpu_total * 0.8;  // Reserve 20% for other operations
-    }
-    
-    EV_DEBUG << "  Deallocated resources:" << endl;
-    EV_DEBUG << "    - CPU available now: " << rsu_cpu_available << " GHz" << endl;
-    EV_DEBUG << "    - Processing count: " << rsu_processing_count << endl;
-}
-
-
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                         LAddress::L2Type vehicle_mac, bool success,
                                         double processing_time) {
@@ -2298,10 +2089,42 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
     // Send to vehicle
     populateWSM(result, vehicle_mac);
     sendDown(result);
-    
+    insertLifecycleEvent(task_id, "RSU_RESULT_SENT",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"success\":" + std::string(success ? "true" : "false") + ","
+        "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+
     std::cout << "RSU_RESULT: Sent task result for " << task_id
               << " to vehicle " << vehicle_id
               << " (processing_time=" << processing_time << "s)" << std::endl;
+}
+
+void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
+                                     const std::string& source, const std::string& target,
+                                     const std::string& details) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::string rsu_id_str   = std::to_string(rsu_id);
+    std::string event_time_s = std::to_string(simTime().dbl());
+
+    const char* paramValues[7] = {
+        task_id.c_str(), event_type.c_str(), event_time_s.c_str(),
+        source.c_str(),  target.c_str(),     rsu_id_str.c_str(), details.c_str()
+    };
+    const char* query =
+        "INSERT INTO task_offloading_events "
+        "(task_id, event_type, event_time, source_entity_id, target_entity_id, rsu_id, event_details) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
+    } else {
+        std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
+                  << " (" << source << "->" << target << ")" << std::endl;
+    }
+    PQclear(res);
 }
 
 void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
@@ -2412,25 +2235,28 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         double total_latency = completion_time - request_time;
         double deadline_seconds = total_latency * 1.5;  // Estimate deadline (could be extracted from original request)
         
-        // Insert into database
-        insertOffloadedTaskCompletion(
-            task_id,
-            origin_vehicle_id,
-            decision_type,
-            processor_id,
-            request_time,
-            decision_time,
-            start_time,
-            completion_time,
-            success,
-            on_time,
-            deadline_seconds,
-            mem_footprint_bytes,
-            cpu_cycles,
-            qos_value,
-            result_data,
-            msg->getFailure_reason()
-        );
+        // Insert into offloaded_task_completions only for actual offloads (RSU / SERVICE_VEHICLE).
+        // LOCAL completions are already tracked in task_events via insertTaskCompletion.
+        if (decision_type != "LOCAL") {
+            insertOffloadedTaskCompletion(
+                task_id,
+                origin_vehicle_id,
+                decision_type,
+                processor_id,
+                request_time,
+                decision_time,
+                start_time,
+                completion_time,
+                success,
+                on_time,
+                deadline_seconds,
+                mem_footprint_bytes,
+                cpu_cycles,
+                qos_value,
+                result_data,
+                msg->getFailure_reason()
+            );
+        }
         
         std::cout << "COMPLETION_DB: Task " << task_id << " completion data inserted - "
                   << "Total latency: " << total_latency << "s, Success: " << success 
@@ -2683,9 +2509,6 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
     PQclear(res);
 }
 
-// ============================================================================
-// RSU-TO-RSU STATE SHARING IMPLEMENTATION
-// ============================================================================
 
 void MyRSUApp::broadcastRSUStatus() {
     EV_DEBUG << "📡 RSU broadcasting status to neighbors..." << endl;
@@ -2744,84 +2567,6 @@ void MyRSUApp::broadcastRSUStatus() {
     
     std::cout << "RSU_BROADCAST: " << rsu_id_str << " status - Q:" << rsu_queue_length 
               << " P:" << rsu_processing_count << " CPU:" << rsu_cpu_available << "GHz" << std::endl;
-}
-
-void MyRSUApp::syncNeighborStatesFromRedis() {
-    if (!(redis_twin && use_redis && redis_twin->isConnected())) {
-        return;
-    }
-
-    cModule* rsu_module = getParentModule();
-    int rsu_count = rsu_module ? rsu_module->getVectorSize() : 0;
-
-    auto getDoubleOr = [](const std::map<std::string, std::string>& state,
-                          const std::string& key,
-                          double fallback) {
-        auto it = state.find(key);
-        if (it == state.end()) return fallback;
-        try {
-            return std::stod(it->second);
-        } catch (...) {
-            return fallback;
-        }
-    };
-
-    auto getIntOr = [](const std::map<std::string, std::string>& state,
-                       const std::string& key,
-                       int fallback) {
-        auto it = state.find(key);
-        if (it == state.end()) return fallback;
-        try {
-            return std::stoi(it->second);
-        } catch (...) {
-            return fallback;
-        }
-    };
-
-    int updated = 0;
-    for (int i = 0; i < rsu_count; ++i) {
-        if (i == rsu_id) continue;
-
-        std::string neighbor_rsu_id = "RSU_" + std::to_string(i);
-        auto redis_state = redis_twin->getRSUState(neighbor_rsu_id);
-        if (redis_state.empty()) continue;
-
-        RSUNeighborState state;
-        state.rsu_id = neighbor_rsu_id;
-        state.rsu_mac = 0;  // MAC is not needed for Redis-mode neighbor selection.
-
-        state.last_update_time = getDoubleOr(redis_state, "update_time", simTime().dbl());
-        state.queue_length = getIntOr(redis_state, "queue_length", 0);
-        state.processing_count = getIntOr(redis_state, "processing_count", 0);
-        state.max_concurrent_tasks = rsu_max_concurrent;
-
-        state.cpu_available_ghz = getDoubleOr(redis_state, "cpu_available", 0.0);
-        state.cpu_total_ghz = rsu_cpu_total;
-        state.memory_available_gb = getDoubleOr(redis_state, "memory_available", 0.0);
-        state.memory_total_gb = rsu_memory_total;
-
-        state.vehicle_ids_in_coverage.clear();
-        state.vehicle_count = 0;
-        state.pos_x = getDoubleOr(redis_state, "pos_x", 0.0);
-        state.pos_y = getDoubleOr(redis_state, "pos_y", 0.0);
-
-        double cpu_util = (state.cpu_total_ghz > 0.0)
-            ? ((state.cpu_total_ghz - state.cpu_available_ghz) / state.cpu_total_ghz)
-            : 0.0;
-        state.load_factor = cpu_util;
-
-        state.is_overloaded =
-            (state.queue_length >= static_cast<int>(state.max_concurrent_tasks * overload_queue_threshold)) ||
-            (state.processing_count >= state.max_concurrent_tasks) ||
-            (state.cpu_available_ghz < (state.cpu_total_ghz * overload_cpu_headroom));
-
-        updateNeighborState(state);
-        updated++;
-    }
-
-    if (updated > 0) {
-        EV_DEBUG << "🔗 Redis backhaul neighbor sync updated " << updated << " RSU states" << endl;
-    }
 }
 
 void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
@@ -2917,160 +2662,7 @@ void MyRSUApp::cleanupStaleNeighborStates() {
     }
 }
 
-// ============================================================================
-// WIRED ETHERNET BACKHAUL IMPLEMENTATION
-// ============================================================================
-
-void MyRSUApp::initializeWiredBackhaul() {
-    EV_INFO << "🔌 Initializing wired Ethernet backhaul for RSU[" << rsu_id << "]" << endl;
-    
-    // Bind UDP socket to local port
-    udp_socket.setOutputGate(gate("udpOut"));
-    udp_socket.bind(local_udp_port);
-    
-    // Discover IP addresses of all RSUs in the network
-    cModule* networkModule = getModuleByPath("^.^");
-    if (!networkModule) {
-        EV_ERROR << "Cannot find network module for IP address discovery" << endl;
-        wired_backhaul_enabled = false;
-        return;
-    }
-    
-    // Get RSU count from network configuration
-    int rsu_count = 3;  // TODO: Make this configurable
-    
-    for (int i = 0; i < rsu_count; i++) {
-        if (i == rsu_id) continue;  // Skip ourselves
-
-        cModule* rsu_module = networkModule->getSubmodule("rsu", i);
-        if (!rsu_module) {
-            EV_WARN << "  ⚠ RSU[" << i << "] module not found during neighbor discovery" << endl;
-            continue;
-        }
-
-        // Use deterministic static addressing from omnetpp.ini (10.0.0.(index+1))
-        std::string ip = "10.0.0." + std::to_string(i + 1);
-        inet::L3Address addr(inet::Ipv4Address(ip.c_str()));
-        rsu_ip_addresses[i] = addr;
-
-        EV_INFO << "  📍 Discovered RSU[" << i << "] at " << addr.str() << endl;
-        std::cout << "✓ RSU[" << rsu_id << "] discovered RSU[" << i << "] at "
-                  << addr.str() << ":" << dest_udp_port << std::endl;
-    }
-    
-    EV_INFO << "✓ Wired backhaul initialized: " << rsu_ip_addresses.size() 
-            << " neighbor RSUs discovered" << endl;
-    std::cout << "✓ RSU[" << rsu_id << "] Ethernet backhaul initialized with " 
-              << rsu_ip_addresses.size() << " neighbors" << std::endl;
-}
-
-void MyRSUApp::sendRSUStatusViaEthernet() {
-    // DISABLED: Wired Ethernet backhaul not implemented (requires INET Ethernet stack)
-    // This function would send RSU status to neighbors via wired backhaul
-    // For now, RSUs operate independently without neighbor coordination
-    EV_DEBUG << "⚠️ RSU status sharing disabled (no wired backhaul configured)" << endl;
-}
-
-void MyRSUApp::handleUdpData(cMessage* msg) {
-    EV_DEBUG << "📥 Received UDP message: " << msg->getName() << endl;
-    
-    // Extract Veins message from INET Packet
-    inet::Packet* packet = dynamic_cast<inet::Packet*>(msg);
-    if (packet) {
-        // Decapsulate the Veins message
-        cMessage* encap_msg = packet->decapsulate();
-        veins::RSUStatusBroadcastMessage* status_msg = 
-            dynamic_cast<veins::RSUStatusBroadcastMessage*>(encap_msg);
-        
-        if (status_msg) {
-            processRSUStatusFromEthernet(status_msg);
-            delete status_msg;
-        } else if (encap_msg) {
-            EV_WARN << "Received unknown encapsulated message type: " << encap_msg->getClassName() << endl;
-            delete encap_msg;
-        }
-        
-        delete packet;
-    } else {
-        EV_WARN << "Received non-packet UDP message: " << msg->getClassName() << endl;
-        delete msg;
-    }
-}
-
-void MyRSUApp::processRSUStatusFromEthernet(cMessage* msg) {
-    veins::RSUStatusBroadcastMessage* status_msg = 
-        dynamic_cast<veins::RSUStatusBroadcastMessage*>(msg);
-    
-    if (!status_msg) {
-        return;
-    }
-    
-    std::string neighbor_rsu_id = status_msg->getRsu_id();
-    std::string our_rsu_id = "RSU_" + std::to_string(rsu_id);
-    
-    // Don't process our own messages (shouldn't happen, but safety check)
-    if (neighbor_rsu_id == our_rsu_id) {
-        return;
-    }
-    
-    EV_DEBUG << "📥 Processing Ethernet status from " << neighbor_rsu_id << endl;
-    
-    EV_DEBUG << "📥 Processing Ethernet status from " << neighbor_rsu_id << endl;
-    
-    // Build neighbor state structure
-    RSUNeighborState state;
-    state.rsu_id = neighbor_rsu_id;
-    state.rsu_mac = status_msg->getRsu_mac();
-    state.last_update_time = simTime().dbl();
-    
-    state.queue_length = status_msg->getQueue_length();
-    state.processing_count = status_msg->getProcessing_count();
-    state.max_concurrent_tasks = status_msg->getMax_concurrent_tasks();
-    state.cpu_available_ghz = status_msg->getCpu_available_ghz();
-    state.cpu_total_ghz = status_msg->getCpu_total_ghz();
-    state.memory_available_gb = status_msg->getMemory_available_gb();
-    state.memory_total_gb = status_msg->getMemory_total_gb();
-    
-    state.vehicle_count = status_msg->getVehicle_count();
-    state.vehicle_ids_in_coverage.clear();
-    for (size_t i = 0; i < status_msg->getVehicle_ids_in_coverageArraySize(); i++) {
-        state.vehicle_ids_in_coverage.push_back(status_msg->getVehicle_ids_in_coverage(i));
-    }
-    
-    state.pos_x = status_msg->getPos_x();
-    state.pos_y = status_msg->getPos_y();
-    
-    // Compute derived metrics
-    double cpu_util = (state.cpu_total_ghz > 0) ? 
-                      ((state.cpu_total_ghz - state.cpu_available_ghz) / state.cpu_total_ghz) : 0.0;
-    state.load_factor = cpu_util;
-    
-    state.is_overloaded = (state.queue_length >= (state.max_concurrent_tasks * overload_queue_threshold)) ||
-                          (state.processing_count >= state.max_concurrent_tasks) ||
-                          (state.cpu_available_ghz < (state.cpu_total_ghz * overload_cpu_headroom));
-    
-    // Update neighbor cache
-    updateNeighborState(state);
-    
-    EV_INFO << "✓ Ethernet: Updated neighbor " << neighbor_rsu_id 
-            << " [Q:" << state.queue_length << "/" << state.max_concurrent_tasks
-            << ", CPU:" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << "GHz"
-            << ", Load:" << (int)(state.load_factor * 100) << "%"
-            << ", Overloaded:" << (state.is_overloaded ? "YES" : "NO") << "]" << endl;
-    
-    std::cout << "🔗 RSU[" << rsu_id << "] Ethernet update from " << neighbor_rsu_id 
-              << ": Q=" << state.queue_length 
-              << ", P=" << state.processing_count
-              << ", CPU=" << std::fixed << std::setprecision(1) << state.cpu_available_ghz << "GHz"
-              << ", Load=" << (int)(state.load_factor * 100) << "%"
-              << ", Overloaded=" << (state.is_overloaded ? "YES" : "NO") << std::endl;
-    
-    // Note: Message is managed by caller (handleUdpData), don't delete here
-}
 
 
 }  // namespace complex_network
-
-
-
 

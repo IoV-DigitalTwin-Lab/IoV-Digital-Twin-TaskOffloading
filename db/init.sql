@@ -345,3 +345,7 @@ ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS output_size_bytes BIGINT DEFA
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_offloadable BOOLEAN DEFAULT TRUE;
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_safety_critical BOOLEAN DEFAULT FALSE;
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS priority_level INTEGER DEFAULT 2;
+
+ALTER TABLE task_metadata RENAME COLUMN task_size_bytes TO mem_footprint_bytes;
+ALTER TABLE offloading_requests RENAME COLUMN task_size_bytes TO mem_footprint_bytes;
+ALTER TABLE offloaded_task_completions RENAME COLUMN task_size_bytes TO mem_footprint_bytes;
