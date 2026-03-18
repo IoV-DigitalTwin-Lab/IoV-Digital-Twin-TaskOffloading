@@ -821,9 +821,10 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     // Insert/update vehicle metadata (first time or periodic update)
     insertVehicleMetadata(vehicle_id);
     
-    // Note: MAC address will be stored when OffloadingRequestMessage arrives
-    // (OffloadingRequestMessage has getSenderAddress() inherited from BaseFrame1609_4)
-    
+    // MAC address is stored in vehicle_macs when OffloadingRequestMessage arrives.
+    // Pending result delivery (Point 7) is triggered there too, where we have
+    // a valid MAC to send back to the vehicle.
+
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << (twin.cpu_utilization * 100.0) << "%" << endl;
     EV_INFO << "  Memory Utilization: " << (twin.mem_utilization * 100.0) << "%" << endl;
@@ -1707,6 +1708,42 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     vehicle_macs[vehicle_id] = request.vehicle_mac;
     EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
 
+    // ── POINT 7: Deliver any buffered results from previous coverage period ──
+    // If the vehicle left coverage while a task was still running, the result
+    // was stored in Redis by sendTaskResultToVehicle() → storePendingResult().
+    // Now that we have the vehicle's MAC and it's back in range, deliver them.
+    if (redis_twin && use_redis) {
+        std::vector<std::string> pending_ids =
+            redis_twin->listPendingResults(vehicle_id);
+        for (const auto& ptid : pending_ids) {
+            auto rd = redis_twin->fetchAndDeletePendingResult(vehicle_id, ptid);
+            if (rd.empty()) continue;
+            bool  ok  = rd.count("success") && rd.at("success") == "True";
+            double pt = rd.count("processing_time") ?
+                        std::stod(rd.at("processing_time")) : 0.0;
+            veins::TaskResultMessage* res = new veins::TaskResultMessage();
+            res->setTask_id(ptid.c_str());
+            res->setProcessor_id("RSU");
+            res->setSuccess(ok);
+            res->setProcessing_time(pt);
+            res->setCompletion_time(simTime().dbl());
+            if (ok) res->setTask_output_data("RSU_PROCESSED_DATA_MIGRATED");
+            else    res->setFailure_reason("Processing failed (migrated)");
+            populateWSM(res, request.vehicle_mac);
+            sendDown(res);
+            EV_INFO << "  [Point 7] Migrated result delivered: task=" << ptid
+                    << " vehicle=" << vehicle_id << endl;
+            std::cout << "MIGRATION_DELIVER: task=" << ptid
+                      << " vehicle=" << vehicle_id
+                      << " success=" << ok << std::endl;
+            insertLifecycleEvent(ptid, "MIGRATED_RESULT_DELIVERED",
+                "RSU_" + std::to_string(rsu_id), vehicle_id,
+                "{\"trigger\":\"vehicle_reattach\",\"proc_time_s\":"
+                + std::to_string(pt) + "}");
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Update Digital Twin with current resource state so selectBestServiceVehicle()
     // has fresh CPU/queue data for this vehicle
     VehicleDigitalTwin& req_twin = getOrCreateVehicleTwin(vehicle_id);
@@ -2118,8 +2155,34 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
                                         LAddress::L2Type vehicle_mac, bool success,
                                         double processing_time) {
     EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
-    
-    // Create result message
+
+    // ── POINT 7: Service Migration Coverage Check ────────────────────────────
+    // Check if the vehicle is still in our coverage (MAC still in vehicle_macs).
+    // If it left, store the result in Redis for deferred delivery by any RSU
+    // the vehicle reattaches to.
+    bool vehicle_in_coverage = vehicle_macs.count(vehicle_id) > 0;
+    if (!vehicle_in_coverage && redis_twin && use_redis) {
+        EV_WARN << "  [Point 7] Vehicle " << vehicle_id
+                << " left coverage — buffering result in Redis" << endl;
+        redis_twin->storePendingResult(
+            vehicle_id, task_id, success,
+            processing_time, simTime().dbl(),
+            120 // 120s TTL: vehicle must reattach within 2 minutes
+        );
+        std::cout << "MIGRATION: task=" << task_id
+                  << " buffered for vehicle=" << vehicle_id
+                  << " (left coverage)" << std::endl;
+        // Log the event for post-processing analysis
+        insertLifecycleEvent(task_id, "RESULT_MIGRATED",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            "{\"reason\":\"vehicle_left_coverage\""
+            ",\"stored_in_redis\":true"
+            ",\"ttl_s\":120}");
+        return;  // Result buffered — we're done here
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Vehicle is in coverage — send normally
     veins::TaskResultMessage* result = new veins::TaskResultMessage();
     result->setTask_id(task_id.c_str());
     result->setProcessor_id("RSU");

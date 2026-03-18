@@ -164,6 +164,40 @@ public:
                                    const std::string& my_rsu_id);
     // ────────────────────────────────────────────────────────────────────────
 
+    // ── Service Migration (Point 7) ──────────────────────────────────────────
+    /**
+     * Store a completed task result for a vehicle that may have left RSU coverage.
+     * Key: vehicle:{vehicle_id}:pending_result:{task_id}  (hash, TTL 120s)
+     *
+     * Any RSU where the vehicle reappears can read this key and deliver the
+     * result via a TaskResultMessage.  This is the simplest correct form of
+     * service migration: the result is buffered in Redis rather than dropped.
+     *
+     * @param ttl_seconds  How long to keep the result (default: 120s)
+     */
+    void storePendingResult(const std::string& vehicle_id,
+                            const std::string& task_id,
+                            bool success,
+                            double processing_time,
+                            double completion_time,
+                            int ttl_seconds = 120);
+
+    /**
+     * Retrieve and delete a pending result for a vehicle (called when a
+     * vehicle attaches to this RSU and the RSU scans for buffered results).
+     * Returns empty map if no pending result exists.
+     */
+    std::map<std::string, std::string> fetchAndDeletePendingResult(
+        const std::string& vehicle_id, const std::string& task_id);
+
+    /**
+     * Scan Redis for all pending result keys for a given vehicle:
+     * KEYS vehicle:{vehicle_id}:pending_result:*
+     * Returns list of task_ids with pending results.
+     */
+    std::vector<std::string> listPendingResults(const std::string& vehicle_id);
+    // ─────────────────────────────────────────────────────────────────
+
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);
     
     // Batch query for ML decision

@@ -10,12 +10,14 @@ using complex_network::TaskProfileDatabase;
 
 /**
  * Energy Model for Task Execution
- * Based on RADiT paper energy consumption formulation
- * 
+ * Based on IEEE TMC 2018 standard cubic energy model (Chen & Huang, 2018)
+ * and MEC energy-latency trade-off formulation (Mao et al., IEEE JSAC 2017).
+ *
  * Key components:
- * 1. Local execution: E = κ_vehicle × (f_alloc - f_actual)² × d × c
- * 2. Transmission: E = P_tx × t_tx
- * 3. RSU computation: E = κ_rsu × (f_alloc - f_actual)² × d × c
+ * 1. Local execution:  E_loc = κ_vehicle × f² × c
+ *    (derivation: P = κ×f³, t = c/f → E = κ×f²×c)
+ * 2. Transmission:     E_tx  = P_tx × (d×8 / B)
+ * 3. RSU computation:  E_rsu = κ_rsu × f_rsu² × c
  */
 
 namespace EnergyConstants {
@@ -49,14 +51,14 @@ public:
     virtual ~EnergyCalculator();
     
     /**
-     * Calculate energy for local task execution
-     * E_loc = κ_vehicle × (f_alloc - f_actual)² × d × c
-     * 
-     * @param cpu_cycles: task CPU cycles (from TaskProfile)
-     * @param data_size_bytes: task input data in bytes
-     * @param execution_time_sec: actual execution time
-     * @param freq_allocated_hz: CPU frequency allocated (typically FREQ_NOMINAL)
-     * @param freq_actual_hz: actual CPU frequency (may differ due to thermal/power constraints)
+     * Calculate energy for local task execution (IEEE TMC 2018 cubic model)
+     * E_loc = κ_vehicle × f² × cpu_cycles
+     *
+     * @param cpu_cycles        task CPU cycles
+     * @param data_size_bytes   unused — kept for API compatibility
+     * @param execution_time_sec unused — kept for API compatibility
+     * @param freq_allocated_hz operating CPU frequency (Hz); defaults to FREQ_NOMINAL
+     * @param freq_actual_hz    unused — kept for API compatibility
      * @return energy consumed in Joules
      */
     double calcLocalExecutionEnergy(uint64_t cpu_cycles, 
@@ -77,14 +79,14 @@ public:
                                  double transmission_rate_bps);
     
     /**
-     * Calculate RSU computation energy
-     * E_rsu = κ_rsu × (f_alloc - f_actual)² × d × c
-     * 
-     * @param cpu_cycles: task CPU cycles
-     * @param data_size_bytes: task input data
-     * @param execution_time_sec: execution time at RSU
-     * @param freq_allocated_hz: RSU CPU frequency
-     * @param freq_actual_hz: actual RSU frequency
+     * Calculate RSU computation energy (IEEE TMC 2018 cubic model)
+     * E_rsu = κ_rsu × f_rsu² × cpu_cycles
+     *
+     * @param cpu_cycles        task CPU cycles
+     * @param data_size_bytes   unused — kept for API compatibility
+     * @param execution_time_sec unused — kept for API compatibility
+     * @param freq_allocated_hz RSU operating frequency (Hz); defaults to FREQ_NOMINAL
+     * @param freq_actual_hz    unused — kept for API compatibility
      * @return energy consumed in Joules
      */
     double calcRSUComputationEnergy(uint64_t cpu_cycles,

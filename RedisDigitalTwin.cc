@@ -656,6 +656,91 @@ std::string RedisDigitalTwin::getBestNeighborRSU(
     return best_id;
 }
 
+// ============================================================================
+// Service Migration  (Point 7)
+// ============================================================================
+
+void RedisDigitalTwin::storePendingResult(
+    const std::string& vehicle_id,
+    const std::string& task_id,
+    bool success,
+    double processing_time,
+    double completion_time,
+    int ttl_seconds)
+{
+    if (!redis_ctx || !is_connected) return;
+    std::string key = "vehicle:" + vehicle_id + ":pending_result:" + task_id;
+    redisReply* r = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s "
+        "task_id %s "
+        "vehicle_id %s "
+        "success %s "
+        "processing_time %f "
+        "completion_time %f "
+        "processor_id RSU",
+        key.c_str(),
+        task_id.c_str(),
+        vehicle_id.c_str(),
+        success ? "True" : "False",
+        processing_time,
+        completion_time
+    );
+    if (r) {
+        if (r->type == REDIS_REPLY_ERROR)
+            EV_ERROR << "storePendingResult error: " << r->str << std::endl;
+        else {
+            EV_INFO << "✓ Pending result stored for vehicle " << vehicle_id
+                    << " task " << task_id << " (TTL=" << ttl_seconds << "s)" << std::endl;
+            std::cout << "MIGRATION_STORE: vehicle=" << vehicle_id
+                      << " task=" << task_id << " success=" << success << std::endl;
+        }
+        freeReplyObject(r);
+    }
+    redisReply* ex = (redisReply*)redisCommand(
+        redis_ctx, "EXPIRE %s %d", key.c_str(), ttl_seconds);
+    if (ex) freeReplyObject(ex);
+}
+
+std::map<std::string, std::string>
+RedisDigitalTwin::fetchAndDeletePendingResult(
+    const std::string& vehicle_id, const std::string& task_id)
+{
+    std::map<std::string, std::string> result;
+    if (!redis_ctx || !is_connected) return result;
+    std::string key = "vehicle:" + vehicle_id + ":pending_result:" + task_id;
+    redisReply* r = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+    if (r && r->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i + 1 < r->elements; i += 2)
+            result[r->element[i]->str] = r->element[i + 1]->str;
+    }
+    if (r) freeReplyObject(r);
+    if (!result.empty()) {
+        redisReply* del = (redisReply*)redisCommand(redis_ctx, "DEL %s", key.c_str());
+        if (del) freeReplyObject(del);
+    }
+    return result;
+}
+
+std::vector<std::string>
+RedisDigitalTwin::listPendingResults(const std::string& vehicle_id)
+{
+    std::vector<std::string> task_ids;
+    if (!redis_ctx || !is_connected) return task_ids;
+    std::string pattern = "vehicle:" + vehicle_id + ":pending_result:*";
+    redisReply* r = (redisReply*)redisCommand(redis_ctx, "KEYS %s", pattern.c_str());
+    if (r && r->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i < r->elements; i++) {
+            std::string full_key = r->element[i]->str;
+            // Extract task_id from vehicle:{v}:pending_result:{task_id}
+            size_t last_colon = full_key.rfind(':');
+            if (last_colon != std::string::npos)
+                task_ids.push_back(full_key.substr(last_colon + 1));
+        }
+    }
+    if (r) freeReplyObject(r);
+    return task_ids;
+}
+
 std::map<std::string, std::string> RedisDigitalTwin::getRSUState(const std::string& rsu_id) {
     std::map<std::string, std::string> state;
     if (!redis_ctx || !is_connected) return state;
