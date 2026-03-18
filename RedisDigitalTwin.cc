@@ -425,18 +425,25 @@ void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
 std::map<std::string, std::string> RedisDigitalTwin::getDecision(const std::string& task_id) {
     std::map<std::string, std::string> decision;
     if (!redis_ctx || !is_connected) return decision;
-    
-    std::string decision_key = "task:" + task_id + ":decision";
+
+    // DRL writes to task:{id}:decisions (plural) with per-agent fields.
+    // We read the "ddqn" agent's decision and expose it as decision_type / target_id
+    // so the existing decision-poller code in MyRSUApp needs no further changes.
+    std::string decision_key = "task:" + task_id + ":decisions";
     redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", decision_key.c_str());
-    
+
     if (reply && reply->type == REDIS_REPLY_ARRAY) {
-        for (size_t i = 0; i < reply->elements; i += 2) {
-            if (i + 1 < reply->elements) {
-                decision[reply->element[i]->str] = reply->element[i+1]->str;
-            }
+        std::map<std::string, std::string> raw;
+        for (size_t i = 0; i + 1 < reply->elements; i += 2)
+            raw[reply->element[i]->str] = reply->element[i+1]->str;
+
+        // Map DRL field names → names expected by MyRSUApp decision poller
+        if (raw.count("ddqn_type")) {
+            decision["decision_type"] = raw.at("ddqn_type");
+            decision["target_id"]     = raw.count("ddqn_target") ? raw.at("ddqn_target") : "";
         }
     }
-    
+
     if (reply) freeReplyObject(reply);
     return decision;
 }
@@ -522,6 +529,7 @@ void RedisDigitalTwin::forwardTaskToNeighborRSU(
     const std::string& target_rsu_id,
     const std::string& task_id,
     const std::string& vehicle_id,
+    int64_t vehicle_mac,
     uint64_t cpu_cycles,
     uint64_t task_size_bytes,
     double deadline_seconds,
@@ -531,12 +539,13 @@ void RedisDigitalTwin::forwardTaskToNeighborRSU(
 {
     if (!redis_ctx || !is_connected) return;
 
-    // 1. Write task metadata hash
+    // 1. Write task metadata hash (include vehicle_mac so RSU-B can route result back)
     std::string data_key = "rsu:" + target_rsu_id + ":forwarded_task:" + task_id;
     redisReply* r1 = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s "
         "task_id %s "
         "vehicle_id %s "
+        "vehicle_mac %lld "
         "cpu_cycles %llu "
         "task_size_bytes %llu "
         "deadline_seconds %f "
@@ -546,6 +555,7 @@ void RedisDigitalTwin::forwardTaskToNeighborRSU(
         data_key.c_str(),
         task_id.c_str(),
         vehicle_id.c_str(),
+        (long long)vehicle_mac,
         (unsigned long long)cpu_cycles,
         (unsigned long long)task_size_bytes,
         deadline_seconds,
@@ -740,6 +750,92 @@ RedisDigitalTwin::listPendingResults(const std::string& vehicle_id)
     if (r) freeReplyObject(r);
     return task_ids;
 }
+
+// ── Proactive Migration Helpers ────────────────────────────────────────────
+// Used by sendTaskResultToVehicle() when it can identify which RSU now covers
+// the vehicle: instead of storing a passive pending_result, RSU-A pushes the
+// result directly into RSU-B's migrated_queue so RSU-B delivers it without
+// waiting for the vehicle to send another request.
+
+void RedisDigitalTwin::storeMigratedResult(
+    const std::string& target_rsu_id,
+    const std::string& vehicle_id,
+    const std::string& task_id,
+    bool success,
+    double processing_time,
+    double completion_time,
+    int ttl_seconds)
+{
+    if (!redis_ctx || !is_connected) return;
+    std::string key = "rsu:" + target_rsu_id + ":migrated:" + task_id;
+    redisReply* r = (redisReply*)redisCommand(redis_ctx,
+        "HMSET %s "
+        "task_id %s vehicle_id %s success %s "
+        "processing_time %f completion_time %f processor_id RSU",
+        key.c_str(),
+        task_id.c_str(), vehicle_id.c_str(),
+        success ? "True" : "False",
+        processing_time, completion_time);
+    if (r) {
+        if (r->type == REDIS_REPLY_ERROR)
+            EV_ERROR << "storeMigratedResult HMSET error: " << r->str << std::endl;
+        freeReplyObject(r);
+    }
+    redisReply* ex = (redisReply*)redisCommand(
+        redis_ctx, "EXPIRE %s %d", key.c_str(), ttl_seconds);
+    if (ex) freeReplyObject(ex);
+
+    // Push token "vehicle_id:task_id" onto the target RSU's migrated queue
+    std::string queue_key = "rsu:" + target_rsu_id + ":migrated_queue";
+    std::string token = vehicle_id + ":" + task_id;
+    redisReply* lp = (redisReply*)redisCommand(
+        redis_ctx, "LPUSH %s %s", queue_key.c_str(), token.c_str());
+    if (lp) freeReplyObject(lp);
+
+    std::cout << "PROACTIVE_MIGRATION: task=" << task_id
+              << " vehicle=" << vehicle_id
+              << " -> " << target_rsu_id << std::endl;
+}
+
+std::map<std::string, std::string>
+RedisDigitalTwin::pollAndFetchMigratedResult(const std::string& my_rsu_id)
+{
+    std::map<std::string, std::string> result;
+    if (!redis_ctx || !is_connected) return result;
+
+    std::string queue_key = "rsu:" + my_rsu_id + ":migrated_queue";
+    redisReply* rp = (redisReply*)redisCommand(redis_ctx, "RPOP %s", queue_key.c_str());
+    if (!rp || rp->type != REDIS_REPLY_STRING) {
+        if (rp) freeReplyObject(rp);
+        return result;  // queue empty
+    }
+    // token = "vehicle_id:task_id"  (vehicle_id may contain '_' but not ':')
+    std::string token = rp->str;
+    freeReplyObject(rp);
+
+    size_t sep = token.find(':');
+    if (sep == std::string::npos) return result;
+    std::string vehicle_id = token.substr(0, sep);
+    std::string task_id    = token.substr(sep + 1);
+
+    std::string key = "rsu:" + my_rsu_id + ":migrated:" + task_id;
+    redisReply* rh = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+    if (rh && rh->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i + 1 < rh->elements; i += 2)
+            result[rh->element[i]->str] = rh->element[i+1]->str;
+    }
+    if (rh) freeReplyObject(rh);
+
+    if (!result.empty()) {
+        redisReply* del = (redisReply*)redisCommand(redis_ctx, "DEL %s", key.c_str());
+        if (del) freeReplyObject(del);
+        // Ensure vehicle_id and task_id are present even if HMSET was partial
+        result["vehicle_id"] = vehicle_id;
+        result["task_id"]    = task_id;
+    }
+    return result;
+}
+// ───────────────────────────────────────────────────────────────────────────
 
 std::map<std::string, std::string> RedisDigitalTwin::getRSUState(const std::string& rsu_id) {
     std::map<std::string, std::string> state;

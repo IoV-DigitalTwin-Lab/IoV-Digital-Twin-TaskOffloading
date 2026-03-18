@@ -141,6 +141,7 @@ public:
     void forwardTaskToNeighborRSU(const std::string& target_rsu_id,
                                   const std::string& task_id,
                                   const std::string& vehicle_id,
+                                  int64_t vehicle_mac,
                                   uint64_t cpu_cycles,
                                   uint64_t task_size_bytes,
                                   double deadline_seconds,
@@ -196,6 +197,28 @@ public:
      * Returns list of task_ids with pending results.
      */
     std::vector<std::string> listPendingResults(const std::string& vehicle_id);
+
+    /**
+     * Proactive service migration: RSU-A found the vehicle is now with RSU-B,
+     * so it pushes the completed result directly into RSU-B's migrated_queue.
+     * RSU-B picks it up in its periodic timer and delivers immediately.
+     * Key: rsu:{target_rsu}:migrated:{task_id}  Queue: rsu:{target_rsu}:migrated_queue
+     */
+    void storeMigratedResult(const std::string& target_rsu_id,
+                             const std::string& vehicle_id,
+                             const std::string& task_id,
+                             bool success,
+                             double processing_time,
+                             double completion_time,
+                             int ttl_seconds = 60);
+
+    /**
+     * RPOP one entry from rsu:{my_rsu}:migrated_queue, fetch + delete the hash.
+     * Returns a map with at least: task_id, vehicle_id, success, processing_time.
+     * Returns empty map if queue is empty.
+     */
+    std::map<std::string, std::string> pollAndFetchMigratedResult(
+        const std::string& my_rsu_id);
     // ─────────────────────────────────────────────────────────────────
 
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);

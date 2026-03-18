@@ -171,11 +171,25 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         decision_type = decision_data["decision_type"];
                         target_id = decision_data.count("target_id") ? decision_data["target_id"] : "";
                         found_decision = true;
-                        
-                        EV_INFO << "✓ Found ML decision in Redis for task " << record.task_id 
-                                << ": " << decision_type << endl;
-                        std::cout << "ML_DECISION_REDIS: Task " << record.task_id << " -> " 
-                                  << decision_type << std::endl;
+
+                        // If DRL picked a specific RSU that is NOT this RSU, store it
+                        // so processTaskOnRSU() can forward the task data packet there.
+                        std::string my_rsu_id = "RSU_" + std::to_string(rsu_id);
+                        if (decision_type == "RSU" &&
+                            !target_id.empty() &&
+                            target_id != my_rsu_id)
+                        {
+                            record.target_rsu_id = target_id;
+                            EV_INFO << "  DRL picked neighbor RSU " << target_id
+                                    << " — task will be forwarded after vehicle sends data" << endl;
+                            std::cout << "ML_DRL_ROUTE: task=" << record.task_id
+                                      << " -> " << target_id << " (forwarding)" << std::endl;
+                        }
+
+                        EV_INFO << "✓ Found ML decision in Redis for task " << record.task_id
+                                << ": " << decision_type << " target=" << target_id << endl;
+                        std::cout << "ML_DECISION_REDIS: Task " << record.task_id << " -> "
+                                  << decision_type << " target=" << target_id << std::endl;
                     }
                 }
                 
@@ -269,6 +283,25 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     << " (exec=" << pending.exec_time_s << "s)" << endl;
             std::cout << "RSU_DONE: Task " << task_id
                       << " completed in " << pending.exec_time_s << "s" << std::endl;
+
+            // ── Push result to Redis so DRL can read it (IEEE TMC 2018 energy) ──
+            if (redis_twin && use_redis) {
+                EnergyCalculator ec;
+                double energy = ec.calcRSUComputationEnergy(
+                    pending.cpu_cycles, 0, 0.0,
+                    edgeCPU_GHz * 1e9, edgeCPU_GHz * 1e9);
+                double completion_time = simTime().dbl();
+                double request_time = 0.0;
+                if (task_records.count(task_id))
+                    request_time = task_records.at(task_id).created_time;
+                else if (pending_offloading_requests.count(task_id))
+                    request_time = pending_offloading_requests.at(task_id).request_time;
+                double total_latency = (request_time > 0.0)
+                    ? (completion_time - request_time) : pending.exec_time_s;
+                redis_twin->pushTaskResult(task_id, true,
+                    total_latency, completion_time, request_time, energy);
+            }
+            // ────────────────────────────────────────────────────────────────────
 
             sendTaskResultToVehicle(task_id, pending.vehicle_id, pending.vehicle_mac,
                                     true, pending.exec_time_s);
@@ -1867,10 +1900,13 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                 std::string best_neighbor = redis_twin->getBestNeighborRSU(all_rsu_ids, my_rsu_id);
 
                 if (!best_neighbor.empty()) {
+                    LAddress::L2Type req_mac = vehicle_macs.count(request.vehicle_id)
+                        ? vehicle_macs.at(request.vehicle_id) : 0;
                     redis_twin->forwardTaskToNeighborRSU(
                         best_neighbor,
                         request.task_id,
                         request.vehicle_id,
+                        (int64_t)req_mac,
                         request.cpu_cycles,
                         request.mem_footprint_bytes,
                         request.deadline_seconds,
@@ -2043,6 +2079,34 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     uint64_t cpu_cycles     = packet->getCpu_cycles();
 
     // ======================================================================
+    // DRL ROUTING: if DRL selected a different RSU, forward via Redis queue
+    // ======================================================================
+    std::string my_rsu_id = "RSU_" + std::to_string(rsu_id);
+    if (task_records.count(task_id) &&
+        !task_records.at(task_id).target_rsu_id.empty() &&
+        task_records.at(task_id).target_rsu_id != my_rsu_id)
+    {
+        std::string target = task_records.at(task_id).target_rsu_id;
+        EV_INFO << "  [DRL Route] Forwarding task " << task_id
+                << " to DRL-selected RSU " << target << endl;
+        std::cout << "DRL_FORWARD: task=" << task_id
+                  << " src=" << my_rsu_id << " dst=" << target << std::endl;
+        if (redis_twin && use_redis) {
+            redis_twin->forwardTaskToNeighborRSU(
+                target, task_id, vehicle_id,
+                (int64_t)vehicle_mac,
+                cpu_cycles,
+                packet->getMem_footprint_bytes(),
+                packet->getDeadline_seconds(),
+                packet->getQos_value(),
+                packet->getOffload_time(),
+                my_rsu_id);
+        }
+        delete packet;
+        return;
+    }
+
+    // ======================================================================
     // ADMISSION CONTROL: hard cap on simultaneous tasks
     // ======================================================================
     if (rsu_processing_count >= rsu_max_concurrent) {
@@ -2116,6 +2180,68 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
 
 // ============================================================================
 // RSU FAIR-SHARE CPU REALLOCATION
+// ============================================================================
+// FORWARDED TASK PROCESSING
+// Handles tasks arriving via rsu:{id}:forwarded_queue (Redis). Creates a
+// PendingRSUTask exactly as processTaskOnRSU() does, using the same fair-share
+// scheduling. vehicle_mac stored in the hash lets sendTaskResultToVehicle()
+// route the result back (possibly via proactive migration to RSU-A).
+// ============================================================================
+void MyRSUApp::processForwardedTask(const std::string& task_id,
+                                     const std::map<std::string, std::string>& data)
+{
+    auto get = [&](const std::string& k, const std::string& def = "") -> std::string {
+        auto it = data.find(k); return (it != data.end()) ? it->second : def;
+    };
+
+    std::string vehicle_id  = get("vehicle_id");
+    int64_t     raw_mac     = 0;
+    try { raw_mac = std::stoll(get("vehicle_mac", "0")); } catch (...) {}
+    LAddress::L2Type vehicle_mac = (LAddress::L2Type)raw_mac;
+    uint64_t cpu_cycles = 1000000000ULL;
+    try { cpu_cycles = std::stoull(get("cpu_cycles", "1000000000")); } catch (...) {}
+
+    if (rsu_processing_count >= rsu_max_concurrent) {
+        EV_WARN << "⛔ RSU full — dropping forwarded task " << task_id << endl;
+        // Write failure result so DRL doesn't time out waiting
+        if (redis_twin && use_redis)
+            redis_twin->pushTaskResult(task_id, false, 0.0, simTime().dbl(), 0.0, 0.0);
+        return;
+    }
+
+    rsu_processing_count++;
+    rsu_tasks_received++;
+    double cpu_per_task_hz = (edgeCPU_GHz * 1e9) / rsu_processing_count;
+    double exec_time = cpu_cycles / cpu_per_task_hz;
+
+    PendingRSUTask pending;
+    pending.vehicle_id           = vehicle_id;
+    pending.vehicle_mac          = vehicle_mac;
+    pending.cpu_cycles           = cpu_cycles;
+    pending.cycles_remaining     = (double)cpu_cycles;
+    pending.exec_time_s          = exec_time;
+    pending.scheduled_at         = simTime().dbl();
+    pending.last_reschedule_time = simTime().dbl();
+    pending.cpu_allocated_hz     = cpu_per_task_hz;
+
+    cMessage* ev = new cMessage("rsuTaskComplete");
+    std::string* id_ptr = new std::string(task_id);
+    ev->setContextPointer(id_ptr);
+    scheduleAt(simTime() + exec_time, ev);
+    pending.completion_event = ev;
+    rsuPendingTasks[task_id] = pending;
+
+    if (rsu_processing_count > 1)
+        reallocateRSUTasks(cpu_per_task_hz);
+
+    EV_INFO << "  [Forwarded] task=" << task_id
+            << " vehicle=" << vehicle_id
+            << " exec=" << exec_time << "s" << endl;
+    std::cout << "FORWARDED_EXEC: task=" << task_id
+              << " exec=" << exec_time << "s" << std::endl;
+}
+
+// ============================================================================
 // Called whenever N_concurrent changes (task arrival or completion).
 // Burns down cycles already executed for each in-flight task, then
 // reschedules each completion event at the new equal CPU share.
@@ -2162,23 +2288,46 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
     // the vehicle reattaches to.
     bool vehicle_in_coverage = vehicle_macs.count(vehicle_id) > 0;
     if (!vehicle_in_coverage && redis_twin && use_redis) {
-        EV_WARN << "  [Point 7] Vehicle " << vehicle_id
-                << " left coverage — buffering result in Redis" << endl;
-        redis_twin->storePendingResult(
-            vehicle_id, task_id, success,
-            processing_time, simTime().dbl(),
-            120 // 120s TTL: vehicle must reattach within 2 minutes
-        );
-        std::cout << "MIGRATION: task=" << task_id
-                  << " buffered for vehicle=" << vehicle_id
-                  << " (left coverage)" << std::endl;
-        // Log the event for post-processing analysis
-        insertLifecycleEvent(task_id, "RESULT_MIGRATED",
-            "RSU_" + std::to_string(rsu_id), vehicle_id,
-            "{\"reason\":\"vehicle_left_coverage\""
-            ",\"stored_in_redis\":true"
-            ",\"ttl_s\":120}");
-        return;  // Result buffered — we're done here
+        // ── Proactive service migration ───────────────────────────────────────
+        // Check if any neighbor RSU already has this vehicle in its coverage list
+        // (populated by RSU-to-RSU status broadcasts every rsu_broadcast_interval).
+        std::string new_rsu_id;
+        for (const auto& kv : neighbor_rsus) {
+            const RSUNeighborState& ns = kv.second;
+            for (const auto& vid : ns.vehicle_ids_in_coverage) {
+                if (vid == vehicle_id) { new_rsu_id = ns.rsu_id; break; }
+            }
+            if (!new_rsu_id.empty()) break;
+        }
+
+        if (!new_rsu_id.empty()) {
+            // Vehicle is with RSU-B: push result directly to RSU-B's migrated_queue
+            EV_WARN << "  [Migration] Vehicle " << vehicle_id
+                    << " now at " << new_rsu_id << " — proactive forward" << endl;
+            redis_twin->storeMigratedResult(
+                new_rsu_id, vehicle_id, task_id, success,
+                processing_time, simTime().dbl(), 60);
+            std::cout << "PROACTIVE_MIGRATION: task=" << task_id
+                      << " vehicle=" << vehicle_id
+                      << " -> " << new_rsu_id << std::endl;
+            insertLifecycleEvent(task_id, "RESULT_MIGRATED_PROACTIVE",
+                "RSU_" + std::to_string(rsu_id), vehicle_id,
+                "{\"target_rsu\":\"" + new_rsu_id + "\",\"ttl_s\":60}");
+        } else {
+            // Vehicle location unknown: passive store, delivered on next re-attach
+            EV_WARN << "  [Migration] Vehicle " << vehicle_id
+                    << " location unknown — passive store in Redis" << endl;
+            redis_twin->storePendingResult(
+                vehicle_id, task_id, success,
+                processing_time, simTime().dbl(), 120);
+            std::cout << "PASSIVE_MIGRATION: task=" << task_id
+                      << " buffered for vehicle=" << vehicle_id << std::endl;
+            insertLifecycleEvent(task_id, "RESULT_MIGRATED_PASSIVE",
+                "RSU_" + std::to_string(rsu_id), vehicle_id,
+                "{\"reason\":\"vehicle_location_unknown\",\"ttl_s\":120}");
+        }
+        // ─────────────────────────────────────────────────────────────────────
+        return;
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -2486,7 +2635,64 @@ void MyRSUApp::sendRSUStatusUpdate() {
     
     // Insert into database
     insertRSUStatus();
-    
+
+    // ── Poll Redis queues ─────────────────────────────────────────────────────
+    if (redis_twin && use_redis) {
+        std::string my_rsu_id = "RSU_" + std::to_string(rsu_id);
+
+        // 1. Forwarded tasks (from overloaded neighbor or DRL-directed routing)
+        while (true) {
+            std::string fwd_id = redis_twin->pollForwardedTask(my_rsu_id);
+            if (fwd_id.empty()) break;
+            auto fwd_data = redis_twin->fetchForwardedTaskData(my_rsu_id, fwd_id);
+            if (!fwd_data.empty()) {
+                EV_INFO << "  [Queue] Processing forwarded task " << fwd_id << endl;
+                processForwardedTask(fwd_id, fwd_data);
+            }
+        }
+
+        // 2. Proactively migrated results (from another RSU whose vehicle moved here)
+        while (true) {
+            auto mig = redis_twin->pollAndFetchMigratedResult(my_rsu_id);
+            if (mig.empty()) break;
+            std::string vid = mig.count("vehicle_id") ? mig.at("vehicle_id") : "";
+            std::string tid = mig.count("task_id")    ? mig.at("task_id")    : "";
+            if (vid.empty() || tid.empty()) continue;
+
+            if (vehicle_macs.count(vid)) {
+                // Vehicle is here — deliver immediately
+                bool ok   = mig.count("success") && mig.at("success") == "True";
+                double pt = mig.count("processing_time")
+                                ? std::stod(mig.at("processing_time")) : 0.0;
+                veins::TaskResultMessage* res = new veins::TaskResultMessage();
+                res->setTask_id(tid.c_str());
+                res->setProcessor_id("RSU");
+                res->setSuccess(ok);
+                res->setProcessing_time(pt);
+                res->setCompletion_time(simTime().dbl());
+                if (ok) res->setTask_output_data("RSU_PROCESSED_DATA_MIGRATED");
+                else    res->setFailure_reason("Processing failed (migrated)");
+                populateWSM(res, vehicle_macs[vid]);
+                sendDown(res);
+                EV_INFO << "  [Migration] Delivered result task=" << tid
+                        << " vehicle=" << vid << endl;
+                std::cout << "PROACTIVE_DELIVER: task=" << tid
+                          << " vehicle=" << vid << std::endl;
+                insertLifecycleEvent(tid, "PROACTIVE_MIGRATION_DELIVERED",
+                    my_rsu_id, vid, "{\"trigger\":\"periodic_poll\"}");
+            } else {
+                // Vehicle not here yet — fall back to passive pending result
+                bool ok   = mig.count("success") && mig.at("success") == "True";
+                double pt = mig.count("processing_time")
+                                ? std::stod(mig.at("processing_time")) : 0.0;
+                double ct = mig.count("completion_time")
+                                ? std::stod(mig.at("completion_time")) : simTime().dbl();
+                redis_twin->storePendingResult(vid, tid, ok, pt, ct, 120);
+            }
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Reschedule
     scheduleAt(simTime() + rsu_status_update_interval, rsu_status_update_timer);
 }

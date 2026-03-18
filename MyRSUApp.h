@@ -92,6 +92,9 @@ struct TaskRecord {
     
     // Decision tracking (for database polling)
     bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
+
+    // DRL-selected executor RSU (empty = local RSU; set when DRL picks a neighbor RSU)
+    std::string target_rsu_id;
 };
 
 /**
@@ -308,6 +311,9 @@ private:
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
 
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
+    /** Process a task received via the Redis forwarded_queue (no TaskOffloadPacket). */
+    void processForwardedTask(const std::string& task_id,
+                              const std::map<std::string, std::string>& data);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so every task gets an equal share of edgeCPU_GHz.
     void reallocateRSUTasks(double new_cpu_per_task_Hz);
