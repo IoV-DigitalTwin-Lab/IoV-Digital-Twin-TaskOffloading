@@ -214,6 +214,8 @@ private:
     
     // Task execution methods
     void sendTaskToRSU(Task* task);
+    void sendTaskToRSU(Task* task, veins::LAddress::L2Type targetRsuMac);
+    void sendTaskToRSU(Task* task, veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac);
     void sendTaskToServiceVehicle(Task* task, const std::string& serviceVehicleId, veins::LAddress::L2Type serviceMac);
     void handleTaskResult(veins::TaskResultMessage* msg);
     void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,

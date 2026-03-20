@@ -9,6 +9,14 @@ using namespace veins;
 
 namespace complex_network {
 
+namespace {
+std::string buildRouteHint(veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac) {
+    std::ostringstream oss;
+    oss << "ROUTE|ingress=" << ingressRsuMac << "|processor=" << processorRsuMac << "|";
+    return oss.str();
+}
+}
+
 Define_Module(PayloadVehicleApp);
 
 void PayloadVehicleApp::initialize(int stage) {
@@ -2448,7 +2456,7 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
 
 void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision) {
     EV_INFO << "📤 Sending offloading request to RSU for task " << task->task_id << endl;
-    std::cout << "OFFLOAD_REQUEST: Vehicle " << task->vehicle_id << " requesting decision for task " 
+    std::cout << "OFFLOAD_Decision_REQUEST: Vehicle " << task->vehicle_id << " requesting offloading decision for task " 
               << task->task_id << std::endl;
     
     // Create offloading request message
@@ -2663,8 +2671,12 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         if (taskTimings.find(task->task_id) != taskTimings.end()) {
             taskTimings[task->task_id].processor_id = "RSU";
         }
-        
-        sendTaskToRSU(task);
+
+        // Phase 1 criteria: upload must go to the RSU that made the decision.
+        // Do not re-run best-RSU selection during task upload.
+        LAddress::L2Type decisionRsuMac = decision->getSenderAddress();
+        LAddress::L2Type remoteProcessorMac = decision->getRedirect_target_rsu_mac();
+        sendTaskToRSU(task, decisionRsuMac, remoteProcessorMac);
         
         // Track offloaded task
         offloadedTasks[task->task_id] = task;
@@ -2897,6 +2909,14 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
 // ============================================================================
 
 void PayloadVehicleApp::sendTaskToRSU(Task* task) {
+    sendTaskToRSU(task, 0, 0);
+}
+
+void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type targetRsuMac) {
+    sendTaskToRSU(task, targetRsuMac, 0);
+}
+
+void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac, LAddress::L2Type processorRsuMac) {
     EV_INFO << "📤 Sending task " << task->task_id << " to RSU for processing" << endl;
     std::cout << "OFFLOAD_TO_RSU: Task " << task->task_id << " sent to RSU" << std::endl;
     
@@ -2910,14 +2930,20 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task) {
     packet->setCpu_cycles(task->cpu_cycles);
     packet->setDeadline_seconds(task->relative_deadline);
     packet->setQos_value(task->qos_value);
-    packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
+    std::string routeHint = buildRouteHint(ingressRsuMac, processorRsuMac);
+    packet->setTask_input_data(routeHint.c_str());
     
-    // Send to RSU
-    LAddress::L2Type rsuMac = selectBestRSU();
+    // Send to RSU. If caller provided a target RSU (decision-origin), use it.
+    // Otherwise keep legacy behavior and choose current best RSU.
+    LAddress::L2Type rsuMac = (ingressRsuMac != 0) ? ingressRsuMac : selectBestRSU();
     if (rsuMac != 0) {
         populateWSM(packet, rsuMac);
         sendDown(packet);
         EV_INFO << "✓ Task offload packet sent to RSU MAC: " << rsuMac << endl;
+        std::cout << "OFFLOAD_TARGET_RSU_MAC: " << rsuMac << std::endl;
+        if (processorRsuMac != 0 && processorRsuMac != rsuMac) {
+            std::cout << "OFFLOAD_REMOTE_PROCESSOR_RSU_MAC: " << processorRsuMac << std::endl;
+        }
     } else {
         EV_ERROR << "No RSU available to send task" << endl;
         delete packet;

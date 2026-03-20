@@ -5,10 +5,69 @@
 #include <ctime>
 #include <iomanip>
 #include <cmath>
+#include <limits>
+#include <algorithm>
 
 using namespace veins;
 
 namespace complex_network {
+
+namespace {
+constexpr const char* kRoutePrefix = "ROUTE|";
+constexpr const char* kRelayPayloadPrefix = "RSU_RELAY_RESULT|";
+
+bool parseRouteHint(const std::string& routeHint, LAddress::L2Type& ingressRsuMac, LAddress::L2Type& processorRsuMac) {
+    ingressRsuMac = 0;
+    processorRsuMac = 0;
+    if (routeHint.rfind(kRoutePrefix, 0) != 0) {
+        return false;
+    }
+
+    size_t ingressPos = routeHint.find("ingress=");
+    size_t processorPos = routeHint.find("processor=");
+    if (ingressPos == std::string::npos || processorPos == std::string::npos) {
+        return false;
+    }
+
+    try {
+        size_t ingressStart = ingressPos + 8;
+        size_t ingressEnd = routeHint.find('|', ingressStart);
+        size_t processorStart = processorPos + 10;
+        size_t processorEnd = routeHint.find('|', processorStart);
+
+        std::string ingressStr = routeHint.substr(ingressStart, ingressEnd - ingressStart);
+        std::string processorStr = routeHint.substr(processorStart, processorEnd - processorStart);
+
+        ingressRsuMac = static_cast<LAddress::L2Type>(std::stoull(ingressStr));
+        processorRsuMac = static_cast<LAddress::L2Type>(std::stoull(processorStr));
+    }
+    catch (...) {
+        ingressRsuMac = 0;
+        processorRsuMac = 0;
+        return false;
+    }
+    return true;
+}
+
+bool isRelayTaskResult(const TaskResultMessage* msg) {
+    std::string payload = msg->getTask_output_data();
+    return payload.rfind(kRelayPayloadPrefix, 0) == 0;
+}
+
+std::string stripRelayPrefix(const std::string& payload) {
+    if (payload.rfind(kRelayPayloadPrefix, 0) == 0) {
+        return payload.substr(std::char_traits<char>::length(kRelayPayloadPrefix));
+    }
+    return payload;
+}
+
+double estimateRssiFromDistance(double distanceMeters) {
+    // Lightweight monotonic RSSI proxy for ranking RSUs by radio proximity.
+    // Absolute calibration is not required here; ordering by distance is the goal.
+    double d = std::max(1.0, distanceMeters);
+    return -40.0 - 20.0 * std::log10(d);
+}
+}
 
 Define_Module(MyRSUApp);
 
@@ -277,7 +336,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                       << " completed in " << pending.exec_time_s << "s" << std::endl;
 
             sendTaskResultToVehicle(task_id, pending.vehicle_id, pending.vehicle_mac,
-                                    true, pending.exec_time_s);
+                                    pending.ingress_rsu_mac, true, pending.exec_time_s);
             rsuPendingTasks.erase(it);
 
             // Task completed → remaining tasks each get a larger CPU share.
@@ -363,6 +422,11 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // Handle TaskResultMessage with completion timing data
     TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
     if (taskResult) {
+        if (isRelayTaskResult(taskResult)) {
+            EV_INFO << "📥 RSU received relayed TaskResultMessage" << endl;
+            handleRSUTaskResultRelay(taskResult);
+            return;
+        }
         EV_INFO << "📥 RSU received TaskResultMessage with completion data" << endl;
         handleTaskResultWithCompletion(taskResult);
         return;
@@ -535,6 +599,14 @@ void MyRSUApp::handleMessage(cMessage* msg) {
         EV_INFO << "Received TaskOffloadingEvent" << endl;
         handleTaskOffloadingEvent(offloadEvent);
         return;
+    }
+
+    veins::TaskResultMessage* relayedResult = dynamic_cast<veins::TaskResultMessage*>(msg);
+    if (relayedResult) {
+        if (isRelayTaskResult(relayedResult)) {
+            handleRSUTaskResultRelay(relayedResult);
+            return;
+        }
     }
 
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
@@ -776,6 +848,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::string vehicle_id = msg->getVehicle_id();
     VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
+    vehicle_macs[vehicle_id] = msg->getSenderAddress();
     
     // Update vehicle state
     twin.pos_x = msg->getPos_x();
@@ -806,6 +879,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.deadline_miss_ratio = msg->getDeadline_miss_ratio();
     
     twin.last_update_time = simTime().dbl();
+    refreshVehicleCoverageRecord(vehicle_id);
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
     
@@ -827,9 +901,6 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     // Insert/update vehicle metadata (first time or periodic update)
     insertVehicleMetadata(vehicle_id);
     
-    // Note: MAC address will be stored when OffloadingRequestMessage arrives
-    // (OffloadingRequestMessage has getSenderAddress() inherited from BaseFrame1609_4)
-    
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << (twin.cpu_utilization * 100.0) << "%" << endl;
     EV_INFO << "  Memory Utilization: " << (twin.mem_utilization * 100.0) << "%" << endl;
@@ -838,6 +909,72 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+}
+
+void MyRSUApp::refreshVehicleCoverageRecord(const std::string& vehicle_id) {
+    auto twinIt = vehicle_twins.find(vehicle_id);
+    if (twinIt == vehicle_twins.end()) {
+        return;
+    }
+
+    const VehicleDigitalTwin& vt = twinIt->second;
+    Coord vehiclePos(vt.pos_x, vt.pos_y);
+
+    double selfDistance = vehiclePos.distance(curPosition);
+    double selfRssi = estimateRssiFromDistance(selfDistance);
+
+    LAddress::L2Type bestMac = myId;
+    std::string bestId = "RSU_" + std::to_string(rsu_id);
+    double bestRssi = selfRssi;
+
+    for (const auto& kv : neighbor_rsus) {
+        const RSUNeighborState& neighbor = kv.second;
+        if (!isNeighborStateFresh(neighbor)) {
+            continue;
+        }
+        Coord npos(neighbor.pos_x, neighbor.pos_y);
+        double rssi = estimateRssiFromDistance(vehiclePos.distance(npos));
+        if (rssi > bestRssi) {
+            bestRssi = rssi;
+            bestMac = neighbor.rsu_mac;
+            bestId = neighbor.rsu_id;
+        }
+    }
+
+    double coverageRadius = 300.0;
+    try {
+        coverageRadius = par("rsuCoverageRadius_m").doubleValue();
+    } catch (...) {
+        // keep default radius
+    }
+
+    VehicleCoverageRecord rec;
+    rec.vehicle_id = vehicle_id;
+    rec.best_rsu_id = bestId;
+    rec.best_rsu_mac = bestMac;
+    rec.best_rssi = bestRssi;
+    rec.self_rssi = selfRssi;
+    rec.in_self_range = (selfDistance <= coverageRadius) && (bestMac == myId);
+    rec.last_update_time = simTime().dbl();
+
+    vehicle_coverage_records[vehicle_id] = rec;
+}
+
+LAddress::L2Type MyRSUApp::getBestRsuByRssiForVehicle(const std::string& vehicle_id,
+                                                       std::string* bestRsuId,
+                                                       bool* inSelfRange) {
+    refreshVehicleCoverageRecord(vehicle_id);
+
+    auto it = vehicle_coverage_records.find(vehicle_id);
+    if (it == vehicle_coverage_records.end()) {
+        if (bestRsuId) *bestRsuId = "";
+        if (inSelfRange) *inSelfRange = false;
+        return 0;
+    }
+
+    if (bestRsuId) *bestRsuId = it->second.best_rsu_id;
+    if (inSelfRange) *inSelfRange = it->second.in_self_range;
+    return it->second.best_rsu_mac;
 }
 
 VehicleDigitalTwin& MyRSUApp::getOrCreateVehicleTwin(const std::string& vehicle_id) {
@@ -1801,7 +1938,9 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     double confidence = 0.0;
     double estimated_completion_time = 0.0;
     std::string target_service_vehicle_id;
+    std::string remote_processor_rsu_id;
     LAddress::L2Type target_service_vehicle_mac = 0;
+    LAddress::L2Type remote_processor_rsu_mac = 0;
     
     if (!mlModelEnabled) {
         // ----------------------------------------------------------------
@@ -1888,6 +2027,49 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         decision->setTarget_service_vehicle_id(target_service_vehicle_id.c_str());
         decision->setTarget_service_vehicle_mac(target_service_vehicle_mac);
     }
+
+    // Phase 3: keep ingress stable but allow ingress RSU to forward execution to a healthier neighbor.
+    if (decisionType == "RSU") {
+        double localLoad = (rsu_max_concurrent > 0)
+            ? static_cast<double>(rsu_processing_count) / static_cast<double>(rsu_max_concurrent)
+            : 1.0;
+
+        if (localLoad >= 0.75) {
+            double bestLoad = std::numeric_limits<double>::max();
+            std::string bestNeighborId;
+            LAddress::L2Type bestNeighborMac = 0;
+
+            for (const auto& kv : neighbor_rsus) {
+                const RSUNeighborState& neighbor = kv.second;
+                if (!isNeighborStateFresh(neighbor)) {
+                    continue;
+                }
+                if (neighbor.is_overloaded) {
+                    continue;
+                }
+                if (neighbor.load_factor >= bestLoad) {
+                    continue;
+                }
+                bestLoad = neighbor.load_factor;
+                bestNeighborId = neighbor.rsu_id;
+                bestNeighborMac = neighbor.rsu_mac;
+            }
+
+            if (bestNeighborMac != 0) {
+                remote_processor_rsu_id = bestNeighborId;
+                remote_processor_rsu_mac = bestNeighborMac;
+                reason += "; remote processor " + remote_processor_rsu_id
+                       + " selected (ingress load=" + std::to_string(localLoad) + ")";
+            }
+        }
+    }
+
+    if (remote_processor_rsu_mac != 0) {
+        decision->setRedirect_target_rsu_id(remote_processor_rsu_id.c_str());
+        decision->setRedirect_target_rsu_mac(remote_processor_rsu_mac);
+        decision->setNext_candidate_index(0);
+        decision->setDecision_reason(reason.c_str());
+    }
     
     return decision;
 }
@@ -1950,15 +2132,32 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
     EV_INFO << "  Origin Vehicle: " << vehicle_id << endl;
     EV_INFO << "  Task Size: " << (msg->getMem_footprint_bytes() / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
+
+    LAddress::L2Type ingressRsuMac = myId;
+    LAddress::L2Type processorRsuMac = 0;
+    if (!parseRouteHint(msg->getTask_input_data(), ingressRsuMac, processorRsuMac)) {
+        ingressRsuMac = myId;
+        processorRsuMac = 0;
+    }
+
+    if (processorRsuMac != 0 && processorRsuMac != myId) {
+        EV_INFO << "↪ Forwarding task " << task_id << " to processor RSU MAC " << processorRsuMac << endl;
+        populateWSM(msg, processorRsuMac);
+        sendDown(msg);
+        insertLifecycleEvent(task_id, "RSU_TASK_FORWARDED",
+            "RSU_" + std::to_string(rsu_id), "RSU_FORWARD",
+            std::string("{\"processor_rsu_mac\":") + std::to_string(processorRsuMac) + "}");
+        return;
+    }
     
     // Process task on RSU edge server
-    processTaskOnRSU(task_id, msg);
+    processTaskOnRSU(task_id, msg, ingressRsuMac);
     
     // msg will be deleted in processTaskOnRSU or here
     delete msg;
 }
 
-void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
+void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac) {
     std::string vehicle_id  = packet->getOrigin_vehicle_id();
     LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
     uint64_t cpu_cycles     = packet->getCpu_cycles();
@@ -1971,8 +2170,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
                 << ") — rejecting task " << task_id << endl;
         std::cout << "RSU_OVERLOAD: Task " << task_id << " rejected (RSU at capacity "
                   << rsu_processing_count << "/" << rsu_max_concurrent << ")" << std::endl;
-        sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, false, 0.0);
-        delete packet;
+        sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, ingress_rsu_mac, false, 0.0);
         return;
     }
 
@@ -2011,6 +2209,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     PendingRSUTask pending;
     pending.vehicle_id            = vehicle_id;
     pending.vehicle_mac           = vehicle_mac;
+    pending.ingress_rsu_mac       = ingress_rsu_mac;
     pending.cpu_cycles            = cpu_cycles;
     pending.cycles_remaining      = static_cast<double>(cpu_cycles);
     pending.exec_time_s           = exec_time;
@@ -2073,37 +2272,84 @@ void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
 }
 
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
-                                        LAddress::L2Type vehicle_mac, bool success,
+                                        LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
+                                        bool success,
                                         double processing_time) {
     EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
     
     // Create result message
     veins::TaskResultMessage* result = new veins::TaskResultMessage();
     result->setTask_id(task_id.c_str());
-    result->setProcessor_id("RSU");
+    result->setOrigin_vehicle_id(vehicle_id.c_str());
+    result->setProcessor_id(("RSU_" + std::to_string(rsu_id)).c_str());
     result->setSuccess(success);
     result->setProcessing_time(processing_time);
     result->setCompletion_time(simTime().dbl());
     
     if (success) {
-        result->setTask_output_data("RSU_PROCESSED_DATA");
+        result->setTask_output_data("RSU_EDGE_RESULT");
         EV_INFO << "  Result: SUCCESS (" << processing_time << "s)" << endl;
     } else {
         result->setFailure_reason("Processing failed");
         EV_INFO << "  Result: FAILED" << endl;
     }
-    
-    // Send to vehicle
-    populateWSM(result, vehicle_mac);
-    sendDown(result);
-    insertLifecycleEvent(task_id, "RSU_RESULT_SENT",
-        "RSU_" + std::to_string(rsu_id), vehicle_id,
-        "{\"success\":" + std::string(success ? "true" : "false") + ","
-        "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+
+    std::string bestRsuId;
+    bool inSelfRange = false;
+    LAddress::L2Type bestRsuMac = getBestRsuByRssiForVehicle(vehicle_id, &bestRsuId, &inSelfRange);
+
+    // Fallback when RSSI ranking is unavailable (e.g., no twin yet).
+    if (bestRsuMac == 0 && ingress_rsu_mac != 0) {
+        bestRsuMac = ingress_rsu_mac;
+        bestRsuId = "INGRESS";
+    }
+
+    if (bestRsuMac == 0) {
+        bestRsuMac = myId;
+        bestRsuId = "RSU_" + std::to_string(rsu_id);
+    }
+
+    if (bestRsuMac != myId) {
+        std::string relayedPayload = std::string(kRelayPayloadPrefix) + result->getTask_output_data();
+        result->setTask_output_data(relayedPayload.c_str());
+        populateWSM(result, bestRsuMac);
+        sendDown(result);
+        insertLifecycleEvent(task_id, "RSU_RESULT_RELAY_SENT",
+            "RSU_" + std::to_string(rsu_id), bestRsuId,
+            "{\"success\":" + std::string(success ? "true" : "false") + ","
+            "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+    } else {
+        populateWSM(result, vehicle_mac);
+        sendDown(result);
+        insertLifecycleEvent(task_id, "RSU_RESULT_SENT",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            "{\"success\":" + std::string(success ? "true" : "false") + ","
+            "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+    }
 
     std::cout << "RSU_RESULT: Sent task result for " << task_id
               << " to vehicle " << vehicle_id
               << " (processing_time=" << processing_time << "s)" << std::endl;
+}
+
+void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
+    const std::string task_id = msg->getTask_id();
+    const std::string vehicle_id = msg->getOrigin_vehicle_id();
+
+    auto macIt = vehicle_macs.find(vehicle_id);
+    if (macIt == vehicle_macs.end()) {
+        EV_WARN << "RSU relay received task result but vehicle MAC is unknown for " << vehicle_id << endl;
+        delete msg;
+        return;
+    }
+
+    std::string cleanedPayload = stripRelayPrefix(msg->getTask_output_data());
+    msg->setTask_output_data(cleanedPayload.c_str());
+    populateWSM(msg, macIt->second);
+    sendDown(msg);
+    insertLifecycleEvent(task_id, "RSU_RESULT_RELAY_TO_VEHICLE",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"relay\":true}");
 }
 
 void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
@@ -2538,13 +2784,18 @@ void MyRSUApp::broadcastRSUStatus() {
     msg->setMemory_available_gb(rsu_memory_available);
     msg->setMemory_total_gb(rsu_memory_total);
     
-    // Coverage information - limit vehicle list size to avoid huge packets
+    // Coverage information - include only vehicles currently owned by self range
+    // and limit list size to avoid huge packets.
     std::vector<std::string> vehicle_list;
     int count = 0;
     for (const auto& pair : vehicle_twins) {
         if (count >= max_vehicles_in_broadcast) break;
-        vehicle_list.push_back(pair.first);
-        count++;
+        refreshVehicleCoverageRecord(pair.first);
+        auto covIt = vehicle_coverage_records.find(pair.first);
+        if (covIt != vehicle_coverage_records.end() && covIt->second.in_self_range) {
+            vehicle_list.push_back(pair.first);
+            count++;
+        }
     }
     
     msg->setVehicle_ids_in_coverageArraySize(vehicle_list.size());
@@ -2623,6 +2874,11 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     
     // Update or insert neighbor state
     updateNeighborState(state);
+
+    // Refresh ownership records now that neighbor position/coverage set has changed.
+    for (const auto& v : state.vehicle_ids_in_coverage) {
+        refreshVehicleCoverageRecord(v);
+    }
     
     EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
              << "Q=" << state.queue_length << "/" << state.max_concurrent_tasks
