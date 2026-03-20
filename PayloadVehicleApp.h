@@ -206,6 +206,9 @@ private:
     double getRSUDistance();                          // Get distance to selected RSU
     double getEstimatedRSSI();                        // Get estimated RSSI to RSU
     double estimateTransmissionTime(Task* task);     // Estimate network transmission time
+
+    // Secondary Digital Twin mode: mobility + channel only, no task generation.
+    bool motionChannelOnly = false;
     
     // Offloading request/response handlers
     void sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision);

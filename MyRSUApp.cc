@@ -128,6 +128,12 @@ void MyRSUApp::initialize(int stage) {
         edgeMemory_GB = par("edgeMemory_GB").doubleValue();
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
+
+        secondary_link_context_export = par("secondaryLinkContextExport").boolValue();
+        secondary_run_id = par("secondaryRunId").stdstringValue();
+        secondary_link_sample_interval = par("secondaryLinkSampleInterval").doubleValue();
+        secondary_redis_max_series_len = par("secondaryRedisMaxSeriesLen").intValue();
+        initializeRsuStaticContexts();
         
         // Initialize RSU resource tracking (dynamic state)
         rsu_cpu_total = edgeCPU_GHz;
@@ -952,6 +958,10 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     // Insert/update vehicle metadata (first time or periodic update)
     insertVehicleMetadata(vehicle_id);
+
+    if (secondary_link_context_export) {
+        exportSecondaryContextSamples(msg, twin);
+    }
     
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << (twin.cpu_utilization * 100.0) << "%" << endl;
@@ -961,6 +971,138 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+}
+
+void MyRSUApp::initializeRsuStaticContexts() {
+    rsu_static_contexts.clear();
+
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        return;
+    }
+
+    for (int idx = 0;; ++idx) {
+        cModule* rsuModule = networkModule->getSubmodule("rsu", idx);
+        if (!rsuModule) break;
+
+        RsuStaticContext ctx;
+        ctx.rsu_id = "RSU_" + std::to_string(idx);
+
+        try {
+            cModule* mob = rsuModule->getSubmodule("mobility");
+            if (mob && mob->hasPar("x") && mob->hasPar("y")) {
+                ctx.pos_x = mob->par("x").doubleValue();
+                ctx.pos_y = mob->par("y").doubleValue();
+            }
+        } catch (...) {
+            // Keep defaults if position is unavailable.
+        }
+
+        rsu_static_contexts.push_back(ctx);
+    }
+}
+
+void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage* msg,
+                                             const VehicleDigitalTwin& sourceTwin) {
+    const std::string source_id = msg->getVehicle_id();
+    const double now = simTime().dbl();
+
+    auto itLast = secondary_last_export_time.find(source_id);
+    if (itLast != secondary_last_export_time.end()) {
+        if ((now - itLast->second) < secondary_link_sample_interval) {
+            return;
+        }
+    }
+    secondary_last_export_time[source_id] = now;
+
+    insertSecondaryProgress(now);
+    insertSecondaryVehicleSample(msg);
+
+    if (redis_twin && use_redis) {
+        redis_twin->updateSecondaryProgress(secondary_run_id, now, secondary_link_sample_interval);
+        redis_twin->pushSecondaryVehicleSample(
+            secondary_run_id,
+            source_id,
+            now,
+            sourceTwin.pos_x,
+            sourceTwin.pos_y,
+            sourceTwin.speed,
+            sourceTwin.heading,
+            msg->getAcceleration(),
+            secondary_redis_max_series_len
+        );
+    }
+
+    // V2RSU link context samples for this source vehicle.
+    for (const auto& rsu : rsu_static_contexts) {
+        const double dx = sourceTwin.pos_x - rsu.pos_x;
+        const double dy = sourceTwin.pos_y - rsu.pos_y;
+        const double dist = std::sqrt(dx * dx + dy * dy);
+        const double rel_speed = std::fabs(sourceTwin.speed);
+
+        insertSecondaryLinkSample(
+            "V2RSU", source_id, rsu.rsu_id, now,
+            sourceTwin.pos_x, sourceTwin.pos_y,
+            rsu.pos_x, rsu.pos_y,
+            dist, rel_speed,
+            sourceTwin.heading, 0.0
+        );
+
+        if (redis_twin && use_redis) {
+            redis_twin->pushSecondaryV2RsuLinkSample(
+                secondary_run_id,
+                source_id,
+                rsu.rsu_id,
+                now,
+                sourceTwin.pos_x,
+                sourceTwin.pos_y,
+                rsu.pos_x,
+                rsu.pos_y,
+                dist,
+                rel_speed,
+                sourceTwin.heading,
+                secondary_redis_max_series_len
+            );
+        }
+    }
+
+    // V2V link context samples from source vehicle to all known peers.
+    for (const auto& kv : vehicle_twins) {
+        const std::string& peer_id = kv.first;
+        if (peer_id == source_id) continue;
+
+        const VehicleDigitalTwin& peer = kv.second;
+        const double dx = sourceTwin.pos_x - peer.pos_x;
+        const double dy = sourceTwin.pos_y - peer.pos_y;
+        const double dist = std::sqrt(dx * dx + dy * dy);
+        const double rel_speed = std::fabs(sourceTwin.speed - peer.speed);
+
+        insertSecondaryLinkSample(
+            "V2V", source_id, peer_id, now,
+            sourceTwin.pos_x, sourceTwin.pos_y,
+            peer.pos_x, peer.pos_y,
+            dist, rel_speed,
+            sourceTwin.heading, peer.heading
+        );
+
+        if (redis_twin && use_redis) {
+            redis_twin->pushSecondaryV2vLinkSample(
+                secondary_run_id,
+                source_id,
+                peer_id,
+                now,
+                sourceTwin.pos_x,
+                sourceTwin.pos_y,
+                peer.pos_x,
+                peer.pos_y,
+                dist,
+                rel_speed,
+                sourceTwin.heading,
+                peer.heading,
+                secondary_redis_max_series_len
+            );
+        }
+    }
 }
 
 void MyRSUApp::refreshVehicleCoverageRecord(const std::string& vehicle_id) {
@@ -1522,7 +1664,7 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
                  << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
                  << "}";
     
-    const char* paramValues[24];
+    const char* paramValues[25];
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string update_time = std::to_string(simTime().dbl());
@@ -1597,6 +1739,131 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
                   << " @ t=" << update_time << "s" << std::endl;
     }
     
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryProgress(double sim_time) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    const char* paramValues[4];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string sim_time_str = std::to_string(sim_time);
+    std::string interval_str = std::to_string(secondary_link_sample_interval);
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = sim_time_str.c_str();
+    paramValues[3] = interval_str.c_str();
+
+    const char* query = "INSERT INTO dt_secondary_progress (run_id, rsu_id, sim_time, sample_interval_s) "
+                        "VALUES ($1, $2, $3, $4)";
+
+    PGresult* res = PQexecParams(conn, query, 4, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryVehicleSample(const VehicleResourceStatusMessage* msg) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"speed\":" << msg->getSpeed() << ","
+                 << "\"heading\":" << msg->getHeading() << ","
+                 << "\"acceleration\":" << msg->getAcceleration()
+                 << "}";
+
+    const char* paramValues[10];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string vehicle_id = msg->getVehicle_id();
+    std::string sim_time = std::to_string(simTime().dbl());
+    std::string pos_x = std::to_string(msg->getPos_x());
+    std::string pos_y = std::to_string(msg->getPos_y());
+    std::string speed = std::to_string(msg->getSpeed());
+    std::string heading = std::to_string(msg->getHeading());
+    std::string acceleration = std::to_string(msg->getAcceleration());
+    std::string payload = payload_json.str();
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = vehicle_id.c_str();
+    paramValues[3] = sim_time.c_str();
+    paramValues[4] = pos_x.c_str();
+    paramValues[5] = pos_y.c_str();
+    paramValues[6] = speed.c_str();
+    paramValues[7] = heading.c_str();
+    paramValues[8] = acceleration.c_str();
+    paramValues[9] = payload.c_str();
+
+    const char* query = "INSERT INTO dt_vehicle_state_samples (run_id, rsu_id, vehicle_id, sim_time, "
+                        "pos_x, pos_y, speed, heading, acceleration, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryLinkSample(const std::string& link_type,
+                                         const std::string& tx_entity_id,
+                                         const std::string& rx_entity_id,
+                                         double sim_time,
+                                         double tx_pos_x,
+                                         double tx_pos_y,
+                                         double rx_pos_x,
+                                         double rx_pos_y,
+                                         double distance_m,
+                                         double relative_speed,
+                                         double tx_heading,
+                                         double rx_heading) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"distance_m\":" << distance_m << ","
+                 << "\"relative_speed\":" << relative_speed << ","
+                 << "\"tx_heading\":" << tx_heading << ","
+                 << "\"rx_heading\":" << rx_heading
+                 << "}";
+
+    const char* paramValues[15];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string sim_time_str = std::to_string(sim_time);
+    std::string tx_x = std::to_string(tx_pos_x);
+    std::string tx_y = std::to_string(tx_pos_y);
+    std::string rx_x = std::to_string(rx_pos_x);
+    std::string rx_y = std::to_string(rx_pos_y);
+    std::string dist = std::to_string(distance_m);
+    std::string rel = std::to_string(relative_speed);
+    std::string tx_h = std::to_string(tx_heading);
+    std::string rx_h = std::to_string(rx_heading);
+    std::string payload = payload_json.str();
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = link_type.c_str();
+    paramValues[3] = tx_entity_id.c_str();
+    paramValues[4] = rx_entity_id.c_str();
+    paramValues[5] = sim_time_str.c_str();
+    paramValues[6] = tx_x.c_str();
+    paramValues[7] = tx_y.c_str();
+    paramValues[8] = rx_x.c_str();
+    paramValues[9] = rx_y.c_str();
+    paramValues[10] = dist.c_str();
+    paramValues[11] = rel.c_str();
+    paramValues[12] = tx_h.c_str();
+    paramValues[13] = rx_h.c_str();
+    paramValues[14] = payload.c_str();
+
+    const char* query = "INSERT INTO dt_link_context_samples (run_id, rsu_id, link_type, tx_entity_id, rx_entity_id, "
+                        "sim_time, tx_pos_x, tx_pos_y, rx_pos_x, rx_pos_y, distance_m, relative_speed, tx_heading, rx_heading, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 15, nullptr, paramValues, nullptr, nullptr, 0);
     PQclear(res);
 }
 
@@ -1955,7 +2222,7 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     if (decision) {
         // Store decision in Digital Twin database
         insertOffloadingDecision(task_id, decision);
-        insertLifecycleEvent(task_id, "DECISION_MADE",
+        insertLifecycleEvent(task_id, "OFFLOADING_DECISION_IN_PROCESS",
             "RSU_" + std::to_string(rsu_id), vehicle_id,
             std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\","
             "\"confidence\":" + std::to_string(decision->getConfidence_score()) + "}");
@@ -1963,7 +2230,7 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
         // Send decision back to vehicle
         populateWSM(decision, request.vehicle_mac);
         sendDown(decision);
-        insertLifecycleEvent(task_id, "DECISION_SENT",
+        insertLifecycleEvent(task_id, "OFFLOADING_DECISION_SENDING",
             "RSU_" + std::to_string(rsu_id), vehicle_id,
             std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
 
@@ -2333,7 +2600,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     pending.cpu_allocated_hz      = cpu_per_task_Hz;
     pending.completion_event      = completeMsg;
     rsuPendingTasks[task_id]      = pending;
-    insertLifecycleEvent(task_id, "RSU_PROCESSING_STARTED",
+    insertLifecycleEvent(task_id, "PROCESSING_STARTED",
         "RSU_" + std::to_string(rsu_id), vehicle_id,
         "{\"exec_time_s\":" + std::to_string(exec_time) + ","
         "\"concurrent\":" + std::to_string(concurrent) + ","
@@ -2391,6 +2658,11 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
                                         bool success,
                                         double processing_time) {
     EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
+
+    insertLifecycleEvent(task_id, "PROCESSING_COMPLETED",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"success\":" + std::string(success ? "true" : "false") + ","
+        "\"processing_time_s\":" + std::to_string(processing_time) + "}");
     
     // Create result message
     veins::TaskResultMessage* result = new veins::TaskResultMessage();
@@ -2429,14 +2701,14 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
         result->setTask_output_data(relayedPayload.c_str());
         populateWSM(result, bestRsuMac);
         sendDown(result);
-        insertLifecycleEvent(task_id, "RSU_RESULT_RELAY_SENT",
+        insertLifecycleEvent(task_id, "TASK_RESULTS_SENDING",
             "RSU_" + std::to_string(rsu_id), bestRsuId,
             "{\"success\":" + std::string(success ? "true" : "false") + ","
             "\"processing_time_s\":" + std::to_string(processing_time) + "}");
     } else {
         populateWSM(result, vehicle_mac);
         sendDown(result);
-        insertLifecycleEvent(task_id, "RSU_RESULT_SENT",
+        insertLifecycleEvent(task_id, "TASK_RESULTS_SENDING",
             "RSU_" + std::to_string(rsu_id), vehicle_id,
             "{\"success\":" + std::string(success ? "true" : "false") + ","
             "\"processing_time_s\":" + std::to_string(processing_time) + "}");

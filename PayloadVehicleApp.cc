@@ -78,6 +78,7 @@ void PayloadVehicleApp::initialize(int stage) {
         std::cout << "SHADOW: Vehicle starting signal monitoring for shadowing analysis" << std::endl;
 
         // ===== INITIALIZE TASK PROCESSING SYSTEM =====
+        motionChannelOnly = par("motionChannelOnly").boolValue();
         initializeTaskSystem();
         
         // Schedule first periodic vehicle status update
@@ -664,6 +665,15 @@ void PayloadVehicleApp::receiveSignal(cComponent* src, simsignal_t id, cObject* 
 // ============================================================================
 
 void PayloadVehicleApp::initializeTaskSystem() {
+    if (motionChannelOnly) {
+        offloadingEnabled = false;
+        serviceVehicleEnabled = false;
+        EV_INFO << "Motion/channel-only mode enabled: task generation and offloading disabled" << endl;
+        std::cout << "DT_SECONDARY: Motion/channel-only mode active for vehicle "
+                  << getParentModule()->getIndex() << std::endl;
+        return;
+    }
+
     EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
     EV_INFO << "║            INITIALIZING TASK PROCESSING SYSTEM                           ║" << endl;
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
@@ -953,6 +963,9 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         EV_INFO << "💻 Task is_offloadable=false → forcing local execution" << endl;
         std::cout << "LOCAL_ONLY: Task " << task->task_id
                   << " is non-offloadable, processing locally" << std::endl;
+        sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"reason\":\"NON_OFFLOADABLE\"}");
     }
     
     if (offloadingEnabled && decisionMaker && task->is_offloadable) {
@@ -1028,6 +1041,17 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         EV_INFO << "📊 Local decision: " << decisionStr << endl;
         std::cout << "OFFLOAD_DECISION: Vehicle " << vehicle_id << " local decision for task " 
                   << task->task_id << ": " << decisionStr << std::endl;
+
+        if (localDecision == OffloadingDecision::EXECUTE_LOCALLY) {
+            sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                "{\"decision\":\"LOCAL\"}");
+        } else if (localDecision == OffloadingDecision::OFFLOAD_TO_RSU ||
+                   localDecision == OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE) {
+            sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+                "{\"decision\":\"" + decisionStr + "\"}");
+        }
         
         // ========================================================================
         // DECISION BRANCH: LOCAL vs OFFLOAD
@@ -1066,6 +1090,9 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 EV_INFO << "⏸ Resources busy - queuing task" << endl;
                 task->state = QUEUED;
                 pending_tasks.push(task);
+                sendTaskOffloadingEvent(task->task_id, "QUEUED",
+                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                    "{\"reason\":\"LOCAL_RESOURCES_BUSY\"}");
                 logQueueState("Task queued after LOCAL decision");
             }
             
@@ -1103,7 +1130,13 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 delete task;  return;
             }
             if (canStartProcessing(task)) allocateResourcesAndStart(task);
-            else { task->state = QUEUED;  pending_tasks.push(task); }
+            else {
+                task->state = QUEUED;
+                pending_tasks.push(task);
+                sendTaskOffloadingEvent(task->task_id, "QUEUED",
+                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                    "{\"reason\":\"OFFLOAD_SKIPPED_FALLBACK\"}");
+            }
             return;
         }
 
@@ -1134,7 +1167,13 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 delete task;  return;
             }
             if (canStartProcessing(task)) allocateResourcesAndStart(task);
-            else { task->state = QUEUED;  pending_tasks.push(task); }
+            else {
+                task->state = QUEUED;
+                pending_tasks.push(task);
+                sendTaskOffloadingEvent(task->task_id, "QUEUED",
+                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                    "{\"reason\":\"DEADLINE_GATE_FALLBACK\"}");
+            }
             return;
         }
 
@@ -1162,6 +1201,12 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     // ============================================================================
     // FALLBACK: ORIGINAL LOCAL-ONLY PROCESSING (if offloading disabled)
     // ============================================================================
+
+    if (task->is_offloadable || !offloadingEnabled) {
+        sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"reason\":\"OFFLOADING_DISABLED\"}");
+    }
     
     // Check if can accept task
     if (!canAcceptTask(task)) {
@@ -1184,6 +1229,9 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         EV_INFO << "⏸ Resources busy - queuing task" << endl;
         task->state = QUEUED;
         pending_tasks.push(task);
+        sendTaskOffloadingEvent(task->task_id, "QUEUED",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"reason\":\"LOCAL_FALLBACK_RESOURCES_BUSY\"}");
         logQueueState("Task queued");
     }
     
@@ -1518,8 +1566,12 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
         );
     }
     
+    sendTaskOffloadingEvent(task->task_id, "PROCESSING_COMPLETED",
+        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+        "{\"success\":true,\"elapsed_s\":" + std::to_string(completion_time_elapsed) + "}");
+
     {
-        std::string _status = on_time ? "COMPLETED_ON_TIME" : "COMPLETED_LATE";
+        std::string _status = on_time ? "COMPLETE_ON_TIME" : "FAILED";
         sendTaskOffloadingEvent(task->task_id, _status,
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
             "{\"on_time\":" + std::string(on_time ? "true" : "false") + ","
@@ -1565,6 +1617,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     task->state = FAILED;
     task->completion_time = simTime();
     double wasted_time = (task->completion_time - task->created_time).dbl();
+    bool was_processing = (processing_tasks.find(task) != processing_tasks.end());
     
     EV_INFO << "❌ Task FAILED - deadline missed" << endl;
     EV_INFO << "  Wasted time: " << wasted_time << " seconds" << endl;
@@ -1573,7 +1626,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
               << task->task_id << " DEADLINE MISSED (wasted " << wasted_time << "s)" << std::endl;
     
     // Release resources if was processing
-    if (processing_tasks.find(task) != processing_tasks.end()) {
+    if (was_processing) {
         processing_tasks.erase(task);
         cpu_available += task->cpu_allocated;
         memory_available += task->mem_footprint_bytes;
@@ -1587,6 +1640,15 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
         
         reallocateCPUResources();
     }
+
+    if (was_processing) {
+        sendTaskOffloadingEvent(task->task_id, "PROCESSING_COMPLETED",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"success\":false,\"reason\":\"DEADLINE_MISSED\"}");
+    }
+    sendTaskOffloadingEvent(task->task_id, "FAILED",
+        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+        "{\"reason\":\"DEADLINE_MISSED\",\"wasted_s\":" + std::to_string(wasted_time) + "}");
     
     tasks_failed++;
 
@@ -1684,6 +1746,10 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(Task* task) {
 
 void PayloadVehicleApp::sendTaskFailureToRSU(Task* task, const std::string& reason) {
     EV_INFO << "📤 Sending task failure notification to RSU (reason: " << reason << ")" << endl;
+
+    sendTaskOffloadingEvent(task->task_id, "FAILED",
+        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+        "{\"reason\":\"" + reason + "\"}");
     
     TaskFailureMessage* msg = new TaskFailureMessage();
     msg->setTask_id(task->task_id.c_str());
@@ -2550,7 +2616,7 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     
     // Send to first candidate (best RSU)
     LAddress::L2Type rsuMac = candidates[0];
-    
+
     populateWSM(msg, rsuMac);
     sendDown(msg);
     
@@ -2567,9 +2633,6 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     TaskTimingInfo timing;
     timing.request_time = simTime().dbl();
     taskTimings[task->task_id] = timing;
-    
-    // Send lifecycle event to RSU for Digital Twin
-    sendTaskOffloadingEvent(task->task_id, "REQUEST_SENT", task->vehicle_id, "RSU");
     
     EV_INFO << "Offloading request sent to RSU[0] (MAC: " << rsuMac << ") with " 
             << candidates.size() << " candidate RSUs" << endl;
@@ -2640,6 +2703,10 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
     // DECISION: EXECUTE LOCALLY
     // ========================================================================
     if (decisionType == "LOCAL") {
+                sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                    "{\"reason\":\"RSU_DECISION_LOCAL\"}");
+
         EV_INFO << "💻 Decision: EXECUTE LOCALLY" << endl;
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " executing LOCALLY" << std::endl;
         
@@ -2676,6 +2743,9 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             EV_INFO << "⏸ Queuing task for local execution" << endl;
             task->state = QUEUED;
             pending_tasks.push(task);
+            sendTaskOffloadingEvent(task->task_id, "QUEUED",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                "{\"reason\":\"RSU_LOCAL_RESOURCES_BUSY\"}");
             logQueueState("Task queued after LOCAL decision");
         }
         
@@ -2686,6 +2756,10 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
     // DECISION: OFFLOAD TO RSU
     // ========================================================================
     else if (decisionType == "RSU") {
+                sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD",
+                    "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+                    "{\"target\":\"RSU\"}");
+
         EV_INFO << "🏢 Decision: OFFLOAD TO RSU" << endl;
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " offloading to RSU" << std::endl;
         
@@ -2722,6 +2796,10 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         LAddress::L2Type serviceVehicleMac = decision->getTarget_service_vehicle_mac();
         LAddress::L2Type anchorRsuMac = decision->getRedirect_target_rsu_mac();
         LAddress::L2Type ingressRsuMac = decision->getSenderAddress();
+
+        sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD",
+            "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+            "{\"target\":\"SERVICE_VEHICLE\",\"sv_id\":\"" + serviceVehicleId + "\"}");
         
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id 
                   << " offloading to service vehicle " << serviceVehicleId << std::endl;
@@ -2741,6 +2819,9 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 } else {
                     task->state = QUEUED;
                     pending_tasks.push(task);
+                    sendTaskOffloadingEvent(task->task_id, "QUEUED",
+                        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                        "{\"reason\":\"SV_INVALID_FALLBACK\"}");
                 }
             } else {
                 task->state = REJECTED;
@@ -2803,6 +2884,9 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 } else {
                     task->state = QUEUED;
                     pending_tasks.push(task);
+                    sendTaskOffloadingEvent(task->task_id, "QUEUED",
+                        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                        "{\"reason\":\"REDIRECT_EXHAUSTED_FALLBACK\"}");
                 }
                 
                 // Track fallback
@@ -2980,7 +3064,7 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac
     
     offloadedTasks[task->task_id] = task;
     offloadedTaskTargets[task->task_id] = "RSU";
-    sendTaskOffloadingEvent(task->task_id, "TASK_DISPATCHED",
+    sendTaskOffloadingEvent(task->task_id, "TASK_OFFLOADING",
         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
         "{\"target\":\"RSU\",\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + ","
         "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + "}");
@@ -3011,7 +3095,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     
     offloadedTasks[task->task_id] = task;
     offloadedTaskTargets[task->task_id] = serviceVehicleId;
-    sendTaskOffloadingEvent(task->task_id, "TASK_DISPATCHED",
+    sendTaskOffloadingEvent(task->task_id, "TASK_OFFLOADING",
         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), serviceVehicleId,
         "{\"target\":\"SERVICE_VEHICLE\",\"sv_id\":\"" + serviceVehicleId + "\","
         "\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + "}");
@@ -3048,7 +3132,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
 
     offloadedTasks[task->task_id] = task;
     offloadedTaskTargets[task->task_id] = "SV_" + serviceVehicleId;
-    sendTaskOffloadingEvent(task->task_id, "TASK_DISPATCHED",
+    sendTaskOffloadingEvent(task->task_id, "TASK_OFFLOADING",
         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
         "{\"target\":\"SERVICE_VEHICLE_VIA_RSU\",\"sv_id\":\"" + serviceVehicleId + "\","
         "\"ingress_rsu_mac\":" + std::to_string(firstHopRsu) + ","
@@ -3132,7 +3216,14 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
         bool success = msg->getSuccess();
         double completion_time = msg->getCompletion_time();
         bool on_time = completion_time <= task->deadline.dbl();
-        sendTaskOffloadingEvent(task_id, "RESULT_RECEIVED",
+        sendTaskOffloadingEvent(task_id, "TASK_RESULTS_RECEIVED",
+            msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+            "{\"success\":" + std::string(success ? "true" : "false") + ","
+            "\"on_time\":" + std::string(on_time ? "true" : "false") + "}");
+        sendTaskOffloadingEvent(task_id, "PROCESSING_COMPLETED",
+            msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+            "{\"success\":" + std::string(success ? "true" : "false") + "}");
+        sendTaskOffloadingEvent(task_id, (success && on_time) ? "COMPLETE_ON_TIME" : "FAILED",
             msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             "{\"success\":" + std::string(success ? "true" : "false") + ","
             "\"on_time\":" + std::string(on_time ? "true" : "false") + "}");

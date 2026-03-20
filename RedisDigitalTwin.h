@@ -116,6 +116,45 @@ public:
     // Statistics
     int getActiveVehicleCount();
     int getActiveTaskCount();
+
+    // Secondary DT exports (motion + channel context, no SINR math)
+    void updateSecondaryProgress(const std::string& run_id,
+                                 double sim_time,
+                                 double sample_interval_s);
+    void pushSecondaryVehicleSample(const std::string& run_id,
+                                    const std::string& vehicle_id,
+                                    double sim_time,
+                                    double pos_x,
+                                    double pos_y,
+                                    double speed,
+                                    double heading,
+                                    double acceleration,
+                                    int max_series_len = 6000);
+    void pushSecondaryV2RsuLinkSample(const std::string& run_id,
+                                      const std::string& tx_vehicle_id,
+                                      const std::string& rsu_id,
+                                      double sim_time,
+                                      double tx_x,
+                                      double tx_y,
+                                      double rx_x,
+                                      double rx_y,
+                                      double distance_m,
+                                      double relative_speed,
+                                      double tx_heading,
+                                      int max_series_len = 6000);
+    void pushSecondaryV2vLinkSample(const std::string& run_id,
+                                    const std::string& tx_vehicle_id,
+                                    const std::string& rx_vehicle_id,
+                                    double sim_time,
+                                    double tx_x,
+                                    double tx_y,
+                                    double rx_x,
+                                    double rx_y,
+                                    double distance_m,
+                                    double relative_speed,
+                                    double tx_heading,
+                                    double rx_heading,
+                                    int max_series_len = 6000);
 };
 
 } // namespace

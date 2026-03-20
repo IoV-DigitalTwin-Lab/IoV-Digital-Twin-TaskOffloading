@@ -56,6 +56,12 @@ simple MyRSUApp like IBaseApplLayer
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
 
+        // Secondary DT context export (motion + channel context only)
+        bool secondaryLinkContextExport = default(false);
+        string secondaryRunId = default("dt2_default");
+        double secondaryLinkSampleInterval @unit(s) = default(0.1s);
+        int secondaryRedisMaxSeriesLen = default(6000);
+
     gates:
         input lowerLayerIn;
         output lowerLayerOut;

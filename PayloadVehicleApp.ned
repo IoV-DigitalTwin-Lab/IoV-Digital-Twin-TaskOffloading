@@ -48,6 +48,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         
         // Offloading Control
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
+        bool motionChannelOnly = default(false);              // Secondary DT mode: disable task generation/offloading
         bool force_offload = default(false);                  // Force all tasks to be offloaded
         double rsuDecisionTimeout @unit(s) = default(1.0s);   // Timeout for RSU decision response
         double offloadedTaskTimeout @unit(s) = default(5.0s); // Timeout for task execution result
