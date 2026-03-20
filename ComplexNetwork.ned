@@ -3,7 +3,7 @@ import org.car2x.veins.nodes.TrafficLight;
 import org.car2x.veins.nodes.Car;
 import org.car2x.veins.base.connectionManager.ConnectionManager;
 import org.car2x.veins.base.modules.BaseWorldUtility;
-import org.car2x.veins.modules.mobility.traci.TraCIScenarioManager;
+import org.car2x.veins.modules.mobility.traci.TraCIScenarioManagerForker;
 import org.car2x.veins.modules.obstacle.ObstacleControl;
 import org.car2x.veins.modules.obstacle.VehicleObstacleControl;
 import org.car2x.veins.modules.world.annotations.AnnotationManager;
@@ -44,7 +44,7 @@ network ComplexNetwork
                 @display("p=30,0;i=misc/globe");
         }
         // Use regular TraCIScenarioManager (supports all SUMO API versions)
-        manager: TraCIScenarioManager {
+        manager: TraCIScenarioManagerForker {
             @display("p=512,128");
         }
         roadsCanvasVisualizer: RoadsCanvasVisualizer {
