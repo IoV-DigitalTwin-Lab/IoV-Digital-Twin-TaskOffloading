@@ -1976,19 +1976,13 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
         statusMsg->setDeadline_miss_ratio(0.0);
     }
     
-    // Find RSU and send
-    LAddress::L2Type rsuMacAddress = selectBestRSU();
-    if (rsuMacAddress != 0) {
-        populateWSM(statusMsg, rsuMacAddress);
-        sendDown(statusMsg);
-        EV_INFO << "✓ Vehicle resource status sent to RSU (MAC: " << rsuMacAddress << ")" << endl;
-        std::cout << "RESOURCE_UPDATE: Vehicle " << getParentModule()->getIndex() 
-                  << " sent resource status to RSU - CPU:" << (cpu_util * 100.0) 
-                  << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
-    } else {
-        EV_WARN << "⚠ RSU not found, cannot send resource status" << endl;
-        delete statusMsg;
-    }
+    // Broadcast to all RSUs so each RSU maintains its own synchronized DT copy.
+    populateWSM(statusMsg);
+    sendDown(statusMsg);
+    EV_INFO << "✓ Vehicle resource status broadcast to all RSUs" << endl;
+    std::cout << "RESOURCE_BROADCAST: Vehicle " << getParentModule()->getIndex()
+              << " broadcast status - CPU:" << (cpu_util * 100.0)
+              << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
 }
 
 void PayloadVehicleApp::sendVehicleResourceStatus() {

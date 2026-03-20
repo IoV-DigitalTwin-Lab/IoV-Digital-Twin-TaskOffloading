@@ -41,10 +41,17 @@ void MyRSUApp::initialize(int stage) {
         if (use_redis) {
             redis_host = par("redisHost").stdstringValue();
             redis_port = par("redisPort").intValue();
-            redis_twin = new RedisDigitalTwin(redis_host, redis_port);
+            redis_db = par("redisDb").intValue();
+            // If unset or invalid, default to RSU index so each RSU gets its own DB.
+            if (redis_db < 0) {
+                redis_db = rsu_id;
+            }
+            redis_twin = new RedisDigitalTwin(redis_host, redis_port, redis_db);
             if (redis_twin->isConnected()) {
-                EV_INFO << "✓ Redis Digital Twin connected at " << redis_host << ":" << redis_port << std::endl;
-                std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected" << std::endl;
+                EV_INFO << "✓ Redis Digital Twin connected at " << redis_host << ":" << redis_port
+                        << " db=" << redis_db << std::endl;
+                std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected (db="
+                          << redis_db << ")" << std::endl;
             } else {
                 EV_WARN << "✗ Redis connection failed, continuing without digital twin" << std::endl;
                 std::cerr << "⚠ RSU[" << rsu_id << "] Redis connection failed" << std::endl;

@@ -16,12 +16,13 @@ private:
     redisContext* redis_ctx = nullptr;
     std::string redis_host = "127.0.0.1";
     int redis_port = 6379;
+    int redis_db = 0;
     int vehicle_ttl = 300;  // 5 minutes
     int task_ttl = 1800;   // 20 minutes
     bool is_connected = false;
 
 public:
-    RedisDigitalTwin(const std::string& host = "127.0.0.1", int port = 6379);
+    RedisDigitalTwin(const std::string& host = "127.0.0.1", int port = 6379, int db = 0);
     ~RedisDigitalTwin();
     
     bool connect();

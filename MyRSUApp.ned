@@ -31,6 +31,7 @@ simple MyRSUApp like IBaseApplLayer
         bool useRedis = default(true);      // Enable Redis for real-time state sync
         string redisHost = default("127.0.0.1");  // Redis server host
         int redisPort = default(6379);       // Redis server port
+        int redisDb = default(-1);           // Redis logical DB (default: RSU index)
 
         // Edge server resource parameters
         double edgeCPU_GHz;              // CPU capacity in GHz

@@ -5,8 +5,8 @@
 
 namespace complex_network {
 
-RedisDigitalTwin::RedisDigitalTwin(const std::string& host, int port)
-    : redis_host(host), redis_port(port) {
+RedisDigitalTwin::RedisDigitalTwin(const std::string& host, int port, int db)
+    : redis_host(host), redis_port(port), redis_db(db) {
     connect();
 }
 
@@ -30,7 +30,24 @@ bool RedisDigitalTwin::connect() {
         return false;
     }
     
-    EV_INFO << "Connected to Redis at " << redis_host << ":" << redis_port << std::endl;
+    // Select dedicated logical Redis DB for this RSU instance.
+    redisReply* select_reply = (redisReply*)redisCommand(redis_ctx, "SELECT %d", redis_db);
+    if (!select_reply || select_reply->type == REDIS_REPLY_ERROR) {
+        if (select_reply && select_reply->str) {
+            EV_ERROR << "Redis SELECT error (db=" << redis_db << "): " << select_reply->str << std::endl;
+        } else {
+            EV_ERROR << "Redis SELECT error (db=" << redis_db << ")" << std::endl;
+        }
+        if (select_reply) freeReplyObject(select_reply);
+        redisFree(redis_ctx);
+        redis_ctx = nullptr;
+        is_connected = false;
+        return false;
+    }
+    freeReplyObject(select_reply);
+
+    EV_INFO << "Connected to Redis at " << redis_host << ":" << redis_port
+            << " (db=" << redis_db << ")" << std::endl;
     is_connected = true;
     return true;
 }

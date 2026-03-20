@@ -13,7 +13,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         double initMemory_MB;                     // memory capacity (MB)
 
         // ---- Heartbeat (continuous vehicle telemetry) ----
-        double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz
+        double heartbeatIntervalS @unit(s) = default(0.1s);  // 100 ms DT sync broadcast interval
         double firstStatusDelayS @unit(s) = default(0s);     // delay before first status, allow t=0
 
         // First task generation minimum delay
