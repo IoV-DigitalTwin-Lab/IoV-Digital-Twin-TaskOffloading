@@ -9,6 +9,31 @@ using namespace veins;
 
 namespace complex_network {
 
+namespace {
+std::string buildRouteHint(veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac) {
+    std::ostringstream oss;
+    oss << "ROUTE|ingress=" << ingressRsuMac << "|processor=" << processorRsuMac << "|";
+    return oss.str();
+}
+
+std::string buildServiceRouteHint(veins::LAddress::L2Type serviceVehicleMac,
+                                  veins::LAddress::L2Type anchorRsuMac,
+                                  veins::LAddress::L2Type originVehicleMac) {
+    std::ostringstream oss;
+    oss << "SVROUTE|sv=" << serviceVehicleMac
+        << "|anchor=" << anchorRsuMac
+        << "|origin=" << originVehicleMac << "|";
+    return oss.str();
+}
+
+std::string buildServiceResultRelayHint(veins::LAddress::L2Type targetRsuMac,
+                                        const std::string& payload) {
+    std::ostringstream oss;
+    oss << "SV_RESULT_RELAY|target=" << targetRsuMac << "|" << payload;
+    return oss.str();
+}
+}
+
 Define_Module(PayloadVehicleApp);
 
 void PayloadVehicleApp::initialize(int stage) {
@@ -777,6 +802,11 @@ void PayloadVehicleApp::initializeTaskSystem() {
         maxConcurrentServiceTasks = par("maxConcurrentServiceTasks").intValue();
         serviceCpuReservation = par("serviceCpuReservation").doubleValue();
         serviceMemoryReservation = par("serviceMemoryReservation").doubleValue();
+        try {
+            serviceDirectRssiThresholdDbm = par("serviceDirectRssiThresholdDbm").doubleValue();
+        } catch (...) {
+            serviceDirectRssiThresholdDbm = -72.0;
+        }
         EV_INFO << "✓ Service vehicle mode ENABLED (can process tasks for others)" << endl;
         std::cout << "SERVICE_VEHICLE: Vehicle " << getParentModule()->getIndex() 
                   << " can accept " << maxConcurrentServiceTasks << " service tasks" << std::endl;
@@ -1976,19 +2006,13 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
         statusMsg->setDeadline_miss_ratio(0.0);
     }
     
-    // Find RSU and send
-    LAddress::L2Type rsuMacAddress = selectBestRSU();
-    if (rsuMacAddress != 0) {
-        populateWSM(statusMsg, rsuMacAddress);
-        sendDown(statusMsg);
-        EV_INFO << "✓ Vehicle resource status sent to RSU (MAC: " << rsuMacAddress << ")" << endl;
-        std::cout << "RESOURCE_UPDATE: Vehicle " << getParentModule()->getIndex() 
-                  << " sent resource status to RSU - CPU:" << (cpu_util * 100.0) 
-                  << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
-    } else {
-        EV_WARN << "⚠ RSU not found, cannot send resource status" << endl;
-        delete statusMsg;
-    }
+    // Broadcast to all RSUs so each RSU maintains its own synchronized DT copy.
+    populateWSM(statusMsg);
+    sendDown(statusMsg);
+    EV_INFO << "✓ Vehicle resource status broadcast to all RSUs" << endl;
+    std::cout << "RESOURCE_BROADCAST: Vehicle " << getParentModule()->getIndex()
+              << " broadcast status - CPU:" << (cpu_util * 100.0)
+              << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
 }
 
 void PayloadVehicleApp::sendVehicleResourceStatus() {
@@ -2454,7 +2478,7 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
 
 void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision) {
     EV_INFO << "📤 Sending offloading request to RSU for task " << task->task_id << endl;
-    std::cout << "OFFLOAD_REQUEST: Vehicle " << task->vehicle_id << " requesting decision for task " 
+    std::cout << "OFFLOAD_Decision_REQUEST: Vehicle " << task->vehicle_id << " requesting offloading decision for task " 
               << task->task_id << std::endl;
     
     // Create offloading request message
@@ -2669,8 +2693,12 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         if (taskTimings.find(task->task_id) != taskTimings.end()) {
             taskTimings[task->task_id].processor_id = "RSU";
         }
-        
-        sendTaskToRSU(task);
+
+        // Phase 1 criteria: upload must go to the RSU that made the decision.
+        // Do not re-run best-RSU selection during task upload.
+        LAddress::L2Type decisionRsuMac = decision->getSenderAddress();
+        LAddress::L2Type remoteProcessorMac = decision->getRedirect_target_rsu_mac();
+        sendTaskToRSU(task, decisionRsuMac, remoteProcessorMac);
         
         // Track offloaded task
         offloadedTasks[task->task_id] = task;
@@ -2692,6 +2720,8 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         
         std::string serviceVehicleId = decision->getTarget_service_vehicle_id();
         LAddress::L2Type serviceVehicleMac = decision->getTarget_service_vehicle_mac();
+        LAddress::L2Type anchorRsuMac = decision->getRedirect_target_rsu_mac();
+        LAddress::L2Type ingressRsuMac = decision->getSenderAddress();
         
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id 
                   << " offloading to service vehicle " << serviceVehicleId << std::endl;
@@ -2721,7 +2751,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             return;
         }
         
-        sendTaskToServiceVehicle(task, serviceVehicleId, serviceVehicleMac);
+        if (anchorRsuMac != 0) {
+            sendTaskToServiceVehicleViaRSU(task, serviceVehicleId, serviceVehicleMac, ingressRsuMac, anchorRsuMac);
+        } else {
+            sendTaskToServiceVehicle(task, serviceVehicleId, serviceVehicleMac);
+        }
         
         // Track offloaded task
         offloadedTasks[task->task_id] = task;
@@ -2903,6 +2937,14 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
 // ============================================================================
 
 void PayloadVehicleApp::sendTaskToRSU(Task* task) {
+    sendTaskToRSU(task, 0, 0);
+}
+
+void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type targetRsuMac) {
+    sendTaskToRSU(task, targetRsuMac, 0);
+}
+
+void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac, LAddress::L2Type processorRsuMac) {
     EV_INFO << "📤 Sending task " << task->task_id << " to RSU for processing" << endl;
     std::cout << "OFFLOAD_TO_RSU: Task " << task->task_id << " sent to RSU" << std::endl;
     
@@ -2916,14 +2958,20 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task) {
     packet->setCpu_cycles(task->cpu_cycles);
     packet->setDeadline_seconds(task->relative_deadline);
     packet->setQos_value(task->qos_value);
-    packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
+    std::string routeHint = buildRouteHint(ingressRsuMac, processorRsuMac);
+    packet->setTask_input_data(routeHint.c_str());
     
-    // Send to RSU
-    LAddress::L2Type rsuMac = selectBestRSU();
+    // Send to RSU. If caller provided a target RSU (decision-origin), use it.
+    // Otherwise keep legacy behavior and choose current best RSU.
+    LAddress::L2Type rsuMac = (ingressRsuMac != 0) ? ingressRsuMac : selectBestRSU();
     if (rsuMac != 0) {
         populateWSM(packet, rsuMac);
         sendDown(packet);
         EV_INFO << "✓ Task offload packet sent to RSU MAC: " << rsuMac << endl;
+        std::cout << "OFFLOAD_TARGET_RSU_MAC: " << rsuMac << std::endl;
+        if (processorRsuMac != 0 && processorRsuMac != rsuMac) {
+            std::cout << "OFFLOAD_REMOTE_PROCESSOR_RSU_MAC: " << processorRsuMac << std::endl;
+        }
     } else {
         EV_ERROR << "No RSU available to send task" << endl;
         delete packet;
@@ -2967,6 +3015,108 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), serviceVehicleId,
         "{\"target\":\"SERVICE_VEHICLE\",\"sv_id\":\"" + serviceVehicleId + "\","
         "\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + "}");
+}
+
+void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::string& serviceVehicleId,
+                                                        veins::LAddress::L2Type serviceMac,
+                                                        veins::LAddress::L2Type ingressRsuMac,
+                                                        veins::LAddress::L2Type anchorRsuMac) {
+    EV_INFO << "📤 Sending service task " << task->task_id << " via RSU path" << endl;
+
+    veins::TaskOffloadPacket* packet = new veins::TaskOffloadPacket();
+    packet->setTask_id(task->task_id.c_str());
+    packet->setOrigin_vehicle_id(task->vehicle_id.c_str());
+    packet->setOrigin_vehicle_mac(myId);
+    packet->setOffload_time(simTime().dbl());
+    packet->setMem_footprint_bytes(task->mem_footprint_bytes);
+    packet->setCpu_cycles(task->cpu_cycles);
+    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setQos_value(task->qos_value);
+    std::string hint = buildServiceRouteHint(serviceMac, anchorRsuMac, myId);
+    packet->setTask_input_data(hint.c_str());
+
+    LAddress::L2Type firstHopRsu = (ingressRsuMac != 0) ? ingressRsuMac : selectBestRSU();
+    if (firstHopRsu == 0) {
+        EV_WARN << "No RSU available for service-task infrastructure route, falling back to direct V2V" << endl;
+        delete packet;
+        sendTaskToServiceVehicle(task, serviceVehicleId, serviceMac);
+        return;
+    }
+
+    populateWSM(packet, firstHopRsu);
+    sendDown(packet);
+
+    offloadedTasks[task->task_id] = task;
+    offloadedTaskTargets[task->task_id] = "SV_" + serviceVehicleId;
+    sendTaskOffloadingEvent(task->task_id, "TASK_DISPATCHED",
+        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+        "{\"target\":\"SERVICE_VEHICLE_VIA_RSU\",\"sv_id\":\"" + serviceVehicleId + "\","
+        "\"ingress_rsu_mac\":" + std::to_string(firstHopRsu) + ","
+        "\"anchor_rsu_mac\":" + std::to_string(anchorRsuMac) + "}");
+}
+
+bool PayloadVehicleApp::lookupVehiclePositionById(const std::string& vehicleId, Coord& outPos) {
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) return false;
+
+    int idx = -1;
+    try {
+        idx = std::stoi(vehicleId);
+    } catch (...) {
+        return false;
+    }
+    if (idx < 0) return false;
+
+    cModule* node = networkModule->getSubmodule("node", idx);
+    if (!node) return false;
+
+    TraCIMobility* targetMobility = FindModule<TraCIMobility*>::findSubModule(node);
+    if (targetMobility) {
+        outPos = targetMobility->getPositionAt(simTime());
+        return true;
+    }
+
+    cModule* mob = node->getSubmodule("mobility");
+    if (!mob) return false;
+    outPos.x = mob->par("x").doubleValue();
+    outPos.y = mob->par("y").doubleValue();
+    outPos.z = mob->hasPar("z") ? mob->par("z").doubleValue() : 0.0;
+    return true;
+}
+
+veins::LAddress::L2Type PayloadVehicleApp::selectBestRSUForPosition(const Coord& position, int* outRsuIndex) {
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) return 0;
+
+    double bestRssi = -1e9;
+    LAddress::L2Type bestMac = 0;
+    int bestIdx = -1;
+
+    for (int i = 0; i < 3; i++) {
+        cModule* rsu = networkModule->getSubmodule("rsu", i);
+        if (!rsu) continue;
+        cModule* rmob = rsu->getSubmodule("mobility");
+        if (!rmob) continue;
+
+        Coord rsuPos(rmob->par("x").doubleValue(), rmob->par("y").doubleValue(),
+                     rmob->hasPar("z") ? rmob->par("z").doubleValue() : 0.0);
+        double rssi = estimateV2vRssiDbm(position, rsuPos);
+        if (rssi > bestRssi) {
+            bestRssi = rssi;
+            bestIdx = i;
+            DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
+                FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsu);
+            bestMac = rsuMacInterface ? rsuMacInterface->getMACAddress() : 0;
+        }
+    }
+
+    if (outRsuIndex) *outRsuIndex = bestIdx;
+    return bestMac;
+}
+
+double PayloadVehicleApp::estimateV2vRssiDbm(const Coord& a, const Coord& b) {
+    double d = std::max(1.0, a.distance(b));
+    return -40.0 - 20.0 * std::log10(d);
 }
 
 void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
@@ -3274,12 +3424,41 @@ void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& ori
     auto mac_it = serviceTaskOriginMACs.find(task->task_id);
     if (mac_it != serviceTaskOriginMACs.end()) {
         veins::LAddress::L2Type origin_mac = mac_it->second;
-        
-        EV_INFO << "  Sending result to origin vehicle MAC: " << origin_mac << endl;
-        
-        // Send directly to origin vehicle
-        populateWSM(result, origin_mac);
-        sendDown(result);
+
+        Coord myPos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
+        Coord tvPos;
+        bool tvPosKnown = lookupVehiclePositionById(originalVehicleId, tvPos);
+        bool directV2v = false;
+        if (tvPosKnown) {
+            double tvSvRssi = estimateV2vRssiDbm(myPos, tvPos);
+            directV2v = (tvSvRssi >= serviceDirectRssiThresholdDbm);
+        }
+
+        if (directV2v) {
+            EV_INFO << "  Sending result directly to origin vehicle MAC: " << origin_mac << endl;
+            populateWSM(result, origin_mac);
+            sendDown(result);
+        } else {
+            // Infrastructure relay path:
+            // SV -> best RSU near SV -> best RSSI RSU near TV -> TV
+            int svRsuIdx = -1;
+            LAddress::L2Type svRsuMac = selectBestRSUForPosition(myPos, &svRsuIdx);
+            int tvRsuIdx = -1;
+            LAddress::L2Type tvBestRsuMac = tvPosKnown ? selectBestRSUForPosition(tvPos, &tvRsuIdx) : 0;
+
+            if (svRsuMac != 0) {
+                std::string relayPayload = buildServiceResultRelayHint(tvBestRsuMac, result->getTask_output_data());
+                result->setTask_output_data(relayPayload.c_str());
+                populateWSM(result, svRsuMac);
+                sendDown(result);
+                EV_INFO << "  Result sent via RSU relay path (SV->RSU->...->TV)" << endl;
+            } else {
+                // Last-resort fallback to direct MAC delivery
+                EV_WARN << "  No RSU available for relay, fallback to direct MAC" << endl;
+                populateWSM(result, origin_mac);
+                sendDown(result);
+            }
+        }
 
         // Lifecycle: SV result sent
         {

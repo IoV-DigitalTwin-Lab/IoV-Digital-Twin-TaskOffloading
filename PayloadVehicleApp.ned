@@ -13,7 +13,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         double initMemory_MB;                     // memory capacity (MB)
 
         // ---- Heartbeat (continuous vehicle telemetry) ----
-        double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz
+        double heartbeatIntervalS @unit(s) = default(0.1s);  // 100 ms DT sync broadcast interval
         double firstStatusDelayS @unit(s) = default(0s);     // delay before first status, allow t=0
 
         // First task generation minimum delay
@@ -57,6 +57,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         int maxConcurrentServiceTasks = default(3);           // Max tasks to process for others
         double serviceCpuReservation = default(0.3);          // CPU reserved for service (30%)
         double serviceMemoryReservation = default(512e6);     // Memory reserved for service (512 MB)
+        double serviceDirectRssiThresholdDbm = default(-72);  // Direct V2V threshold for TV<->SV and SV<->TV
         
         // ============================================================================
         // MULTI-RSU CANDIDATE SELECTION & REDIRECT PARAMETERS

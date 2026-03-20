@@ -13,9 +13,9 @@ using complex_network::TaskProfileDatabase;
  * Based on RADiT paper energy consumption formulation
  * 
  * Key components:
- * 1. Local execution: E = κ_vehicle × (f_alloc - f_actual)² × d × c
+ * 1. Local execution: E = κ_vehicle × f² × c
  * 2. Transmission: E = P_tx × t_tx
- * 3. RSU computation: E = κ_rsu × (f_alloc - f_actual)² × d × c
+ * 3. RSU computation: E = κ_rsu × f² × c
  */
 
 namespace EnergyConstants {
@@ -35,11 +35,15 @@ namespace EnergyConstants {
     // Idle power (device on but not computing)
     constexpr double IDLE_POWER = 0.2;           // Watts
     
-    // Frequency scaling (affects energy quadratically in RADiT model)
+    // Frequency scaling (affects energy quadratically in this model)
     // Typical: 1.0 GHz to 1.5 GHz for Jetson Nano   
     constexpr double FREQ_NOMINAL = 1.0e9;       // Hz (1.0 GHz)
     constexpr double FREQ_MAX = 1.5e9;           // Hz (1.5 GHz, boost)
     constexpr double FREQ_MIN = 0.5e9;           // Hz (0.5 GHz, power-save)
+    constexpr double FREQ_RSU_NOMINAL = 4.0e9;   // Hz (4.0 GHz RSU nominal)
+
+    // Guard against near-zero link rates that create unrealistic tx energy spikes.
+    constexpr double MIN_TX_RATE_BPS = 1.0e5;    // 100 kbps floor
 }
 
 /**
@@ -52,10 +56,10 @@ public:
     
     /**
      * Calculate energy for local task execution
-     * E_loc = κ_vehicle × (f_alloc - f_actual)² × d × c
+        * E_loc = κ_vehicle × f² × c
      * 
      * @param cpu_cycles: task CPU cycles (from TaskProfile)
-     * @param data_size_bytes: task input data in bytes
+        * @param data_size_bytes: task input data in bytes (kept for API compatibility)
      * @param execution_time_sec: actual execution time
      * @param freq_allocated_hz: CPU frequency allocated (typically FREQ_NOMINAL)
      * @param freq_actual_hz: actual CPU frequency (may differ due to thermal/power constraints)
@@ -80,10 +84,10 @@ public:
     
     /**
      * Calculate RSU computation energy
-     * E_rsu = κ_rsu × (f_alloc - f_actual)² × d × c
+        * E_rsu = κ_rsu × f² × c
      * 
      * @param cpu_cycles: task CPU cycles
-     * @param data_size_bytes: task input data
+        * @param data_size_bytes: task input data (kept for API compatibility)
      * @param execution_time_sec: execution time at RSU
      * @param freq_allocated_hz: RSU CPU frequency
      * @param freq_actual_hz: actual RSU frequency
@@ -127,16 +131,11 @@ public:
     
 private:
     /**
-     * Raw energy formula from RADiT:
-     * E = κ × (f_alloc - f_actual)² × data_size × cpu_cycles
-     * 
-     * Rearranged for computation energy and execution time
+     * Dynamic compute-energy core (CMOS-style): E = κ × f² × cycles.
      */
     double energyFormula(double kappa,
-                        double freq_allocated,
-                        double freq_actual,
-                        uint64_t cpu_cycles,
-                        uint32_t data_size_bytes);
+                        double frequency_hz,
+                        uint64_t cpu_cycles);
 };
 
 #endif /* ENERGYMODEL_H_ */

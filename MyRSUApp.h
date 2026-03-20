@@ -8,6 +8,7 @@
 #include "RedisDigitalTwin.h"
 #include <map>
 #include <vector>
+#include <deque>
 #include <string>
 #include <libpq-fe.h>
 
@@ -125,6 +126,21 @@ struct RSUNeighborState {
 };
 
 /**
+ * Vehicle coverage ownership record used by RSU Digital Twin.
+ * It identifies whether a vehicle currently belongs to self RSU range
+ * or to one of the neighboring RSU ranges.
+ */
+struct VehicleCoverageRecord {
+    std::string vehicle_id;
+    std::string best_rsu_id;
+    LAddress::L2Type best_rsu_mac = 0;
+    bool in_self_range = false;
+    double best_rssi = -1e9;
+    double self_rssi = -1e9;
+    double last_update_time = 0.0;
+};
+
+/**
  * RSU Active Task (for task queue and processing)
  */
 struct RSUActiveTask {
@@ -235,15 +251,22 @@ private:
     // Digital Twin Data Structures
     std::map<std::string, VehicleDigitalTwin> vehicle_twins;  // vehicle_id -> twin
     std::map<std::string, TaskRecord> task_records;           // task_id -> record
+    std::map<std::string, VehicleCoverageRecord> vehicle_coverage_records; // vehicle_id -> coverage owner
     
     // Digital Twin Management Methods
     void handleTaskMetadata(TaskMetadataMessage* msg);
     void handleTaskCompletion(TaskCompletionMessage* msg);
     void handleTaskFailure(TaskFailureMessage* msg);
     void handleTaskResultWithCompletion(TaskResultMessage* msg);
+    void handleRSUTaskResultRelay(TaskResultMessage* msg);
+    void handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress::L2Type targetRsuMac);
     void handleVehicleResourceStatus(VehicleResourceStatusMessage* msg);
     
     VehicleDigitalTwin& getOrCreateVehicleTwin(const std::string& vehicle_id);
+    void refreshVehicleCoverageRecord(const std::string& vehicle_id);
+    LAddress::L2Type getBestRsuByRssiForVehicle(const std::string& vehicle_id,
+                                                 std::string* bestRsuId = nullptr,
+                                                 bool* inSelfRange = nullptr);
     void updateDigitalTwinStatistics();
     void logDigitalTwinState();
     void logTaskRecord(const TaskRecord& record, const std::string& event);
@@ -297,6 +320,7 @@ private:
     struct PendingRSUTask {
         std::string vehicle_id;
         LAddress::L2Type vehicle_mac = 0;
+        LAddress::L2Type ingress_rsu_mac = 0;
         uint64_t cpu_cycles = 0;            // total cycles required for this task
         double cycles_remaining = 0.0;      // cycles not yet executed (updated at each reschedule)
         double exec_time_s = 0.0;           // current projected execution time (seconds)
@@ -307,12 +331,13 @@ private:
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
 
-    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
+    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so every task gets an equal share of edgeCPU_GHz.
     void reallocateRSUTasks(double new_cpu_per_task_Hz);
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
-                                  LAddress::L2Type vehicle_mac, bool success, double processing_time);
+                                  LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
+                                  bool success, double processing_time);
     
     // Configuration parameters
     bool mlModelEnabled = false;
@@ -335,6 +360,7 @@ private:
     bool use_redis = true;  // Config parameter
     std::string redis_host = "127.0.0.1";
     int redis_port = 6379;
+    int redis_db = 0;
     
     void initDatabase();
     void closeDatabase();
