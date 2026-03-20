@@ -266,9 +266,9 @@ private:
     // and reschedule each completion event, mirroring reallocateCPUResources().
     void reallocateServiceCPUResources();
     void sendServiceTaskResult(Task* task, const std::string& originalVehicleId);
-    bool lookupVehiclePositionById(const std::string& vehicleId, Coord& outPos);
-    veins::LAddress::L2Type selectBestRSUForPosition(const Coord& position, int* outRsuIndex = nullptr);
-    double estimateV2vRssiDbm(const Coord& a, const Coord& b);
+    bool lookupVehiclePositionById(const std::string& vehicleId, veins::Coord& outPos);
+    veins::LAddress::L2Type selectBestRSUForPosition(const veins::Coord& position, int* outRsuIndex = nullptr);
+    double estimateV2vRssiDbm(const veins::Coord& a, const veins::Coord& b);
     
     // RSU Selection Members
     std::map<int, RSUMetrics> rsuMetrics;            // Metrics for each RSU (indexed by RSU number)

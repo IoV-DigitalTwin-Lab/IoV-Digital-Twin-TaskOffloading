@@ -45,7 +45,7 @@ simple MyRSUApp like IBaseApplLayer
         double neighborStateTtl @unit(s) = default(1.5s);            // Time-to-live for neighbor state cache
         int maxVehiclesInBroadcast = default(20);                     // Max vehicle IDs to include in broadcast
         int maxRedirectHops = default(2);                             // Max redirect hops for task offloading
-        double rsuCoverageRadius_m = default(300m);                   // Coverage radius for self-range ownership
+        double rsuCoverageRadius_m @unit(m) = default(300m);          // Coverage radius for self-range ownership
         
         // Overload Detection Parameters
         double overloadQueueThreshold = default(0.8);                 // Queue load threshold (80% of max)
