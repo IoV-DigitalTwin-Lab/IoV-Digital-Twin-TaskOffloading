@@ -10,6 +10,7 @@
 #include <vector>
 #include <deque>
 #include <string>
+#include <set>
 #include <libpq-fe.h>
 
 using namespace veins;
@@ -361,6 +362,20 @@ private:
     std::string redis_host = "127.0.0.1";
     int redis_port = 6379;
     int redis_db = 0;
+
+    // Secondary run export controls (motion + channel context only, no SINR math)
+    bool secondary_link_context_export = false;
+    std::string secondary_run_id = "dt2_default";
+    double secondary_link_sample_interval = 0.1;
+    int secondary_redis_max_series_len = 6000;
+    std::map<std::string, double> secondary_last_export_time; // vehicle_id -> last export sim_time
+
+    struct RsuStaticContext {
+        std::string rsu_id;
+        double pos_x = 0.0;
+        double pos_y = 0.0;
+    };
+    std::vector<RsuStaticContext> rsu_static_contexts;
     
     void initDatabase();
     void closeDatabase();
@@ -390,6 +405,25 @@ private:
     void insertRSUMetadata();
     void insertVehicleMetadata(const std::string& vehicle_id);
     void sendRSUStatusUpdate();
+
+    // Secondary DT storage exports (DB + Redis)
+    void initializeRsuStaticContexts();
+    void exportSecondaryContextSamples(const VehicleResourceStatusMessage* msg,
+                                       const VehicleDigitalTwin& sourceTwin);
+    void insertSecondaryProgress(double sim_time);
+    void insertSecondaryVehicleSample(const VehicleResourceStatusMessage* msg);
+    void insertSecondaryLinkSample(const std::string& link_type,
+                                   const std::string& tx_entity_id,
+                                   const std::string& rx_entity_id,
+                                   double sim_time,
+                                   double tx_pos_x,
+                                   double tx_pos_y,
+                                   double rx_pos_x,
+                                   double rx_pos_y,
+                                   double distance_m,
+                                   double relative_speed,
+                                   double tx_heading,
+                                   double rx_heading);
     
     // ============================================================================
     // RSU-TO-RSU COMMUNICATION METHODS

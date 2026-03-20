@@ -336,6 +336,63 @@ CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_type ON vehicle_metadata (vehicl
 CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_service ON vehicle_metadata (service_vehicle);
 
 -- ============================================================================
+-- SECONDARY DIGITAL TWIN (MOTION + CHANNEL CONTEXT, NO SINR VALUES)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS dt_secondary_progress (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    sim_time DOUBLE PRECISION NOT NULL,
+    sample_interval_s DOUBLE PRECISION,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_secondary_progress_run_time
+    ON dt_secondary_progress (run_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_vehicle_state_samples (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    vehicle_id TEXT NOT NULL,
+    sim_time DOUBLE PRECISION NOT NULL,
+    pos_x DOUBLE PRECISION,
+    pos_y DOUBLE PRECISION,
+    speed DOUBLE PRECISION,
+    heading DOUBLE PRECISION,
+    acceleration DOUBLE PRECISION,
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_vehicle_state_samples_vehicle_time
+    ON dt_vehicle_state_samples (run_id, vehicle_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_link_context_samples (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    link_type TEXT NOT NULL, -- V2RSU or V2V
+    tx_entity_id TEXT NOT NULL,
+    rx_entity_id TEXT NOT NULL,
+    sim_time DOUBLE PRECISION NOT NULL,
+    tx_pos_x DOUBLE PRECISION,
+    tx_pos_y DOUBLE PRECISION,
+    rx_pos_x DOUBLE PRECISION,
+    rx_pos_y DOUBLE PRECISION,
+    distance_m DOUBLE PRECISION,
+    relative_speed DOUBLE PRECISION,
+    tx_heading DOUBLE PRECISION,
+    rx_heading DOUBLE PRECISION,
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_link_context_samples_lookup
+    ON dt_link_context_samples (run_id, link_type, tx_entity_id, rx_entity_id, sim_time);
+
+-- ============================================================================
 -- MIGRATION: Add task profile columns to task_metadata (idempotent)
 -- ============================================================================
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_name TEXT;

@@ -569,4 +569,122 @@ int RedisDigitalTwin::getActiveTaskCount() {
     return count;
 }
 
+void RedisDigitalTwin::updateSecondaryProgress(const std::string& run_id,
+                                               double sim_time,
+                                               double sample_interval_s) {
+    if (!redis_ctx || !is_connected) return;
+
+    std::string key = "dt2:progress:" + run_id;
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s sim_time %f sample_interval_s %f updated_at %f",
+        key.c_str(), sim_time, sample_interval_s, sim_time
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 progress update error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+void RedisDigitalTwin::pushSecondaryVehicleSample(const std::string& run_id,
+                                                  const std::string& vehicle_id,
+                                                  double sim_time,
+                                                  double pos_x,
+                                                  double pos_y,
+                                                  double speed,
+                                                  double heading,
+                                                  double acceleration,
+                                                  int max_series_len) {
+    if (!redis_ctx || !is_connected) return;
+
+    std::string latest_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":latest";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
+        latest_key.c_str(), sim_time, pos_x, pos_y, speed, heading, acceleration
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 vehicle latest HMSET error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    std::string stream_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":samples";
+    reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "XADD %s MAXLEN ~ %d * sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
+        stream_key.c_str(), std::max(1, max_series_len),
+        sim_time, pos_x, pos_y, speed, heading, acceleration
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 vehicle XADD error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+void RedisDigitalTwin::pushSecondaryV2RsuLinkSample(const std::string& run_id,
+                                                    const std::string& tx_vehicle_id,
+                                                    const std::string& rsu_id,
+                                                    double sim_time,
+                                                    double tx_x,
+                                                    double tx_y,
+                                                    double rx_x,
+                                                    double rx_y,
+                                                    double distance_m,
+                                                    double relative_speed,
+                                                    double tx_heading,
+                                                    int max_series_len) {
+    if (!redis_ctx || !is_connected) return;
+
+    std::string stream_key = "dt2:link:v2rsu:" + run_id + ":" + tx_vehicle_id + ":" + rsu_id + ":samples";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "XADD %s MAXLEN ~ %d * sim_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f relative_speed %f tx_heading %f",
+        stream_key.c_str(), std::max(1, max_series_len),
+        sim_time, tx_x, tx_y, rx_x, rx_y, distance_m, relative_speed, tx_heading
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 v2rsu XADD error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+void RedisDigitalTwin::pushSecondaryV2vLinkSample(const std::string& run_id,
+                                                  const std::string& tx_vehicle_id,
+                                                  const std::string& rx_vehicle_id,
+                                                  double sim_time,
+                                                  double tx_x,
+                                                  double tx_y,
+                                                  double rx_x,
+                                                  double rx_y,
+                                                  double distance_m,
+                                                  double relative_speed,
+                                                  double tx_heading,
+                                                  double rx_heading,
+                                                  int max_series_len) {
+    if (!redis_ctx || !is_connected) return;
+
+    std::string stream_key = "dt2:link:v2v:" + run_id + ":" + tx_vehicle_id + ":" + rx_vehicle_id + ":samples";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "XADD %s MAXLEN ~ %d * sim_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f relative_speed %f tx_heading %f rx_heading %f",
+        stream_key.c_str(), std::max(1, max_series_len),
+        sim_time, tx_x, tx_y, rx_x, rx_y, distance_m, relative_speed, tx_heading, rx_heading
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 v2v XADD error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
 } // namespace
