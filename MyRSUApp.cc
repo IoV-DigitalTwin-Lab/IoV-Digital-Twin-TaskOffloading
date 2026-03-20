@@ -15,6 +15,8 @@ namespace complex_network {
 namespace {
 constexpr const char* kRoutePrefix = "ROUTE|";
 constexpr const char* kRelayPayloadPrefix = "RSU_RELAY_RESULT|";
+constexpr const char* kServiceRoutePrefix = "SVROUTE|";
+constexpr const char* kServiceResultRelayPrefix = "SV_RESULT_RELAY|";
 
 bool parseRouteHint(const std::string& routeHint, LAddress::L2Type& ingressRsuMac, LAddress::L2Type& processorRsuMac) {
     ingressRsuMac = 0;
@@ -59,6 +61,49 @@ std::string stripRelayPrefix(const std::string& payload) {
         return payload.substr(std::char_traits<char>::length(kRelayPayloadPrefix));
     }
     return payload;
+}
+
+bool parseServiceRouteHint(const std::string& hint, LAddress::L2Type& serviceVehicleMac, LAddress::L2Type& anchorRsuMac) {
+    serviceVehicleMac = 0;
+    anchorRsuMac = 0;
+    if (hint.rfind(kServiceRoutePrefix, 0) != 0) return false;
+
+    size_t svPos = hint.find("sv=");
+    size_t anchorPos = hint.find("anchor=");
+    if (svPos == std::string::npos || anchorPos == std::string::npos) return false;
+
+    try {
+        size_t svStart = svPos + 3;
+        size_t svEnd = hint.find('|', svStart);
+        size_t anchorStart = anchorPos + 7;
+        size_t anchorEnd = hint.find('|', anchorStart);
+        serviceVehicleMac = static_cast<LAddress::L2Type>(std::stoull(hint.substr(svStart, svEnd - svStart)));
+        anchorRsuMac = static_cast<LAddress::L2Type>(std::stoull(hint.substr(anchorStart, anchorEnd - anchorStart)));
+    } catch (...) {
+        serviceVehicleMac = 0;
+        anchorRsuMac = 0;
+        return false;
+    }
+    return true;
+}
+
+bool parseServiceResultRelayHint(const std::string& payload, LAddress::L2Type& targetRsuMac, std::string& cleanPayload) {
+    targetRsuMac = 0;
+    cleanPayload = payload;
+    if (payload.rfind(kServiceResultRelayPrefix, 0) != 0) return false;
+
+    size_t targetPos = payload.find("target=");
+    if (targetPos == std::string::npos) return false;
+
+    try {
+        size_t valueStart = targetPos + 7;
+        size_t valueEnd = payload.find('|', valueStart);
+        targetRsuMac = static_cast<LAddress::L2Type>(std::stoull(payload.substr(valueStart, valueEnd - valueStart)));
+        cleanPayload = (valueEnd == std::string::npos) ? std::string() : payload.substr(valueEnd + 1);
+    } catch (...) {
+        return false;
+    }
+    return true;
 }
 
 double estimateRssiFromDistance(double distanceMeters) {
@@ -422,6 +467,12 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // Handle TaskResultMessage with completion timing data
     TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
     if (taskResult) {
+        LAddress::L2Type svTargetRsuMac = 0;
+        std::string cleanPayload;
+        if (parseServiceResultRelayHint(taskResult->getTask_output_data(), svTargetRsuMac, cleanPayload)) {
+            handleServiceVehicleResultRelay(taskResult, svTargetRsuMac);
+            return;
+        }
         if (isRelayTaskResult(taskResult)) {
             EV_INFO << "📥 RSU received relayed TaskResultMessage" << endl;
             handleRSUTaskResultRelay(taskResult);
@@ -2026,6 +2077,43 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     if (decisionType == "SERVICE_VEHICLE") {
         decision->setTarget_service_vehicle_id(target_service_vehicle_id.c_str());
         decision->setTarget_service_vehicle_mac(target_service_vehicle_mac);
+
+        // Service-vehicle case routing policy:
+        // - If TV<->SV direct RSSI is strong: direct V2V.
+        // - Otherwise use RSU infrastructure with anchor RSU nearest to SV.
+        auto svIt = vehicle_twins.find(target_service_vehicle_id);
+        if (svIt != vehicle_twins.end()) {
+            Coord tvPos(request.pos_x, request.pos_y);
+            Coord svPos(svIt->second.pos_x, svIt->second.pos_y);
+            double tvSvRssi = estimateRssiFromDistance(tvPos.distance(svPos));
+            const double DIRECT_SV_RSSI_THRESHOLD = -72.0;
+
+            if (tvSvRssi < DIRECT_SV_RSSI_THRESHOLD) {
+                LAddress::L2Type bestAnchorMac = myId;
+                std::string bestAnchorId = "RSU_" + std::to_string(rsu_id);
+                double bestRssiToSv = estimateRssiFromDistance(svPos.distance(curPosition));
+
+                for (const auto& kv : neighbor_rsus) {
+                    const RSUNeighborState& neighbor = kv.second;
+                    if (!isNeighborStateFresh(neighbor)) {
+                        continue;
+                    }
+                    Coord npos(neighbor.pos_x, neighbor.pos_y);
+                    double rssiToSv = estimateRssiFromDistance(svPos.distance(npos));
+                    if (rssiToSv > bestRssiToSv) {
+                        bestRssiToSv = rssiToSv;
+                        bestAnchorMac = neighbor.rsu_mac;
+                        bestAnchorId = neighbor.rsu_id;
+                    }
+                }
+
+                decision->setRedirect_target_rsu_id(bestAnchorId.c_str());
+                decision->setRedirect_target_rsu_mac(bestAnchorMac);
+                decision->setNext_candidate_index(0);
+                reason += "; infra SV route via " + bestAnchorId;
+                decision->setDecision_reason(reason.c_str());
+            }
+        }
     }
 
     // Phase 3: keep ingress stable but allow ingress RSU to forward execution to a healthier neighbor.
@@ -2132,6 +2220,32 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
     EV_INFO << "  Origin Vehicle: " << vehicle_id << endl;
     EV_INFO << "  Task Size: " << (msg->getMem_footprint_bytes() / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
+
+    // Service-vehicle path routing:
+    // TV -> ingress RSU -> optional anchor RSU -> SV
+    LAddress::L2Type serviceVehicleMac = 0;
+    LAddress::L2Type anchorRsuMac = 0;
+    if (parseServiceRouteHint(msg->getTask_input_data(), serviceVehicleMac, anchorRsuMac)) {
+        if (anchorRsuMac != 0 && anchorRsuMac != myId) {
+            EV_INFO << "↪ Forwarding service task " << task_id << " to anchor RSU MAC " << anchorRsuMac << endl;
+            populateWSM(msg, anchorRsuMac);
+            sendDown(msg);
+            insertLifecycleEvent(task_id, "SV_TASK_FORWARD_TO_ANCHOR_RSU",
+                "RSU_" + std::to_string(rsu_id), "RSU",
+                std::string("{\"anchor_rsu_mac\":") + std::to_string(anchorRsuMac) + "}");
+            return;
+        }
+
+        if (serviceVehicleMac != 0) {
+            EV_INFO << "↪ Relaying service task " << task_id << " to SV MAC " << serviceVehicleMac << endl;
+            populateWSM(msg, serviceVehicleMac);
+            sendDown(msg);
+            insertLifecycleEvent(task_id, "SV_TASK_RELAY_TO_VEHICLE",
+                "RSU_" + std::to_string(rsu_id), "SERVICE_VEHICLE",
+                std::string("{\"service_vehicle_mac\":") + std::to_string(serviceVehicleMac) + "}");
+            return;
+        }
+    }
 
     LAddress::L2Type ingressRsuMac = myId;
     LAddress::L2Type processorRsuMac = 0;
@@ -2348,6 +2462,46 @@ void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
     populateWSM(msg, macIt->second);
     sendDown(msg);
     insertLifecycleEvent(task_id, "RSU_RESULT_RELAY_TO_VEHICLE",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"relay\":true}");
+}
+
+void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress::L2Type targetRsuMac) {
+    const std::string task_id = msg->getTask_id();
+    const std::string vehicle_id = msg->getOrigin_vehicle_id();
+
+    // Keep relay metadata for intermediate RSU hops and strip it only at final egress RSU.
+    LAddress::L2Type parsedTarget = 0;
+    std::string cleanPayload;
+    if (parseServiceResultRelayHint(msg->getTask_output_data(), parsedTarget, cleanPayload)) {
+        if (targetRsuMac == 0) {
+            targetRsuMac = parsedTarget;
+        }
+    }
+
+    if (targetRsuMac != 0 && targetRsuMac != myId) {
+        populateWSM(msg, targetRsuMac);
+        sendDown(msg);
+        insertLifecycleEvent(task_id, "SV_RESULT_FORWARD_TO_TARGET_RSU",
+            "RSU_" + std::to_string(rsu_id), "RSU",
+            std::string("{\"target_rsu_mac\":") + std::to_string(targetRsuMac) + "}");
+        return;
+    }
+
+    auto macIt = vehicle_macs.find(vehicle_id);
+    if (macIt == vehicle_macs.end()) {
+        EV_WARN << "SV result relay: vehicle MAC unknown for " << vehicle_id << endl;
+        delete msg;
+        return;
+    }
+
+    if (!cleanPayload.empty()) {
+        msg->setTask_output_data(cleanPayload.c_str());
+    }
+
+    populateWSM(msg, macIt->second);
+    sendDown(msg);
+    insertLifecycleEvent(task_id, "SV_RESULT_DELIVERED_TO_VEHICLE",
         "RSU_" + std::to_string(rsu_id), vehicle_id,
         "{\"relay\":true}");
 }

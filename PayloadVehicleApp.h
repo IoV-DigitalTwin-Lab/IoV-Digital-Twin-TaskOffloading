@@ -217,6 +217,10 @@ private:
     void sendTaskToRSU(Task* task, veins::LAddress::L2Type targetRsuMac);
     void sendTaskToRSU(Task* task, veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac);
     void sendTaskToServiceVehicle(Task* task, const std::string& serviceVehicleId, veins::LAddress::L2Type serviceMac);
+    void sendTaskToServiceVehicleViaRSU(Task* task, const std::string& serviceVehicleId,
+                                        veins::LAddress::L2Type serviceMac,
+                                        veins::LAddress::L2Type ingressRsuMac,
+                                        veins::LAddress::L2Type anchorRsuMac);
     void handleTaskResult(veins::TaskResultMessage* msg);
     void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
                                    const std::string& sourceEntity, const std::string& targetEntity,
@@ -254,6 +258,7 @@ private:
     std::set<Task*> processingServiceTasks;  // Currently processing service tasks
     std::map<std::string, std::string> serviceTaskOriginVehicles;  // task_id -> origin_vehicle_id
     std::map<std::string, veins::LAddress::L2Type> serviceTaskOriginMACs;  // task_id -> origin_mac
+    double serviceDirectRssiThresholdDbm = -72.0;   // direct TV<->SV/SV<->TV threshold
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);
@@ -261,6 +266,9 @@ private:
     // and reschedule each completion event, mirroring reallocateCPUResources().
     void reallocateServiceCPUResources();
     void sendServiceTaskResult(Task* task, const std::string& originalVehicleId);
+    bool lookupVehiclePositionById(const std::string& vehicleId, Coord& outPos);
+    veins::LAddress::L2Type selectBestRSUForPosition(const Coord& position, int* outRsuIndex = nullptr);
+    double estimateV2vRssiDbm(const Coord& a, const Coord& b);
     
     // RSU Selection Members
     std::map<int, RSUMetrics> rsuMetrics;            // Metrics for each RSU (indexed by RSU number)

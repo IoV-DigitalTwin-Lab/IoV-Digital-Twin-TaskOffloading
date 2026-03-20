@@ -259,6 +259,7 @@ private:
     void handleTaskFailure(TaskFailureMessage* msg);
     void handleTaskResultWithCompletion(TaskResultMessage* msg);
     void handleRSUTaskResultRelay(TaskResultMessage* msg);
+    void handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress::L2Type targetRsuMac);
     void handleVehicleResourceStatus(VehicleResourceStatusMessage* msg);
     
     VehicleDigitalTwin& getOrCreateVehicleTwin(const std::string& vehicle_id);
