@@ -1950,6 +1950,7 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     
     // Create VehicleResourceStatusMessage
     VehicleResourceStatusMessage* statusMsg = new VehicleResourceStatusMessage();
+    statusMsg->setSenderAddress(myId);
     
     // Vehicle identification
     std::ostringstream veh_id;

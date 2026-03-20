@@ -349,6 +349,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
  * //
  * packet VehicleResourceStatusMessage extends BaseFrame1609_4
  * {
+ *     LAddress::L2Type senderAddress = -1; // Sender's MAC address
  *     string vehicle_id;           // Vehicle identifier
  * 
  *     // Vehicle State
@@ -386,6 +387,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
 class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 {
   protected:
+    LAddress::L2Type senderAddress = -1;
     ::omnetpp::opp_string vehicle_id;
     double pos_x = 0;
     double pos_y = 0;
@@ -423,6 +425,10 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
     virtual VehicleResourceStatusMessage *dup() const override {return new VehicleResourceStatusMessage(*this);}
     virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
     virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const LAddress::L2Type& getSenderAddress() const;
+    virtual LAddress::L2Type& getSenderAddressForUpdate() { return const_cast<LAddress::L2Type&>(const_cast<VehicleResourceStatusMessage*>(this)->getSenderAddress());}
+    virtual void setSenderAddress(const LAddress::L2Type& senderAddress);
 
     virtual const char * getVehicle_id() const;
     virtual void setVehicle_id(const char * vehicle_id);
@@ -495,7 +501,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatus
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:117</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:118</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
@@ -647,7 +653,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:153</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:154</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -755,7 +761,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:180</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:181</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -838,7 +844,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:199</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:200</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -914,7 +920,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:215</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:216</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
@@ -978,7 +984,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:227</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:228</tt> by opp_msgtool.
  * <pre>
  * //
  * // RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)

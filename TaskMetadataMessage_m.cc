@@ -2179,6 +2179,7 @@ VehicleResourceStatusMessage& VehicleResourceStatusMessage::operator=(const Vehi
 
 void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& other)
 {
+    this->senderAddress = other.senderAddress;
     this->vehicle_id = other.vehicle_id;
     this->pos_x = other.pos_x;
     this->pos_y = other.pos_y;
@@ -2206,6 +2207,7 @@ void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& othe
 void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
 {
     ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->senderAddress);
     doParsimPacking(b,this->vehicle_id);
     doParsimPacking(b,this->pos_x);
     doParsimPacking(b,this->pos_y);
@@ -2233,6 +2235,7 @@ void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
 void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
 {
     ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->senderAddress);
     doParsimUnpacking(b,this->vehicle_id);
     doParsimUnpacking(b,this->pos_x);
     doParsimUnpacking(b,this->pos_y);
@@ -2255,6 +2258,16 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->current_processing_count);
     doParsimUnpacking(b,this->avg_completion_time);
     doParsimUnpacking(b,this->deadline_miss_ratio);
+}
+
+const LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void VehicleResourceStatusMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
+{
+    this->senderAddress = senderAddress;
 }
 
 const char * VehicleResourceStatusMessage::getVehicle_id() const
@@ -2482,6 +2495,7 @@ class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
   private:
     mutable const char **propertyNames;
     enum FieldConstants {
+        FIELD_senderAddress,
         FIELD_vehicle_id,
         FIELD_pos_x,
         FIELD_pos_y,
@@ -2570,7 +2584,7 @@ const char *VehicleResourceStatusMessageDescriptor::getProperty(const char *prop
 int VehicleResourceStatusMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 22+base->getFieldCount() : 22;
+    return base ? 23+base->getFieldCount() : 23;
 }
 
 unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field) const
@@ -2582,6 +2596,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         field -= base->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
+        0,    // FIELD_senderAddress
         FD_ISEDITABLE,    // FIELD_vehicle_id
         FD_ISEDITABLE,    // FIELD_pos_x
         FD_ISEDITABLE,    // FIELD_pos_y
@@ -2605,7 +2620,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_avg_completion_time
         FD_ISEDITABLE,    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 22) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 23) ? fieldTypeFlags[field] : 0;
 }
 
 const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) const
@@ -2617,6 +2632,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         field -= base->getFieldCount();
     }
     static const char *fieldNames[] = {
+        "senderAddress",
         "vehicle_id",
         "pos_x",
         "pos_y",
@@ -2640,35 +2656,36 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "avg_completion_time",
         "deadline_miss_ratio",
     };
-    return (field >= 0 && field < 22) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 23) ? fieldNames[field] : nullptr;
 }
 
 int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
     int baseIndex = base ? base->getFieldCount() : 0;
-    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 0;
-    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 1;
-    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 2;
-    if (strcmp(fieldName, "speed") == 0) return baseIndex + 3;
-    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 4;
-    if (strcmp(fieldName, "heading") == 0) return baseIndex + 5;
-    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 6;
-    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 7;
-    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 8;
-    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 9;
-    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 10;
-    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 11;
-    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 12;
-    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 13;
-    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 14;
-    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 15;
-    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 16;
-    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 17;
-    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 18;
-    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 19;
-    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 20;
-    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "senderAddress") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "speed") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "heading") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 13;
+    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 14;
+    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 15;
+    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 16;
+    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 17;
+    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 18;
+    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 22;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -2681,6 +2698,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         field -= base->getFieldCount();
     }
     static const char *fieldTypeStrings[] = {
+        "veins::LAddress::L2Type",    // FIELD_senderAddress
         "string",    // FIELD_vehicle_id
         "double",    // FIELD_pos_x
         "double",    // FIELD_pos_y
@@ -2704,7 +2722,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_avg_completion_time
         "double",    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 22) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 23) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **VehicleResourceStatusMessageDescriptor::getFieldPropertyNames(int field) const
@@ -2787,6 +2805,7 @@ std::string VehicleResourceStatusMessageDescriptor::getFieldValueAsString(omnetp
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return "";
         case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
         case FIELD_pos_x: return double2string(pp->getPos_x());
         case FIELD_pos_y: return double2string(pp->getPos_y());
@@ -2861,6 +2880,7 @@ omnetpp::cValue VehicleResourceStatusMessageDescriptor::getFieldValue(omnetpp::a
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
         case FIELD_vehicle_id: return pp->getVehicle_id();
         case FIELD_pos_x: return pp->getPos_x();
         case FIELD_pos_y: return pp->getPos_y();
@@ -2948,6 +2968,7 @@ omnetpp::any_ptr VehicleResourceStatusMessageDescriptor::getFieldStructValuePoin
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
         default: return omnetpp::any_ptr(nullptr);
     }
 }

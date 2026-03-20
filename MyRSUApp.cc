@@ -899,8 +899,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::string vehicle_id = msg->getVehicle_id();
     VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
-    // VehicleResourceStatusMessage in this build does not carry senderAddress,
-    // so MAC mapping remains sourced from offloading request/decision traffic.
+    vehicle_macs[vehicle_id] = msg->getSenderAddress();
     
     // Update vehicle state
     twin.pos_x = msg->getPos_x();

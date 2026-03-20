@@ -78,6 +78,7 @@ packet TaskFailureMessage extends BaseFrame1609_4 {
 // Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
 //
 packet VehicleResourceStatusMessage extends BaseFrame1609_4 {
+    LAddress::L2Type senderAddress = -1; // Sender's MAC address
     string vehicle_id;           // Vehicle identifier
     
     // Vehicle State
