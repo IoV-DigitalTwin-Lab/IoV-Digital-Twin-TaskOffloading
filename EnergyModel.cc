@@ -1,4 +1,5 @@
 #include "EnergyModel.h"
+#include <algorithm>
 #include <cmath>
 
 EnergyCalculator::EnergyCalculator() {
@@ -8,22 +9,14 @@ EnergyCalculator::~EnergyCalculator() {
 }
 
 double EnergyCalculator::energyFormula(double kappa,
-                                       double freq_allocated,
-                                       double freq_actual,
-                                       uint64_t cpu_cycles,
-                                       uint32_t data_size_bytes) {
-    // RADiT formula: E = κ × (f_alloc - f_actual)² × d × c
-    // Simplified for cases where f_alloc ≈ f_actual:
-    // E ≈ κ × f² × d × c (dominant term)
-    
-    if (data_size_bytes == 0 || cpu_cycles == 0) {
+                                       double frequency_hz,
+                                       uint64_t cpu_cycles) {
+    // Compute-energy model: E = kappa * f^2 * cycles
+    if (frequency_hz <= 0.0 || cpu_cycles == 0) {
         return 0.0;
     }
-    
-    double freq_diff = freq_allocated - freq_actual;
-    double energy = kappa * freq_diff * freq_diff * cpu_cycles * data_size_bytes;
-    
-    return energy;
+
+    return kappa * frequency_hz * frequency_hz * static_cast<double>(cpu_cycles);
 }
 
 double EnergyCalculator::calcLocalExecutionEnergy(uint64_t cpu_cycles,
@@ -31,14 +24,13 @@ double EnergyCalculator::calcLocalExecutionEnergy(uint64_t cpu_cycles,
                                                   double execution_time_sec,
                                                   double freq_allocated_hz,
                                                   double freq_actual_hz) {
-    // Local execution on vehicle
-    // E_loc = κ_vehicle × (f_alloc - f_actual)² × d × c
-    
+    // Local execution on vehicle: E_loc = kappa_vehicle * f^2 * cycles
+    (void)data_size_bytes;
+    (void)execution_time_sec;
+    double effective_freq_hz = (freq_actual_hz > 0.0) ? freq_actual_hz : freq_allocated_hz;
     return energyFormula(EnergyConstants::KAPPA_VEHICLE,
-                        freq_allocated_hz,
-                        freq_actual_hz,
-                        cpu_cycles,
-                        data_size_bytes);
+                         effective_freq_hz,
+                         cpu_cycles);
 }
 
 double EnergyCalculator::calcTransmissionEnergy(uint32_t data_size_bytes,
@@ -46,11 +38,13 @@ double EnergyCalculator::calcTransmissionEnergy(uint32_t data_size_bytes,
     // E_tx = P_tx × t_tx
     // where t_tx = data_size_bytes × 8 / transmission_rate_bps
     
-    if (transmission_rate_bps == 0 || data_size_bytes == 0) {
+    if (data_size_bytes == 0) {
         return 0.0;
     }
-    
-    double transmission_time_sec = (data_size_bytes * 8.0) / transmission_rate_bps;
+
+    // Floor the link rate to avoid pathological/overflow transmission energies.
+    double safe_rate_bps = std::max(transmission_rate_bps, EnergyConstants::MIN_TX_RATE_BPS);
+    double transmission_time_sec = (data_size_bytes * 8.0) / safe_rate_bps;
     double energy_tx = EnergyConstants::TX_POWER * transmission_time_sec;
     
     return energy_tx;
@@ -61,15 +55,13 @@ double EnergyCalculator::calcRSUComputationEnergy(uint64_t cpu_cycles,
                                                  double execution_time_sec,
                                                  double freq_allocated_hz,
                                                  double freq_actual_hz) {
-    // RSU computation energy
-    // E_rsu = κ_rsu × (f_alloc - f_actual)² × d × c
-    // RSU typically has lower κ due to better cooling and power efficiency
-    
+    // RSU computation energy: E_rsu = kappa_rsu * f^2 * cycles
+    (void)data_size_bytes;
+    (void)execution_time_sec;
+    double effective_freq_hz = (freq_actual_hz > 0.0) ? freq_actual_hz : freq_allocated_hz;
     return energyFormula(EnergyConstants::KAPPA_RSU,
-                        freq_allocated_hz,
-                        freq_actual_hz,
-                        cpu_cycles,
-                        data_size_bytes);
+                         effective_freq_hz,
+                         cpu_cycles);
 }
 
 double EnergyCalculator::calcOffloadEnergy(uint32_t data_size_bytes,
@@ -78,7 +70,13 @@ double EnergyCalculator::calcOffloadEnergy(uint32_t data_size_bytes,
                                           double rsu_execution_time_sec) {
     // Total offload energy = transmission + RSU computation
     double energy_tx = calcTransmissionEnergy(data_size_bytes, transmission_rate_bps);
-    double energy_rsu = calcRSUComputationEnergy(cpu_cycles, data_size_bytes, rsu_execution_time_sec);
+    double energy_rsu = calcRSUComputationEnergy(
+        cpu_cycles,
+        data_size_bytes,
+        rsu_execution_time_sec,
+        EnergyConstants::FREQ_RSU_NOMINAL,
+        EnergyConstants::FREQ_RSU_NOMINAL
+    );
     
     return energy_tx + energy_rsu;
 }
@@ -96,19 +94,20 @@ EnergyCalculator::TaskEnergyEstimate EnergyCalculator::estimateTaskEnergy(TaskTy
     TaskEnergyEstimate estimate;
     estimate.type = type;
     
-    // Local execution: assume standard CPU frequency
+    // Local execution at vehicle nominal frequency
     estimate.energy_local_joules = calcLocalExecutionEnergy(
         profile.computation.cpu_cycles,
         profile.computation.input_size_bytes,
-        0.0,  // execution_time not used in formula
+        0.0,
         EnergyConstants::FREQ_NOMINAL,
         EnergyConstants::FREQ_NOMINAL
     );
     
     // Offload execution (if offloadable)
     if (profile.offloading.is_offloadable) {
-        // Estimate RSU execution time: time = cycles / frequency
-        double rsu_exec_time = (double)profile.computation.cpu_cycles / EnergyConstants::FREQ_NOMINAL;
+        // RSU is modeled as faster than vehicle.
+        double rsu_exec_time = static_cast<double>(profile.computation.cpu_cycles)
+                     / EnergyConstants::FREQ_RSU_NOMINAL;
         
         estimate.energy_offload_joules = calcOffloadEnergy(
             profile.computation.input_size_bytes,
@@ -141,24 +140,18 @@ EnergyCalculator::TaskEnergyEstimate EnergyCalculator::estimateTaskEnergy(TaskTy
  */
 void printTaskEnergyProfile() {
     EnergyCalculator calc;
-    std::string task_names[] = {
-        "LOCAL_OBJECT_DETECTION",
-        "COOPERATIVE_PERCEPTION",
-        "ROUTE_OPTIMIZATION",
-        "FLEET_TRAFFIC_FORECAST",
-        "VOICE_COMMAND_PROCESSING",
-        "SENSOR_HEALTH_CHECK"
-    };
+    const auto& task_types = TaskProfileDatabase::getAllTaskTypes();
     
     std::cout << "\n=== TASK ENERGY PROFILE ===" << std::endl;
     std::cout << "Task Type | Local Energy (J) | Offload Energy (J) | Savings Ratio" << std::endl;
     std::cout << "-------------------------------------------------------------------" << std::endl;
     
-    for (int i = 0; i < 6; i++) {
-        auto estimate = calc.estimateTaskEnergy(static_cast<TaskType>(i), 6e6);
+    for (const auto& type : task_types) {
+        auto estimate = calc.estimateTaskEnergy(type, 6e6);
+        std::string task_name = TaskProfileDatabase::getTaskTypeName(type);
         
         printf("%-30s | %16.3e | %18.3e | %.2f\n",
-               task_names[i].c_str(),
+               task_name.c_str(),
                estimate.energy_local_joules,
                estimate.energy_offload_joules,
                estimate.energy_savings_ratio);
