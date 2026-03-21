@@ -6,4 +6,4 @@ cd "$SCRIPT_DIR"
 
 # Runs the secondary digital-twin simulation (mobility + channel only).
 # Extra args are forwarded to run_sim_portable.sh.
-exec ./run_sim_portable.sh -u Cmdenv -c DT-Secondary-MotionChannel "$@"
+exec ./run_sim_portable.sh -u Cmdenv -c DT-Secondary-MotionChannel -r 0 --*.manager.port=10000 "$@"
