@@ -363,10 +363,10 @@ void RedisDigitalTwin::pushOffloadingRequest(const std::string& task_id,
 std::map<std::string, std::string> RedisDigitalTwin::getDecision(const std::string& task_id) {
     std::map<std::string, std::string> decision;
     if (!redis_ctx || !is_connected) return decision;
-    
+
     std::string decision_key = "task:" + task_id + ":decision";
     redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", decision_key.c_str());
-    
+
     if (reply && reply->type == REDIS_REPLY_ARRAY) {
         for (size_t i = 0; i < reply->elements; i += 2) {
             if (i + 1 < reply->elements) {
@@ -374,28 +374,90 @@ std::map<std::string, std::string> RedisDigitalTwin::getDecision(const std::stri
             }
         }
     }
-    
+
     if (reply) freeReplyObject(reply);
     return decision;
+}
+
+std::map<std::string, std::string> RedisDigitalTwin::getMultiAgentDecisions(const std::string& task_id) {
+    std::map<std::string, std::string> decisions;
+    if (!redis_ctx || !is_connected) return decisions;
+
+    std::string key = "task:" + task_id + ":decisions";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i < reply->elements; i += 2) {
+            if (i + 1 < reply->elements) {
+                decisions[reply->element[i]->str] = reply->element[i+1]->str;
+            }
+        }
+    }
+
+    if (reply) freeReplyObject(reply);
+    return decisions;
+}
+
+void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
+                                        const std::string& agent_name,
+                                        const std::string& status,
+                                        double total_latency,
+                                        double energy_joules)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    std::string key = "task:" + task_id + ":results";
+
+    // Write the three per-agent fields atomically
+    std::string status_field  = agent_name + "_status";
+    std::string latency_field = agent_name + "_latency";
+    std::string energy_field  = agent_name + "_energy";
+
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HSET %s %s %s %s %f %s %f",
+        key.c_str(),
+        status_field.c_str(),  status.c_str(),
+        latency_field.c_str(), total_latency,
+        energy_field.c_str(),  energy_joules
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis writeTaskResults error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    // TTL: 5 minutes — long enough for DRL to poll, short enough to avoid stale data
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s 300", key.c_str());
+    if (reply) freeReplyObject(reply);
+
+    EV_INFO << "✓ writeTaskResults: task=" << task_id << " agent=" << agent_name
+            << " status=" << status << " latency=" << total_latency
+            << "s energy=" << energy_joules << "J" << std::endl;
 }
 
 void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
                                          double cpu_available, double memory_available,
                                          int queue_length, int processing_count,
                                          double sim_time,
-                                         double pos_x, double pos_y)
+                                         double pos_x, double pos_y,
+                                         double cpu_utilization)
 {
     if (!redis_ctx || !is_connected) return;
-    
+
     std::string key = "rsu:" + rsu_id + ":resources";
-    
+
+    // Write cpu_utilization directly so DRL can read it without needing cpu_total
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s cpu_available %f memory_available %f "
-        "queue_length %d processing_count %d update_time %f pos_x %f pos_y %f",
+        "queue_length %d processing_count %d update_time %f "
+        "pos_x %f pos_y %f cpu_utilization %f",
         key.c_str(), cpu_available, memory_available,
-        queue_length, processing_count, sim_time, pos_x, pos_y
+        queue_length, processing_count, sim_time,
+        pos_x, pos_y, cpu_utilization
     );
-    
+
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {
             EV_ERROR << "Redis RSU update error: " << reply->str << std::endl;

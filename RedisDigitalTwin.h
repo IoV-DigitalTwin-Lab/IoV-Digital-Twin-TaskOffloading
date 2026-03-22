@@ -82,15 +82,26 @@ public:
                               bool is_safety_critical = false,
                               int priority_level = 2);
     
-    // Get ML decision from Redis
+    // Get ML decision from Redis (legacy single-agent key)
     std::map<std::string, std::string> getDecision(const std::string& task_id);
-    
-    // RSU Resource State
+
+    // Get all agents' decisions from task:{task_id}:decisions (multi-agent key written by DRL)
+    std::map<std::string, std::string> getMultiAgentDecisions(const std::string& task_id);
+
+    // Write per-agent execution result to task:{task_id}:results (read by DRL for reward calculation)
+    void writeTaskResults(const std::string& task_id,
+                          const std::string& agent_name,
+                          const std::string& status,
+                          double total_latency,
+                          double energy_joules);
+
+    // RSU Resource State — cpu_utilization written directly so DRL does not need cpu_total
     void updateRSUResources(const std::string& rsu_id,
                            double cpu_available, double memory_available,
                            int queue_length, int processing_count,
                            double sim_time,
-                           double pos_x, double pos_y);
+                           double pos_x, double pos_y,
+                           double cpu_utilization = 0.0);
     
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);
     

@@ -332,6 +332,26 @@ private:
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
 
+    // Agent sub-task tracking: sub_task_id ("{orig_task_id}::{agent_name}") → metadata
+    // Sub-tasks are dispatched by the RSU for each DRL baseline agent so all agents
+    // experience true execution rather than analytical estimates.
+    struct AgentSubTaskInfo {
+        std::string original_task_id;
+        std::string agent_name;
+        double arrival_time_s;
+    };
+    std::map<std::string, AgentSubTaskInfo> agent_sub_tasks;
+
+    // Dispatch a sub-task for one DRL baseline agent so it truly executes on its
+    // chosen target (this RSU, a neighbor RSU, or a service vehicle).
+    // Sub-task IDs are encoded as "{original_task_id}::{agent_name}".
+    // On completion the RSU writes per-agent results to task:{id}:results in Redis
+    // instead of forwarding a result to the vehicle.
+    void dispatchAgentSubTask(const TaskRecord& record,
+                              const std::string& agent_name,
+                              const std::string& target_type,
+                              const std::string& target_id);
+
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so every task gets an equal share of edgeCPU_GHz.
