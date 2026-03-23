@@ -3429,11 +3429,27 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     // Update or insert neighbor state
     updateNeighborState(state);
 
+    // Persist neighbor RSU state to OUR Redis DB so DRL can read all RSU states
+    // from its single DB without needing cross-DB queries.
+    if (redis_twin && use_redis) {
+        redis_twin->updateRSUResources(
+            neighbor_rsu_id,
+            state.cpu_available_ghz,    // same unit as local (GHz)
+            state.memory_available_gb,  // same unit as local (GB)
+            state.queue_length,
+            state.processing_count,
+            simTime().dbl(),
+            state.pos_x,
+            state.pos_y,
+            state.load_factor           // cpu_utilization (0-1)
+        );
+    }
+
     // Refresh ownership records now that neighbor position/coverage set has changed.
     for (const auto& v : state.vehicle_ids_in_coverage) {
         refreshVehicleCoverageRecord(v);
     }
-    
+
     EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
              << "Q=" << state.queue_length << "/" << state.max_concurrent_tasks
              << ", CPU=" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << " GHz"
