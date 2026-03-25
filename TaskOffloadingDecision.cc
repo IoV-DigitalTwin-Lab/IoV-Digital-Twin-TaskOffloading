@@ -26,6 +26,36 @@ OffloadingDecision TaskOffloadingDecisionMaker::makeDecision(const DecisionConte
     return OffloadingDecision::OFFLOAD_TO_RSU;
 }
 
+GateBDecisionResult TaskOffloadingDecisionMaker::makeDecisionDetailed(const DecisionContext& context) {
+    GateBDecisionResult result;
+    result.decision = makeDecision(context);
+    result.reason = last_decision_reason;
+
+    // Step 1 compatibility mapping only; true Gate B classification is added
+    // in later steps when formulas and stage rules are implemented.
+    switch (result.decision) {
+        case OffloadingDecision::OFFLOAD_TO_RSU:
+        case OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE:
+            result.classification = GateBClassification::MUST_OFFLOAD;
+            break;
+        case OffloadingDecision::EXECUTE_LOCALLY:
+            result.classification = GateBClassification::MUST_LOCAL;
+            break;
+        case OffloadingDecision::REJECT_TASK:
+            result.classification = GateBClassification::INFEASIBLE;
+            break;
+    }
+
+    // Keep numerical fields neutral until Gate B math is wired in.
+    result.t_local_seconds = 0.0;
+    result.t_offload_seconds = 0.0;
+    result.remaining_deadline_seconds = context.deadline_seconds;
+    result.cost_local = 0.0;
+    result.cost_offload = 0.0;
+
+    return result;
+}
+
 void TaskOffloadingDecisionMaker::provideFeedback(const std::string& task_id,
                                                    OffloadingDecision decision,
                                                    bool success,

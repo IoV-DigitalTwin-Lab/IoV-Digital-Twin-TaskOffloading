@@ -19,6 +19,36 @@ enum class OffloadingDecision {
 };
 
 /**
+ * Gate B feasibility classification (README_GATES Step 1 contract).
+ */
+enum class GateBClassification {
+    MUST_OFFLOAD,
+    MUST_LOCAL,
+    BOTH_FEASIBLE,
+    INFEASIBLE
+};
+
+/**
+ * Structured output for decision-making.
+ *
+ * Step 1 introduces this contract without changing runtime behavior yet.
+ * Existing callers can continue to use makeDecision().
+ */
+struct GateBDecisionResult {
+    OffloadingDecision decision = OffloadingDecision::REJECT_TASK;
+    GateBClassification classification = GateBClassification::INFEASIBLE;
+
+    double t_local_seconds = 0.0;
+    double t_offload_seconds = 0.0;
+    double remaining_deadline_seconds = 0.0;
+
+    double cost_local = 0.0;
+    double cost_offload = 0.0;
+
+    std::string reason;
+};
+
+/**
  * Context information for making offloading decisions
  */
 struct DecisionContext {
@@ -68,6 +98,14 @@ public:
      * @return Offloading decision (local, offload, or reject)
      */
     virtual OffloadingDecision makeDecision(const DecisionContext& context);
+
+    /**
+     * Detailed decision API introduced for Gate B migration.
+     *
+     * Default implementation preserves legacy behavior by delegating to
+     * makeDecision() and populating a compatible result payload.
+     */
+    virtual GateBDecisionResult makeDecisionDetailed(const DecisionContext& context);
     
     /**
      * Update decision maker with feedback (for learning algorithms)
