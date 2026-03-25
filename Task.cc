@@ -26,6 +26,7 @@ Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cyc
     
     // Initialize timing
     created_time = simTime();
+    queue_entry_time = created_time;  // Initialize to created_time; will be updated when enqueued
     deadline = created_time + SimTime(deadline_sec);
     received_time = SimTime(0);
     processing_start_time = SimTime(0);
@@ -76,6 +77,7 @@ Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
     
     // Initialize timing
     created_time = simTime();
+    queue_entry_time = created_time;  // Initialize to created_time; will be updated when enqueued
     deadline = created_time + SimTime(deadline_sec);
     received_time = SimTime(0);
     processing_start_time = SimTime(0);

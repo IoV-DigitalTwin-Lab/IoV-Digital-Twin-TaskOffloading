@@ -178,6 +178,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
+                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                     pending_tasks.push(task);
                 }
             } else {
@@ -1089,6 +1090,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             } else {
                 EV_INFO << "⏸ Resources busy - queuing task" << endl;
                 task->state = QUEUED;
+                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                 pending_tasks.push(task);
                 sendTaskOffloadingEvent(task->task_id, "QUEUED",
                     "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1132,6 +1134,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             if (canStartProcessing(task)) allocateResourcesAndStart(task);
             else {
                 task->state = QUEUED;
+                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                 pending_tasks.push(task);
                 sendTaskOffloadingEvent(task->task_id, "QUEUED",
                     "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1169,6 +1172,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             if (canStartProcessing(task)) allocateResourcesAndStart(task);
             else {
                 task->state = QUEUED;
+                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                 pending_tasks.push(task);
                 sendTaskOffloadingEvent(task->task_id, "QUEUED",
                     "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1228,6 +1232,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     } else {
         EV_INFO << "⏸ Resources busy - queuing task" << endl;
         task->state = QUEUED;
+        task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
         pending_tasks.push(task);
         sendTaskOffloadingEvent(task->task_id, "QUEUED",
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1462,16 +1467,18 @@ void PayloadVehicleApp::processQueuedTasks() {
     EV_INFO << "│ Queue size: " << std::setw(58) << pending_tasks.size() << " │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
     
-    std::vector<Task*> to_remove;
-    
-    // Try to start tasks from queue
+    std::vector<Task*> deferred_tasks;
+
+    // Try-next scheduling:
+    // scan the whole pending queue once, start any task that is currently feasible,
+    // and defer blocked tasks back into the queue afterward.
     while (!pending_tasks.empty()) {
         Task* task = pending_tasks.top();
-        
+        pending_tasks.pop();
+
         // Check if task deadline already passed
         if (task->isDeadlineMissed(simTime())) {
             EV_INFO << "❌ Task " << task->task_id << " deadline expired in queue" << endl;
-            pending_tasks.pop();
             task->state = FAILED;
             tasks_failed++;
             if (task->is_profile_task) {
@@ -1482,17 +1489,21 @@ void PayloadVehicleApp::processQueuedTasks() {
             delete task;
             continue;
         }
-        
-        // Check if can start
+
         if (canStartProcessing(task)) {
             EV_INFO << "✓ Starting queued task " << task->task_id << endl;
-            pending_tasks.pop();
             allocateResourcesAndStart(task);
         } else {
-            // Can't start this task, stop trying
-            EV_INFO << "⏸ Cannot start more tasks from queue" << endl;
-            break;
+            deferred_tasks.push_back(task);
         }
+    }
+
+    for (Task* task : deferred_tasks) {
+        pending_tasks.push(task);
+    }
+
+    if (!deferred_tasks.empty()) {
+        EV_INFO << "⏸ Deferred " << deferred_tasks.size() << " task(s) that are still blocked" << endl;
     }
     
     logQueueState("After processing queue");
@@ -2742,6 +2753,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         } else {
             EV_INFO << "⏸ Queuing task for local execution" << endl;
             task->state = QUEUED;
+            task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
             pending_tasks.push(task);
             sendTaskOffloadingEvent(task->task_id, "QUEUED",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -2818,6 +2830,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
+                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                     pending_tasks.push(task);
                     sendTaskOffloadingEvent(task->task_id, "QUEUED",
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -2883,6 +2896,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
+                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                     pending_tasks.push(task);
                     sendTaskOffloadingEvent(task->task_id, "QUEUED",
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3005,6 +3019,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 allocateResourcesAndStart(task);
             } else {
                 task->state = QUEUED;
+                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
                 pending_tasks.push(task);
             }
         } else {

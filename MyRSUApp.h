@@ -323,6 +323,7 @@ private:
         LAddress::L2Type vehicle_mac = 0;
         LAddress::L2Type ingress_rsu_mac = 0;
         uint64_t cpu_cycles = 0;            // total cycles required for this task
+        double qos_value = 0.5;             // [0,1], used for weighted CPU sharing
         double cycles_remaining = 0.0;      // cycles not yet executed (updated at each reschedule)
         double exec_time_s = 0.0;           // current projected execution time (seconds)
         double scheduled_at = 0.0;          // simTime when task was first accepted
@@ -330,12 +331,28 @@ private:
         double cpu_allocated_hz = 0.0;      // per-task CPU share at last reschedule (Hz)
         cMessage* completion_event = nullptr; // pointer to scheduled completion self-msg
     };
+
+    struct QueuedRSUTask {
+        std::string task_id;
+        std::string vehicle_id;
+        LAddress::L2Type vehicle_mac = 0;
+        LAddress::L2Type ingress_rsu_mac = 0;
+        uint64_t cpu_cycles = 0;
+        double qos_value = 0.5;
+        double enqueue_time = 0.0;
+        double deadline_seconds = 0.0;  // Absolute deadline (from task metadata)
+    };
+
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
+    std::deque<QueuedRSUTask> rsuWaitingQueue;              // bounded wait buffer
+    int rsu_waiting_queue_capacity = 5;                     // small buffer to avoid hard drops
 
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac);
+    void tryStartQueuedRSUTasks();
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
-    // events so every task gets an equal share of edgeCPU_GHz.
-    void reallocateRSUTasks(double new_cpu_per_task_Hz);
+    // events so each task gets a weighted share of edgeCPU_GHz.
+    void reallocateRSUTasks();
+    double getTaskPriorityWeight(double qosValue) const;
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                   LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
                                   bool success, double processing_time);

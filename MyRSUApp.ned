@@ -52,6 +52,9 @@ simple MyRSUApp like IBaseApplLayer
         double overloadCpuHeadroom = default(0.1);                    // Min CPU headroom to maintain (10%)
         int maxConcurrentProcessing = default(10);                    // Max concurrent tasks being processed
         
+        // Queue Management
+        int rsuQueueCapacity = default(5);                           // Max tasks in waiting queue before hard rejection
+        
         // Offloading Decision Parameters
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
