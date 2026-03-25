@@ -149,24 +149,28 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
     }
     else if (strcmp(msg->getName(), "taskCompletion") == 0) {
         Task* task = (Task*)msg->getContextPointer();
+        if (task) task->completion_event = nullptr;
         handleTaskCompletion(task);
         delete msg;
         return;
     }
     else if (strcmp(msg->getName(), "taskDeadline") == 0) {
         Task* task = (Task*)msg->getContextPointer();
+        if (task) task->deadline_event = nullptr;
         handleTaskDeadline(task);
         delete msg;
         return;
     }
     else if (strcmp(msg->getName(), "serviceTaskCompletion") == 0) {
         Task* task = (Task*)msg->getContextPointer();
+        if (task) task->completion_event = nullptr;
         handleServiceTaskCompletion(task);
         delete msg;
         return;
     }
     else if (strcmp(msg->getName(), "serviceTaskDeadline") == 0) {
         Task* task = (Task*)msg->getContextPointer();
+        if (task) task->deadline_event = nullptr;
         handleServiceTaskDeadline(task);
         delete msg;
         return;
@@ -190,6 +194,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                 task->state = REJECTED;
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT");
+                cleanupTaskEvents(task);
                 delete task;
             }
         }
@@ -212,6 +217,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
             }
 
             sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
+            cleanupTaskEvents(task);
             delete task;
         }
         delete msg;
@@ -1083,6 +1089,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 task->state = REJECTED;
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "LOCAL_REJECTED");
+                cleanupTaskEvents(task);
                 delete task;
                 logTaskStatistics();
                 return;
@@ -1134,6 +1141,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             if (!canAcceptTask(task)) {
                 task->state = REJECTED;  tasks_rejected++;
                 sendTaskFailureToRSU(task, "OFFLOAD_SKIP_REJECTED");
+                cleanupTaskEvents(task);
                 delete task;  return;
             }
             if (canStartProcessing(task)) allocateResourcesAndStart(task);
@@ -1172,6 +1180,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             if (!canAcceptTask(task)) {
                 task->state = REJECTED;  tasks_rejected++;
                 sendTaskFailureToRSU(task, "DEADLINE_TOO_SHORT_FOR_OFFLOAD");
+                cleanupTaskEvents(task);
                 delete task;  return;
             }
             if (canStartProcessing(task)) allocateResourcesAndStart(task);
@@ -1223,6 +1232,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         task->state = REJECTED;
         tasks_rejected++;
         sendTaskFailureToRSU(task, "REJECTED");
+        cleanupTaskEvents(task);
         delete task;
         logTaskStatistics();
         return;
@@ -1249,9 +1259,96 @@ void PayloadVehicleApp::generateTask(TaskType type) {
 }
 
 void PayloadVehicleApp::finish() {
+    // Stop recurring generation timers.
+    if (localObjDetEvent) { cancelAndDelete(localObjDetEvent); localObjDetEvent = nullptr; }
+    if (coopPercepEvent) { cancelAndDelete(coopPercepEvent); coopPercepEvent = nullptr; }
+    if (routeOptEvent) { cancelAndDelete(routeOptEvent); routeOptEvent = nullptr; }
+    if (fleetForecastEvent) { cancelAndDelete(fleetForecastEvent); fleetForecastEvent = nullptr; }
+    if (voiceCommandEvent) { cancelAndDelete(voiceCommandEvent); voiceCommandEvent = nullptr; }
+    if (sensorHealthEvent) { cancelAndDelete(sensorHealthEvent); sensorHealthEvent = nullptr; }
+
+    // Cancel pending RSU decision timeout messages.
+    for (auto& kv : pendingDecisionTimeouts) {
+        cMessage* timeoutMsg = kv.second;
+        if (timeoutMsg) {
+            if (timeoutMsg->isScheduled()) {
+                cancelEvent(timeoutMsg);
+            }
+            delete timeoutMsg;
+        }
+    }
+    pendingDecisionTimeouts.clear();
+
+    // Collect unique task pointers from all ownership containers and delete once.
+    std::set<Task*> tasksToDelete;
+    while (!pending_tasks.empty()) {
+        tasksToDelete.insert(pending_tasks.top());
+        pending_tasks.pop();
+    }
+    for (Task* t : processing_tasks) tasksToDelete.insert(t);
+    processing_tasks.clear();
+
+    for (Task* t : completed_tasks) tasksToDelete.insert(t);
+    completed_tasks.clear();
+    for (Task* t : failed_tasks) tasksToDelete.insert(t);
+    failed_tasks.clear();
+
+    while (!serviceTasks.empty()) {
+        tasksToDelete.insert(serviceTasks.front());
+        serviceTasks.pop();
+    }
+    for (Task* t : processingServiceTasks) tasksToDelete.insert(t);
+    processingServiceTasks.clear();
+
+    for (auto& kv : pendingOffloadingDecisions) tasksToDelete.insert(kv.second);
+    pendingOffloadingDecisions.clear();
+    for (auto& kv : offloadedTasks) tasksToDelete.insert(kv.second);
+    offloadedTasks.clear();
+
+    for (Task* task : tasksToDelete) {
+        cleanupTaskEvents(task);
+        delete task;
+    }
+
+    // Clear non-owning/index containers.
+    offloadedTaskTargets.clear();
+    taskTimings.clear();
+    serviceTaskOriginVehicles.clear();
+    serviceTaskOriginMACs.clear();
+    rsuMetrics.clear();
+    taskCandidates.clear();
+    task_redirect_counts.clear();
+
+    if (decisionMaker) {
+        delete decisionMaker;
+        decisionMaker = nullptr;
+    }
+
     DemoBaseApplLayer::finish();
     EV_INFO << "==================== TASK METRICS REPORT ====================" << endl;
     MetricsManager::getInstance().printReport();
+}
+
+void PayloadVehicleApp::cleanupTaskEvents(Task* task) {
+    if (!task) {
+        return;
+    }
+
+    if (task->completion_event) {
+        if (task->completion_event->isScheduled()) {
+            cancelEvent(task->completion_event);
+        }
+        delete task->completion_event;
+        task->completion_event = nullptr;
+    }
+
+    if (task->deadline_event) {
+        if (task->deadline_event->isScheduled()) {
+            cancelEvent(task->deadline_event);
+        }
+        delete task->deadline_event;
+        task->deadline_event = nullptr;
+    }
 }
 
 bool PayloadVehicleApp::canAcceptTask(Task* task) {
@@ -1566,6 +1663,7 @@ void PayloadVehicleApp::processQueuedTasks() {
                 MetricsManager::getInstance().recordTaskFailed(task->type, latency);
             }
             sendTaskFailureToRSU(task, "DEADLINE_MISSED_IN_QUEUE");
+            cleanupTaskEvents(task);
             delete task;
             continue;
         }
@@ -1628,12 +1726,7 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     cpu_available += task->cpu_allocated;
     memory_available += task->mem_footprint_bytes;
     
-    // Cancel deadline event
-    if (task->deadline_event && task->deadline_event->isScheduled()) {
-        cancelEvent(task->deadline_event);
-        delete task->deadline_event;
-        task->deadline_event = nullptr;
-    }
+    cleanupTaskEvents(task);
     
     // Record statistics
     total_completion_time += completion_time_elapsed;
@@ -1722,15 +1815,10 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
         cpu_available += task->cpu_allocated;
         memory_available += task->mem_footprint_bytes;
         
-        // Cancel completion event
-        if (task->completion_event && task->completion_event->isScheduled()) {
-            cancelEvent(task->completion_event);
-            delete task->completion_event;
-            task->completion_event = nullptr;
-        }
-        
         reallocateCPUResources();
     }
+
+    cleanupTaskEvents(task);
 
     if (was_processing) {
         sendTaskOffloadingEvent(task->task_id, "PROCESSING_COMPLETED",
@@ -1911,12 +1999,7 @@ void PayloadVehicleApp::handleServiceTaskCompletion(Task* task) {
     // Reallocate so they finish sooner.
     reallocateServiceCPUResources();
     
-    // Cancel deadline event
-    if (task->deadline_event && task->deadline_event->isScheduled()) {
-        cancelEvent(task->deadline_event);
-        delete task->deadline_event;
-        task->deadline_event = nullptr;
-    }
+    cleanupTaskEvents(task);
     
     // Get origin vehicle and send result
     auto it = serviceTaskOriginVehicles.find(task->task_id);
@@ -1935,6 +2018,7 @@ void PayloadVehicleApp::handleServiceTaskCompletion(Task* task) {
     }
     
     // Clean up
+    cleanupTaskEvents(task);
     delete task;
     
     EV_INFO << "Service vehicle queue: " << serviceTasks.size() 
@@ -1978,13 +2062,9 @@ void PayloadVehicleApp::handleServiceTaskDeadline(Task* task) {
         processingServiceTasks.erase(task);
         memory_available += task->mem_footprint_bytes;
         
-        // Cancel completion event
-        if (task->completion_event && task->completion_event->isScheduled()) {
-            cancelEvent(task->completion_event);
-            delete task->completion_event;
-            task->completion_event = nullptr;
-        }
     }
+
+    cleanupTaskEvents(task);
     
     // Send failure result to origin vehicle
     auto it = serviceTaskOriginVehicles.find(task->task_id);
@@ -2004,6 +2084,8 @@ void PayloadVehicleApp::handleServiceTaskDeadline(Task* task) {
         serviceTasks.pop();
         processServiceTask(nextTask);
     }
+    
+    cleanupTaskEvents(task);
     
     delete task;
     
@@ -2822,6 +2904,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             task->state = REJECTED;
             tasks_rejected++;
             sendTaskFailureToRSU(task, "LOCAL_QUEUE_FULL");
+            cleanupTaskEvents(task);
             delete task;
             return;
         }
@@ -2920,6 +3003,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 task->state = REJECTED;
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "SERVICE_VEHICLE_INVALID");
+                cleanupTaskEvents(task);
                 delete task;
             }
             return;
@@ -2994,6 +3078,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 task->state = REJECTED;
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "REDIRECT_EXHAUSTED_QUEUE_FULL");
+                cleanupTaskEvents(task);
                 delete task;
             }
         }
@@ -3002,6 +3087,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             task->state = REJECTED;
             tasks_rejected++;
             sendTaskFailureToRSU(task, "INVALID_REDIRECT_TARGET");
+            cleanupTaskEvents(task);
             delete task;
         }
         else {
@@ -3062,6 +3148,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 task->state = REJECTED;
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "REDIRECT_CANDIDATE_LIST_NOT_FOUND");
+                cleanupTaskEvents(task);
                 delete task;
             }
         }
@@ -3081,6 +3168,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         sendTaskFailureToRSU(task, "RSU_REJECTED: " + reason);
         
         EV_INFO << "Task rejected - reason: " << reason << endl;
+        cleanupTaskEvents(task);
         delete task;
     }
     
@@ -3106,6 +3194,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             task->state = REJECTED;
             tasks_rejected++;
             sendTaskFailureToRSU(task, "UNKNOWN_DECISION");
+            cleanupTaskEvents(task);
             delete task;
         }
     }
@@ -3360,6 +3449,7 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
         }
         
         // Clean up
+        cleanupTaskEvents(task);
         delete task;
         offloadedTasks.erase(it);
         offloadedTaskTargets.erase(task_id);

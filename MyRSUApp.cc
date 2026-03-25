@@ -612,6 +612,41 @@ void MyRSUApp::finish() {
         checkDecisionMsg = nullptr;
     }
 
+    // Cancel completion events for in-flight RSU tasks and clear queue state.
+    for (auto& kv : rsuPendingTasks) {
+        cMessage* ev = kv.second.completion_event;
+        if (ev) {
+            if (ev->isScheduled()) {
+                cancelEvent(ev);
+            }
+            delete ev;
+            kv.second.completion_event = nullptr;
+        }
+    }
+    rsuPendingTasks.clear();
+    rsuWaitingQueue.clear();
+
+    // Legacy task structures (kept for compatibility): ensure completion msgs are freed.
+    for (auto& kv : active_tasks) {
+        if (kv.second.completion_msg) {
+            if (kv.second.completion_msg->isScheduled()) {
+                cancelEvent(kv.second.completion_msg);
+            }
+            delete kv.second.completion_msg;
+            kv.second.completion_msg = nullptr;
+        }
+    }
+    active_tasks.clear();
+    task_queue.clear();
+
+    // Clear in-memory DT and orchestration state.
+    pending_offloading_requests.clear();
+    neighbor_rsus.clear();
+    vehicle_twins.clear();
+    task_records.clear();
+    vehicle_coverage_records.clear();
+    secondary_last_export_time.clear();
+
     // RSUHttpPoster disabled - using direct PostgreSQL insertion
     // poster.stop();
 

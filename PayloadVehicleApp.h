@@ -120,6 +120,7 @@ private:
     void handleTaskCompletion(Task* task);    // Task finished successfully
     void handleTaskDeadline(Task* task);      // Task deadline expired
     void dropLowestPriorityTask();            // Drop lowest-utility queued task when queue is full
+    void cleanupTaskEvents(Task* task);       // Cancel/delete completion/deadline events safely
     
     // Communication Methods
     void sendTaskMetadataToRSU(Task* task);   // Send metadata to RSU
