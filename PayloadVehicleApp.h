@@ -184,6 +184,16 @@ private:
         std::string decision_type;      // LOCAL, RSU, SERVICE_VEHICLE
         std::string processor_id;       // ID of processor
     };
+
+    struct PendingOffloadDecision {
+        Task* task = nullptr;
+        GateBClassification classification = GateBClassification::INFEASIBLE;
+        bool must_offload = false;
+        double t_local_seconds = 0.0;
+        double remaining_deadline_seconds = 0.0;
+        double rsu_timeout_budget_seconds = 0.0;
+        std::string reason;
+    };
     
     std::map<std::string, TaskTimingInfo> taskTimings;  // task_id -> timing info
     
@@ -192,7 +202,7 @@ private:
     TaskOffloadingDecisionMaker* decisionMaker = nullptr;  // Offloading decision maker
     
     // Pending offloading requests (awaiting RSU decision)
-    std::map<std::string, Task*> pendingOffloadingDecisions;  // task_id -> Task*
+    std::map<std::string, PendingOffloadDecision> pendingOffloadingDecisions;  // task_id -> pending context
     std::map<std::string, cMessage*> pendingDecisionTimeouts;  // task_id -> timeout message
     
     // Offloaded tasks (awaiting results)
@@ -212,7 +222,7 @@ private:
     bool motionChannelOnly = false;
     
     // Offloading request/response handlers
-    void sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision);
+    void sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision, const GateBDecisionResult& gateResult);
     void handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg);
     void executeOffloadingDecision(Task* task, veins::OffloadingDecisionMessage* decision);
     

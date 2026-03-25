@@ -179,6 +179,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         Task* task = (Task*)msg->getContextPointer();
         auto it = pendingOffloadingDecisions.find(task->task_id);
         if (it != pendingOffloadingDecisions.end()) {
+            task = it->second.task;
             pendingOffloadingDecisions.erase(it);
             EV_WARN << "RSU decision timeout for task " << task->task_id << " - falling back to local" << endl;
 
@@ -1038,8 +1039,29 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 << "RSU_dist=" << context.rsu_distance << "m, "
                 << "RSSI=" << context.estimated_rsu_rssi << "dBm" << endl;
         
-        // Make local offloading decision
-        OffloadingDecision localDecision = decisionMaker->makeDecision(context);
+        // Gate A: preserve RSSI reliability semantics but fold them into unified
+        // Gate B result handling instead of separate OFFLOAD_SKIP branches.
+        const double RSU_RELIABLE_RSSI_THRESH = -65.0;  // dBm
+        const bool gateA_rssi_ok = (context.estimated_rsu_rssi >= RSU_RELIABLE_RSSI_THRESH);
+        if (!gateA_rssi_ok) {
+            context.rsu_available = false;
+            EV_INFO << "Gate A: RSSI weak (" << context.estimated_rsu_rssi
+                    << " dBm < " << RSU_RELIABLE_RSSI_THRESH
+                    << " dBm) - disabling offload feasibility" << endl;
+        }
+
+        // Make local offloading decision from detailed Gate-B result
+        GateBDecisionResult gateResult = decisionMaker->makeDecisionDetailed(context);
+        OffloadingDecision localDecision = gateResult.decision;
+
+        // Keep Gate A as a hard reliability guard for this phase.
+        if (!gateA_rssi_ok &&
+            (localDecision == OffloadingDecision::OFFLOAD_TO_RSU ||
+             localDecision == OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE)) {
+            localDecision = OffloadingDecision::EXECUTE_LOCALLY;
+            gateResult.classification = GateBClassification::MUST_LOCAL;
+            gateResult.reason = "GATE_A_RSSI_WEAK";
+        }
         
         std::string decisionStr;
         switch(localDecision) {
@@ -1057,19 +1079,21 @@ void PayloadVehicleApp::generateTask(TaskType type) {
                 break;
         }
         
-        EV_INFO << "📊 Local decision: " << decisionStr << endl;
+        EV_INFO << "📊 Local decision: " << decisionStr
+            << " reason=" << gateResult.reason << endl;
         std::cout << "OFFLOAD_DECISION: Vehicle " << vehicle_id << " local decision for task " 
-                  << task->task_id << ": " << decisionStr << std::endl;
+              << task->task_id << ": " << decisionStr
+              << " (" << gateResult.reason << ")" << std::endl;
 
         if (localDecision == OffloadingDecision::EXECUTE_LOCALLY) {
             sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
-                "{\"decision\":\"LOCAL\"}");
+                "{\"decision\":\"LOCAL\",\"reason\":\"" + gateResult.reason + "\"}");
         } else if (localDecision == OffloadingDecision::OFFLOAD_TO_RSU ||
                    localDecision == OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE) {
             sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
-                "{\"decision\":\"" + decisionStr + "\"}");
+                "{\"decision\":\"" + decisionStr + "\",\"reason\":\"" + gateResult.reason + "\"}");
         }
         
         // ========================================================================
@@ -1122,85 +1146,8 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         }
         
         // OFFLOAD DECISION: Consult RSU for final decision
-        // Local heuristic suggests offloading - get ML-based decision from RSU
+        // Local Gate-B result suggests offloading - get RSU placement decision
         EV_INFO << "🌐 Local decision is OFFLOAD - consulting RSU for optimal placement" << endl;
-        
-        // RSSI quality gate: if estimated signal is too weak, skip RSU entirely and
-        // execute locally. Avoids wasting rsuDecisionTimeout (1s) on a doomed packet.
-        const double RSU_RELIABLE_RSSI_THRESH = -65.0;  // dBm
-        if (context.estimated_rsu_rssi < RSU_RELIABLE_RSSI_THRESH) {
-            std::cout << "OFFLOAD_SKIP: Task " << task->task_id
-                      << " RSU RSSI=" << context.estimated_rsu_rssi
-                      << "dBm below threshold (" << RSU_RELIABLE_RSSI_THRESH
-                      << "dBm), executing locally" << std::endl;
-            sendTaskOffloadingEvent(task->task_id, "OFFLOAD_SKIPPED",
-                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
-                "{\"reason\":\"RSSI_WEAK\",\"rssi_dbm\":" + std::to_string(context.estimated_rsu_rssi) + "}");
-            // Populate taskTimings so sendTaskCompletionToRSU can report this back to RSU
-            {
-                TaskTimingInfo timing;
-                timing.request_time = simTime().dbl();
-                timing.decision_time = simTime().dbl();
-                timing.decision_type = "LOCAL";
-                timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
-                taskTimings[task->task_id] = timing;
-            }
-            if (!canAcceptTask(task)) {
-                task->state = REJECTED;  tasks_rejected++;
-                sendTaskFailureToRSU(task, "OFFLOAD_SKIP_REJECTED");
-                cleanupTaskEvents(task);
-                delete task;  return;
-            }
-            if (canStartProcessing(task)) allocateResourcesAndStart(task);
-            else {
-                task->state = QUEUED;
-                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
-                pending_tasks.push(task);
-                sendTaskOffloadingEvent(task->task_id, "QUEUED",
-                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
-                    "{\"reason\":\"OFFLOAD_SKIPPED_FALLBACK\"}");
-            }
-            return;
-        }
-
-        // Deadline-awareness gate: if remaining deadline <= rsuDecisionTimeout the
-        // RSU round-trip will outlast the task — certain failure. Execute locally now
-        // so the full remaining budget is used for actual computation.
-        double remaining_deadline = (task->deadline - simTime()).dbl();
-        if (remaining_deadline <= rsuDecisionTimeout.dbl()) {
-            std::cout << "OFFLOAD_SKIP: Task " << task->task_id
-                      << " deadline_remaining=" << remaining_deadline
-                      << "s <= rsuDecisionTimeout=" << rsuDecisionTimeout
-                      << "s, skipping RSU (deadline too tight)" << std::endl;
-            sendTaskOffloadingEvent(task->task_id, "OFFLOAD_SKIPPED",
-                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
-                "{\"reason\":\"DEADLINE_TOO_TIGHT\",\"remaining_s\":" + std::to_string(remaining_deadline) + "}");
-            // Populate taskTimings so sendTaskCompletionToRSU can report this back to RSU
-            {
-                TaskTimingInfo timing;
-                timing.request_time = simTime().dbl();
-                timing.decision_time = simTime().dbl();
-                timing.decision_type = "LOCAL";
-                timing.processor_id = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
-                taskTimings[task->task_id] = timing;
-            }
-            if (!canAcceptTask(task)) {
-                task->state = REJECTED;  tasks_rejected++;
-                sendTaskFailureToRSU(task, "DEADLINE_TOO_SHORT_FOR_OFFLOAD");
-                cleanupTaskEvents(task);
-                delete task;  return;
-            }
-            if (canStartProcessing(task)) allocateResourcesAndStart(task);
-            else {
-                task->state = QUEUED;
-                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
-                pending_tasks.push(task);
-                sendTaskOffloadingEvent(task->task_id, "QUEUED",
-                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
-                    "{\"reason\":\"DEADLINE_GATE_FALLBACK\"}");
-            }
-            return;
-        }
 
         std::cout << "OFFLOAD_REQUEST: Task " << task->task_id << " requesting RSU decision" << std::endl;
 
@@ -1213,7 +1160,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + "}");
         
         // Send offloading request to RSU (includes local recommendation)
-        sendOffloadingRequestToRSU(task, localDecision);
+        sendOffloadingRequestToRSU(task, localDecision, gateResult);
         
         // Mark task as awaiting RSU ML decision
         EV_INFO << "⏳ Task awaiting RSU ML decision..." << endl;
@@ -1315,7 +1262,11 @@ void PayloadVehicleApp::finish() {
     for (Task* t : processingServiceTasks) tasksToDelete.insert(t);
     processingServiceTasks.clear();
 
-    for (auto& kv : pendingOffloadingDecisions) tasksToDelete.insert(kv.second);
+    for (auto& kv : pendingOffloadingDecisions) {
+        if (kv.second.task) {
+            tasksToDelete.insert(kv.second.task);
+        }
+    }
     pendingOffloadingDecisions.clear();
     for (auto& kv : offloadedTasks) tasksToDelete.insert(kv.second);
     offloadedTasks.clear();
@@ -2731,7 +2682,7 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
 // OFFLOADING REQUEST/RESPONSE HANDLERS
 // ============================================================================
 
-void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision) {
+void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision, const GateBDecisionResult& gateResult) {
     EV_INFO << "📤 Sending offloading request to RSU for task " << task->task_id << endl;
     std::cout << "OFFLOAD_Decision_REQUEST: Vehicle " << task->vehicle_id << " requesting offloading decision for task " 
               << task->task_id << std::endl;
@@ -2810,7 +2761,15 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     sendDown(msg);
     
     // Mark task as awaiting decision
-    pendingOffloadingDecisions[task->task_id] = task;
+    PendingOffloadDecision pending;
+    pending.task = task;
+    pending.classification = gateResult.classification;
+    pending.must_offload = (gateResult.classification == GateBClassification::MUST_OFFLOAD);
+    pending.t_local_seconds = gateResult.t_local_seconds;
+    pending.remaining_deadline_seconds = gateResult.remaining_deadline_seconds;
+    pending.rsu_timeout_budget_seconds = rsuDecisionTimeout.dbl();
+    pending.reason = gateResult.reason;
+    pendingOffloadingDecisions[task->task_id] = pending;
     
     // Initialize redirect counter for this task
     task_redirect_counts[task->task_id] = 0;
@@ -2845,7 +2804,7 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
         return;
     }
     
-    Task* task = it->second;
+    Task* task = it->second.task;
     pendingOffloadingDecisions.erase(it);  // Remove from pending
     
     // Record decision time for latency tracking
