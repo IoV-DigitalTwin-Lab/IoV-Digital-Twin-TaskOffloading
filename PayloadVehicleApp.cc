@@ -32,6 +32,11 @@ std::string buildServiceResultRelayHint(veins::LAddress::L2Type targetRsuMac,
     oss << "SV_RESULT_RELAY|target=" << targetRsuMac << "|" << payload;
     return oss.str();
 }
+
+double computeQueueUtility(const Task* task, simtime_t now) {
+    const double remaining = std::max((task->deadline - now).dbl(), 0.001);
+    return task->qos_value / remaining;
+}
 }
 
 Define_Module(PayloadVehicleApp);
@@ -1252,8 +1257,32 @@ void PayloadVehicleApp::finish() {
 bool PayloadVehicleApp::canAcceptTask(Task* task) {
     // Check queue capacity
     if (pending_tasks.size() >= max_queue_size) {
-        EV_INFO << "❌ Queue full (" << pending_tasks.size() << "/" << max_queue_size << ")" << endl;
-        return false;
+        // If task can start immediately, queue size is not a blocker.
+        const bool can_start_now = processing_tasks.size() < max_concurrent_tasks
+                                   && task->mem_footprint_bytes <= memory_available;
+        if (!can_start_now) {
+            const simtime_t now = simTime();
+            const double incoming_utility = computeQueueUtility(task, now);
+
+            std::priority_queue<Task*, std::vector<Task*>, TaskComparator> snapshot = pending_tasks;
+            double lowest_utility = std::numeric_limits<double>::infinity();
+            while (!snapshot.empty()) {
+                Task* queued = snapshot.top();
+                snapshot.pop();
+                lowest_utility = std::min(lowest_utility, computeQueueUtility(queued, now));
+            }
+
+            if (!(incoming_utility > lowest_utility)) {
+                EV_INFO << "❌ Queue full (" << pending_tasks.size() << "/" << max_queue_size
+                        << "), incoming utility=" << incoming_utility
+                        << " <= lowest queued utility=" << lowest_utility << endl;
+                return false;
+            }
+
+            EV_INFO << "↻ Queue full but incoming task has higher utility (" << incoming_utility
+                    << " > " << lowest_utility << ") - replacing lowest queued task" << endl;
+            dropLowestPriorityTask();
+        }
     }
     
     // Check if task is too large for vehicle memory
@@ -1273,6 +1302,53 @@ bool PayloadVehicleApp::canAcceptTask(Task* task) {
     
     EV_INFO << "✓ Task passes acceptance checks" << endl;
     return true;
+}
+
+void PayloadVehicleApp::dropLowestPriorityTask() {
+    if (pending_tasks.empty()) {
+        return;
+    }
+
+    const simtime_t now = simTime();
+    std::vector<Task*> queued_tasks;
+    queued_tasks.reserve(pending_tasks.size());
+
+    while (!pending_tasks.empty()) {
+        queued_tasks.push_back(pending_tasks.top());
+        pending_tasks.pop();
+    }
+
+    Task* lowest_task = nullptr;
+    double lowest_utility = std::numeric_limits<double>::infinity();
+    for (Task* t : queued_tasks) {
+        const double utility = computeQueueUtility(t, now);
+        if (utility < lowest_utility) {
+            lowest_utility = utility;
+            lowest_task = t;
+        }
+    }
+
+    for (Task* t : queued_tasks) {
+        if (t != lowest_task) {
+            pending_tasks.push(t);
+        }
+    }
+
+    if (!lowest_task) {
+        return;
+    }
+
+    lowest_task->state = REJECTED;
+    tasks_rejected++;
+    sendTaskOffloadingEvent(lowest_task->task_id, "DROPPED_FROM_QUEUE",
+        "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+        "{\"reason\":\"REPLACED_BY_HIGHER_PRIORITY\",\"utility\":" + std::to_string(lowest_utility) + "}");
+    sendTaskFailureToRSU(lowest_task, "REPLACED_BY_HIGHER_PRIORITY");
+
+    EV_WARN << "Dropped queued task " << lowest_task->task_id
+            << " (utility=" << lowest_utility << ") to make room for higher-priority work" << endl;
+
+    delete lowest_task;
 }
 
 bool PayloadVehicleApp::canStartProcessing(Task* task) {

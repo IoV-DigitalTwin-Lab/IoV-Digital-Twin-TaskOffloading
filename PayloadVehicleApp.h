@@ -119,7 +119,7 @@ private:
     void processQueuedTasks();                // Try to start queued tasks
     void handleTaskCompletion(Task* task);    // Task finished successfully
     void handleTaskDeadline(Task* task);      // Task deadline expired
-    void dropLowestPriorityTask();            // Drop task when queue is full
+    void dropLowestPriorityTask();            // Drop lowest-utility queued task when queue is full
     
     // Communication Methods
     void sendTaskMetadataToRSU(Task* task);   // Send metadata to RSU
