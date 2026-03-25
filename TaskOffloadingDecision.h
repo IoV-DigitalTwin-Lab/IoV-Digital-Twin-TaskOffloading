@@ -57,6 +57,8 @@ struct DecisionContext {
     double cpu_cycles_required;
     double qos_value;
     double deadline_seconds;
+    bool must_local_tag = false;
+    bool must_offload_tag = false;
     
     // Vehicle state
     double local_cpu_available;      // Available CPU (GHz)

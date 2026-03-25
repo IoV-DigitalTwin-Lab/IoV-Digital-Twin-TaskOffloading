@@ -185,6 +185,51 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     result.t_offload_seconds = t_offload;
     result.remaining_deadline_seconds = remaining_deadline;
 
+    // ---------------------------------------------------------------------
+    // Step 4: Stage-1 forced-rule checks (executed before feasibility branch)
+    // ---------------------------------------------------------------------
+    const double task_size_bytes = std::max(1.0, context.task_size_kb * 1024.0);
+    const double available_cycles_in_budget = local_cpu_hz * remaining_deadline;
+    const bool local_capacity_ok = available_cycles_in_budget >= (k1 * context.cpu_cycles_required);
+    const bool compute_data_ok = context.cpu_cycles_required < (k2 * task_size_bytes);
+    const bool must_local_by_threshold = local_capacity_ok && compute_data_ok;
+
+    const double queue_wait_sec = std::max(0.0, static_cast<double>(context.local_queue_length)) * 0.5;
+    const bool must_offload_by_queue = (queue_wait_sec + t_local) >= remaining_deadline;
+
+    if (context.must_local_tag || must_local_by_threshold) {
+        result.classification = GateBClassification::MUST_LOCAL;
+        result.decision = OffloadingDecision::EXECUTE_LOCALLY;
+        if (context.must_local_tag) {
+            result.reason = "STAGE1_FORCE_LOCAL_TAG";
+        } else {
+            result.reason = "STAGE1_FORCE_LOCAL_K1K2";
+        }
+        last_decision_reason = result.reason;
+        std::cout << "[GATE_B] " << result.reason
+                  << " cap_ok=" << (local_capacity_ok ? "1" : "0")
+                  << " comp_data_ok=" << (compute_data_ok ? "1" : "0")
+                  << std::endl;
+        return result;
+    }
+
+    if (context.must_offload_tag || must_offload_by_queue) {
+        result.classification = GateBClassification::MUST_OFFLOAD;
+        result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        if (context.must_offload_tag) {
+            result.reason = "STAGE1_FORCE_OFFLOAD_TAG";
+        } else {
+            result.reason = "STAGE1_FORCE_OFFLOAD_QUEUE_PRESSURE";
+        }
+        last_decision_reason = result.reason;
+        std::cout << "[GATE_B] " << result.reason
+                  << " queue_wait=" << queue_wait_sec
+                  << " t_local=" << t_local
+                  << " rem=" << remaining_deadline
+                  << std::endl;
+        return result;
+    }
+
     const bool can_do_locally = (remaining_deadline > 0.0) && (t_local < remaining_deadline);
     const bool can_offload = context.rsu_available && (remaining_deadline > 0.0) && (t_offload < remaining_deadline);
 

@@ -60,6 +60,10 @@ public:
     PriorityLevel priority = PriorityLevel::MEDIUM; // Priority mapping
     bool is_offloadable = true;       // Can this task be offloaded?
     bool is_safety_critical = false;  // Safety-critical tasks should stay local
+    bool must_local_tag = false;      // Stage 1 rule tag: force local execution
+    bool must_offload_tag = false;    // Stage 1 rule tag: force offload
+    bool gpu_required_tag = false;    // Stage 2 rule tag: requires edge acceleration
+    bool cooperation_required_tag = false; // Stage 2 rule tag: requires cooperative processing
     
     // Processing State
     TaskState state;                  // Current task state
@@ -76,7 +80,9 @@ public:
         Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
             uint64_t input_size, uint64_t output_size, uint64_t cycles,
             double deadline_sec, double qos, PriorityLevel task_priority,
-            bool offloadable, bool safety_critical);
+            bool offloadable, bool safety_critical,
+            bool must_local = false, bool must_offload = false,
+            bool gpu_required = false, bool cooperation_required = false);
     
     // Destructor
     ~Task();

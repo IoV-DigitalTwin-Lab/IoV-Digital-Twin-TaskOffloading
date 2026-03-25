@@ -1007,6 +1007,8 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.cpu_cycles_required = task->cpu_cycles;
         context.qos_value = task->qos_value;
         context.deadline_seconds = task->relative_deadline;
+        context.must_local_tag = task->must_local_tag;
+        context.must_offload_tag = task->must_offload_tag;
         
         // Local vehicle resources
         context.local_cpu_available = cpu_available / 1e9;  // Convert Hz to GHz
