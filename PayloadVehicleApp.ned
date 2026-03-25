@@ -50,6 +50,11 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
         bool motionChannelOnly = default(false);              // Secondary DT mode: disable task generation/offloading
         bool force_offload = default(false);                  // Force all tasks to be offloaded
+        double gateAlpha = default(0.6);                      // Gate-B latency weight
+        double gateBeta = default(0.4);                       // Gate-B energy weight
+        double gateSafetyMarginSec @unit(s) = default(0.05s); // Safety margin subtracted from remaining deadline
+        double K1 = default(1.3333333333);                    // Stage-1 CPU threshold multiplier (4/3)
+        double K2 = default(200);                             // Stage-1 compute/data threshold
         double rsuDecisionTimeout @unit(s) = default(1.0s);   // Timeout for RSU decision response
         double offloadedTaskTimeout @unit(s) = default(5.0s); // Timeout for task execution result
         

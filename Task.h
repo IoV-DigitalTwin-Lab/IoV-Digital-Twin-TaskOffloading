@@ -48,6 +48,7 @@ public:
     
     // Timing Information
     simtime_t created_time;           // When task was generated
+    simtime_t queue_entry_time;       // When task entered pending_tasks queue (for stable aging)
     simtime_t deadline;               // Absolute deadline (created_time + relative_deadline)
     double relative_deadline;         // Relative deadline in seconds
     simtime_t received_time;          // When RSU received metadata (0 if not yet received)
@@ -59,6 +60,10 @@ public:
     PriorityLevel priority = PriorityLevel::MEDIUM; // Priority mapping
     bool is_offloadable = true;       // Can this task be offloaded?
     bool is_safety_critical = false;  // Safety-critical tasks should stay local
+    bool must_local_tag = false;      // Stage 1 rule tag: force local execution
+    bool must_offload_tag = false;    // Stage 1 rule tag: force offload
+    bool gpu_required_tag = false;    // Stage 2 rule tag: requires edge acceleration
+    bool cooperation_required_tag = false; // Stage 2 rule tag: requires cooperative processing
     
     // Processing State
     TaskState state;                  // Current task state
@@ -75,7 +80,9 @@ public:
         Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
             uint64_t input_size, uint64_t output_size, uint64_t cycles,
             double deadline_sec, double qos, PriorityLevel task_priority,
-            bool offloadable, bool safety_critical);
+            bool offloadable, bool safety_critical,
+            bool must_local = false, bool must_offload = false,
+            bool gpu_required = false, bool cooperation_required = false);
     
     // Destructor
     ~Task();
@@ -93,18 +100,59 @@ public:
 
 /**
  * Task Comparator for priority queue
- * Priority: Higher QoS first, then tighter deadline
+ * Priority: weighted hybrid score (QoS + deadline urgency)
+ *   score = alpha * qos_norm + beta * deadline_urgency
+ * Effective score with starvation prevention:
+ *   effective = score + aging_factor_per_sec * waiting_time_sec
+ * For safety-critical workloads, deadlines are weighted higher.
  */
 struct TaskComparator {
+    static constexpr double ALPHA_QOS = 0.4;
+    static constexpr double BETA_DEADLINE = 0.6;
+    static constexpr double QOS_MAX = 1.0;
+    static constexpr double DEADLINE_MIN_REF_SEC = 0.08; // 80ms profile minimum
+    static constexpr double AGING_FACTOR_PER_SEC = 0.02;
+    static constexpr double MAX_AGING_BOOST = 1.0;
+
     bool operator()(Task* a, Task* b) const {
-        // Higher QoS = higher priority (reverse for priority_queue max-heap)
-        if (std::abs(a->qos_value - b->qos_value) > 0.1)
-            return a->qos_value < b->qos_value;
-        
-        // Tighter deadline = higher priority
-        double deadline_a = (a->deadline - a->created_time).dbl();
-        double deadline_b = (b->deadline - b->created_time).dbl();
-        return deadline_a > deadline_b;
+        double qos_a = std::max(0.0, std::min(a->qos_value / QOS_MAX, 1.0));
+        double qos_b = std::max(0.0, std::min(b->qos_value / QOS_MAX, 1.0));
+
+        double deadline_a = std::max((a->deadline - a->created_time).dbl(), 1e-6);
+        double deadline_b = std::max((b->deadline - b->created_time).dbl(), 1e-6);
+
+        // Normalized deadline urgency in [0, 1]: tighter deadline => higher urgency.
+        double urgency_a = std::min(1.0, DEADLINE_MIN_REF_SEC / deadline_a);
+        double urgency_b = std::min(1.0, DEADLINE_MIN_REF_SEC / deadline_b);
+
+        double base_score_a = ALPHA_QOS * qos_a + BETA_DEADLINE * urgency_a;
+        double base_score_b = ALPHA_QOS * qos_b + BETA_DEADLINE * urgency_b;
+
+        // Aging term (OS-style starvation prevention): tasks get a bounded boost
+        // based on time spent in the pending_tasks queue.
+        // Uses queue_entry_time (not created_time) to measure queue wait time only,
+        // ensuring stable comparisons for tasks already in the queue.
+        double wait_a = std::max(0.0, (simTime() - a->queue_entry_time).dbl());
+        double wait_b = std::max(0.0, (simTime() - b->queue_entry_time).dbl());
+        double aging_a = std::min(MAX_AGING_BOOST, AGING_FACTOR_PER_SEC * wait_a);
+        double aging_b = std::min(MAX_AGING_BOOST, AGING_FACTOR_PER_SEC * wait_b);
+
+        double score_a = base_score_a + aging_a;
+        double score_b = base_score_b + aging_b;
+
+        // Reverse comparison for priority_queue max-heap behavior.
+        if (std::abs(score_a - score_b) > 1e-12) {
+            return score_a < score_b;
+        }
+
+        // Deterministic tie-breakers.
+        if (std::abs(deadline_a - deadline_b) > 1e-12) {
+            return deadline_a > deadline_b; // tighter deadline first
+        }
+        if (std::abs(qos_a - qos_b) > 1e-12) {
+            return qos_a < qos_b; // higher QoS first
+        }
+        return a->task_id > b->task_id;
     }
 };
 

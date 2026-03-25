@@ -37,6 +37,10 @@ TaskProfileDatabase::TaskProfileDatabase() {
     localObjDet.offloading.is_offloadable          = false;  // local only
     localObjDet.offloading.is_safety_critical      = true;
     localObjDet.offloading.offloading_benefit_ratio = 0.0;
+    localObjDet.offloading.must_local_tag          = true;
+    localObjDet.offloading.must_offload_tag        = false;
+    localObjDet.offloading.gpu_required_tag        = false;
+    localObjDet.offloading.cooperation_required_tag = false;
 
     localObjDet.dependencies.depends_on       = TaskType::LOCAL_OBJECT_DETECTION;
     localObjDet.dependencies.dependency_ratio = 0.0;
@@ -73,6 +77,10 @@ TaskProfileDatabase::TaskProfileDatabase() {
     coopPercep.offloading.is_offloadable          = true;
     coopPercep.offloading.is_safety_critical      = false;
     coopPercep.offloading.offloading_benefit_ratio = 2.0; // RSU 2x faster
+    coopPercep.offloading.must_local_tag          = false;
+    coopPercep.offloading.must_offload_tag        = false;
+    coopPercep.offloading.gpu_required_tag        = false;
+    coopPercep.offloading.cooperation_required_tag = true;
 
     coopPercep.dependencies.depends_on       = TaskType::LOCAL_OBJECT_DETECTION;
     coopPercep.dependencies.dependency_ratio = 0.6;
@@ -109,6 +117,10 @@ TaskProfileDatabase::TaskProfileDatabase() {
     routeOpt.offloading.is_offloadable          = true;
     routeOpt.offloading.is_safety_critical      = false;
     routeOpt.offloading.offloading_benefit_ratio = 2.5; // RSU 2.5x faster (full map available)
+    routeOpt.offloading.must_local_tag          = false;
+    routeOpt.offloading.must_offload_tag        = false;
+    routeOpt.offloading.gpu_required_tag        = false;
+    routeOpt.offloading.cooperation_required_tag = false;
 
     routeOpt.dependencies.depends_on       = TaskType::COOPERATIVE_PERCEPTION;
     routeOpt.dependencies.dependency_ratio = 0.8;
@@ -143,6 +155,10 @@ TaskProfileDatabase::TaskProfileDatabase() {
     fleetTraffic.offloading.is_offloadable          = true;
     fleetTraffic.offloading.is_safety_critical      = false;
     fleetTraffic.offloading.offloading_benefit_ratio = 10.0; // 10x (GPU + ML optimised on RSU)
+    fleetTraffic.offloading.must_local_tag          = false;
+    fleetTraffic.offloading.must_offload_tag        = false;
+    fleetTraffic.offloading.gpu_required_tag        = false;
+    fleetTraffic.offloading.cooperation_required_tag = false;
 
     fleetTraffic.dependencies.depends_on       = TaskType::FLEET_TRAFFIC_FORECAST;
     fleetTraffic.dependencies.dependency_ratio = 0.0;
@@ -178,6 +194,10 @@ TaskProfileDatabase::TaskProfileDatabase() {
     voiceCmd.offloading.is_offloadable          = true;
     voiceCmd.offloading.is_safety_critical      = false;
     voiceCmd.offloading.offloading_benefit_ratio = 1.5;
+    voiceCmd.offloading.must_local_tag          = false;
+    voiceCmd.offloading.must_offload_tag        = false;
+    voiceCmd.offloading.gpu_required_tag        = false;
+    voiceCmd.offloading.cooperation_required_tag = false;
 
     voiceCmd.dependencies.depends_on       = TaskType::VOICE_COMMAND_PROCESSING;
     voiceCmd.dependencies.dependency_ratio = 0.0;
@@ -213,6 +233,10 @@ TaskProfileDatabase::TaskProfileDatabase() {
     sensorHealth.offloading.is_offloadable          = true;
     sensorHealth.offloading.is_safety_critical      = false;
     sensorHealth.offloading.offloading_benefit_ratio = 1.0;
+    sensorHealth.offloading.must_local_tag          = false;
+    sensorHealth.offloading.must_offload_tag        = false;
+    sensorHealth.offloading.gpu_required_tag        = false;
+    sensorHealth.offloading.cooperation_required_tag = false;
 
     sensorHealth.dependencies.depends_on       = TaskType::SENSOR_HEALTH_CHECK;
     sensorHealth.dependencies.dependency_ratio = 0.0;

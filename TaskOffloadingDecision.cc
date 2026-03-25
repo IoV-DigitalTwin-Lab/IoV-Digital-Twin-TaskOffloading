@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <sstream>
 #include <omnetpp.h>
 
 namespace complex_network {
@@ -24,6 +25,36 @@ OffloadingDecision TaskOffloadingDecisionMaker::makeDecision(const DecisionConte
     // Base implementation - always offload
     // Subclasses should override this
     return OffloadingDecision::OFFLOAD_TO_RSU;
+}
+
+GateBDecisionResult TaskOffloadingDecisionMaker::makeDecisionDetailed(const DecisionContext& context) {
+    GateBDecisionResult result;
+    result.decision = makeDecision(context);
+    result.reason = last_decision_reason;
+
+    // Step 1 compatibility mapping only; true Gate B classification is added
+    // in later steps when formulas and stage rules are implemented.
+    switch (result.decision) {
+        case OffloadingDecision::OFFLOAD_TO_RSU:
+        case OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE:
+            result.classification = GateBClassification::MUST_OFFLOAD;
+            break;
+        case OffloadingDecision::EXECUTE_LOCALLY:
+            result.classification = GateBClassification::MUST_LOCAL;
+            break;
+        case OffloadingDecision::REJECT_TASK:
+            result.classification = GateBClassification::INFEASIBLE;
+            break;
+    }
+
+    // Keep numerical fields neutral until Gate B math is wired in.
+    result.t_local_seconds = 0.0;
+    result.t_offload_seconds = 0.0;
+    result.remaining_deadline_seconds = context.deadline_seconds;
+    result.cost_local = 0.0;
+    result.cost_offload = 0.0;
+
+    return result;
 }
 
 void TaskOffloadingDecisionMaker::provideFeedback(const std::string& task_id,
@@ -98,50 +129,205 @@ double TaskOffloadingDecisionMaker::estimateOffloadingTime(const DecisionContext
 }
 
 // ============================================================================
-// HeuristicDecisionMaker - Simple 3-rule placeholder (pre-DRL phase)
-//
-// Rule 1 — OFFLOAD_TO_RSU  : RSU reachable AND RSU has free capacity
-// Rule 2 — EXECUTE_LOCALLY : local queue below ceiling AND CPU not saturated
-// Rule 3 — REJECT_TASK     : neither option is viable
-//
-// The RSU itself enforces a hard admission limit, so Rule 1 is optimistic but
-// safe: occasional over-estimates are caught by the RSU before queuing.
+// HeuristicDecisionMaker - Gate B feasibility classification (Step 3)
 // ============================================================================
 
 HeuristicDecisionMaker::HeuristicDecisionMaker()
-    : TaskOffloadingDecisionMaker() {
+    : TaskOffloadingDecisionMaker(),
+      gate_alpha(0.6),
+      gate_beta(0.4),
+      gate_safety_margin_sec(0.05),
+      k1(4.0 / 3.0),
+      k2(200.0),
+      p_compute_w(25.0),
+      p_tx_w(2.0),
+      p_rx_w(0.5) {
+}
+
+void HeuristicDecisionMaker::setGateWeights(double alpha, double beta) {
+    if (alpha >= 0.0 && beta >= 0.0 && (alpha + beta) > 0.0) {
+        double sum = alpha + beta;
+        gate_alpha = alpha / sum;
+        gate_beta = beta / sum;
+    }
+}
+
+void HeuristicDecisionMaker::setGateSafetyMarginSeconds(double margin_sec) {
+    gate_safety_margin_sec = std::max(0.0, margin_sec);
+}
+
+void HeuristicDecisionMaker::setStageThresholds(double k1_value, double k2_value) {
+    k1 = std::max(0.0, k1_value);
+    k2 = std::max(0.0, k2_value);
+}
+
+void HeuristicDecisionMaker::setEnergyPowers(double p_compute, double p_tx, double p_rx) {
+    p_compute_w = std::max(0.0, p_compute);
+    p_tx_w = std::max(0.0, p_tx);
+    p_rx_w = std::max(0.0, p_rx);
+}
+
+GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionContext& context) {
+    GateBDecisionResult result;
+
+    const double remaining_deadline = std::max(0.0, context.deadline_seconds - gate_safety_margin_sec);
+    const double local_cpu_hz = std::max(1e6, context.local_cpu_available * 1e9);
+
+    // Step 3 formulas from README_GATES (with currently available context fields)
+    const double t_local = std::max(0.0, context.cpu_cycles_required) / local_cpu_hz;
+    const double t_tx = std::max(0.0, context.estimated_transmission_time);
+    const double assumed_rsu_cpu_hz = 4.0 * 1e9; // Existing model assumption until RSU CPU is injected into context
+    const double t_edge = std::max(0.0, context.cpu_cycles_required) / assumed_rsu_cpu_hz;
+    const double t_rx = 0.0; // Output-size-based estimate will be added when output metadata is passed in DecisionContext
+    const double t_offload = t_tx + t_edge + t_rx;
+
+    result.t_local_seconds = t_local;
+    result.t_offload_seconds = t_offload;
+    result.remaining_deadline_seconds = remaining_deadline;
+
+    // ---------------------------------------------------------------------
+    // Step 5: Stage-2 override (higher priority than Stage-1)
+    // If the task requires edge acceleration or cooperative processing,
+    // force RSU execution regardless of Stage-1 local/offload tags.
+    // ---------------------------------------------------------------------
+    if (context.gpu_required_tag || context.cooperation_required_tag) {
+        result.classification = GateBClassification::MUST_OFFLOAD;
+        result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+
+        if (context.gpu_required_tag && context.cooperation_required_tag) {
+            result.reason = "STAGE2_FORCE_RSU_GPU_AND_COOP";
+        } else if (context.gpu_required_tag) {
+            result.reason = "STAGE2_FORCE_RSU_GPU";
+        } else {
+            result.reason = "STAGE2_FORCE_RSU_COOP";
+        }
+
+        last_decision_reason = result.reason;
+        std::cout << "[GATE_B] " << result.reason
+                  << " (overrides Stage-1)"
+                  << std::endl;
+        return result;
+    }
+
+    // ---------------------------------------------------------------------
+    // Step 4: Stage-1 forced-rule checks (executed before feasibility branch)
+    // ---------------------------------------------------------------------
+    const double task_size_bytes = std::max(1.0, context.task_size_kb * 1024.0);
+    const double available_cycles_in_budget = local_cpu_hz * remaining_deadline;
+    const bool local_capacity_ok = available_cycles_in_budget >= (k1 * context.cpu_cycles_required);
+    const bool compute_data_ok = context.cpu_cycles_required < (k2 * task_size_bytes);
+    const bool must_local_by_threshold = local_capacity_ok && compute_data_ok;
+
+    const double queue_wait_sec = std::max(0.0, static_cast<double>(context.local_queue_length)) * 0.5;
+    const bool must_offload_by_queue = (queue_wait_sec + t_local) >= remaining_deadline;
+
+    if (context.must_local_tag || must_local_by_threshold) {
+        result.classification = GateBClassification::MUST_LOCAL;
+        result.decision = OffloadingDecision::EXECUTE_LOCALLY;
+        if (context.must_local_tag) {
+            result.reason = "STAGE1_FORCE_LOCAL_TAG";
+        } else {
+            result.reason = "STAGE1_FORCE_LOCAL_K1K2";
+        }
+        last_decision_reason = result.reason;
+        std::cout << "[GATE_B] " << result.reason
+                  << " cap_ok=" << (local_capacity_ok ? "1" : "0")
+                  << " comp_data_ok=" << (compute_data_ok ? "1" : "0")
+                  << std::endl;
+        return result;
+    }
+
+    if (context.must_offload_tag || must_offload_by_queue) {
+        result.classification = GateBClassification::MUST_OFFLOAD;
+        result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        if (context.must_offload_tag) {
+            result.reason = "STAGE1_FORCE_OFFLOAD_TAG";
+        } else {
+            result.reason = "STAGE1_FORCE_OFFLOAD_QUEUE_PRESSURE";
+        }
+        last_decision_reason = result.reason;
+        std::cout << "[GATE_B] " << result.reason
+                  << " queue_wait=" << queue_wait_sec
+                  << " t_local=" << t_local
+                  << " rem=" << remaining_deadline
+                  << std::endl;
+        return result;
+    }
+
+    const bool can_do_locally = (remaining_deadline > 0.0) && (t_local < remaining_deadline);
+    const bool can_offload = context.rsu_available && (remaining_deadline > 0.0) && (t_offload < remaining_deadline);
+
+    if (!can_do_locally && can_offload) {
+        result.classification = GateBClassification::MUST_OFFLOAD;
+        result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+    } else if (can_do_locally && !can_offload) {
+        result.classification = GateBClassification::MUST_LOCAL;
+        result.decision = OffloadingDecision::EXECUTE_LOCALLY;
+    } else if (!can_do_locally && !can_offload) {
+        result.classification = GateBClassification::INFEASIBLE;
+        result.decision = OffloadingDecision::REJECT_TASK;
+    } else {
+        result.classification = GateBClassification::BOTH_FEASIBLE;
+
+        // Cost function for BOTH_FEASIBLE
+        const double e_local = p_compute_w * t_local;
+        const double e_offload = (p_tx_w * t_tx) + (p_rx_w * t_rx);
+        const double e_ref = std::max(1e-9, std::max(e_local, e_offload));
+        const double d_ref = std::max(1e-9, remaining_deadline);
+
+        result.cost_local = gate_alpha * (t_local / d_ref) + gate_beta * (e_local / e_ref);
+        result.cost_offload = gate_alpha * (t_offload / d_ref) + gate_beta * (e_offload / e_ref);
+
+        result.decision = (result.cost_offload < result.cost_local)
+            ? OffloadingDecision::OFFLOAD_TO_RSU
+            : OffloadingDecision::EXECUTE_LOCALLY;
+    }
+
+    std::ostringstream reason;
+    reason << "GateB cls=";
+    switch (result.classification) {
+        case GateBClassification::MUST_OFFLOAD: reason << "MUST_OFFLOAD"; break;
+        case GateBClassification::MUST_LOCAL: reason << "MUST_LOCAL"; break;
+        case GateBClassification::BOTH_FEASIBLE: reason << "BOTH_FEASIBLE"; break;
+        case GateBClassification::INFEASIBLE: reason << "INFEASIBLE"; break;
+    }
+    reason << " tL=" << result.t_local_seconds
+           << " tO=" << result.t_offload_seconds
+           << " rem=" << result.remaining_deadline_seconds
+           << " alpha=" << gate_alpha
+           << " beta=" << gate_beta;
+    if (result.classification == GateBClassification::BOTH_FEASIBLE) {
+        reason << " cL=" << result.cost_local << " cO=" << result.cost_offload;
+    }
+
+    result.reason = reason.str();
+    last_decision_reason = result.reason;
+
+    std::cout << "[GATE_B] " << result.reason << std::endl;
+    return result;
 }
 
 OffloadingDecision HeuristicDecisionMaker::makeDecision(const DecisionContext& context) {
-    // Rule 1: prefer RSU when reachable and not at capacity
-    bool rsu_reachable  = context.rsu_available;
-    bool rsu_has_space  = context.rsu_processing_count < context.rsu_max_concurrent;
-
-    if (rsu_reachable && rsu_has_space) {
-        last_decision_reason = "RSU reachable and has capacity";
-        decisions_offload++;
-        std::cout << "[OFFLOAD_DECISION] OFFLOAD_TO_RSU — " << last_decision_reason << std::endl;
-        return OffloadingDecision::OFFLOAD_TO_RSU;
+    GateBDecisionResult result = makeDecisionDetailed(context);
+    switch (result.decision) {
+        case OffloadingDecision::EXECUTE_LOCALLY:
+            decisions_local++;
+            break;
+        case OffloadingDecision::OFFLOAD_TO_RSU:
+        case OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE:
+            decisions_offload++;
+            break;
+        case OffloadingDecision::REJECT_TASK:
+            decisions_reject++;
+            break;
     }
-
-    // Rule 2: fall back to local execution if vehicle has headroom
-    bool local_has_space = context.local_queue_length < 10;
-    bool cpu_not_full    = context.local_cpu_utilization < 0.95;
-
-    if (local_has_space && cpu_not_full) {
-        last_decision_reason = rsu_reachable
-            ? "RSU at capacity, falling back to local"
-            : "RSU unreachable, executing locally";
-        decisions_local++;
-        std::cout << "[OFFLOAD_DECISION] EXECUTE_LOCALLY — " << last_decision_reason << std::endl;
-        return OffloadingDecision::EXECUTE_LOCALLY;
-    }
-
-    // Rule 3: both paths exhausted
-    last_decision_reason = "Local queue full and RSU unavailable/at-capacity";
-    decisions_reject++;
-    std::cout << "[OFFLOAD_DECISION] REJECT_TASK — " << last_decision_reason << std::endl;
-    return OffloadingDecision::REJECT_TASK;
+    std::cout << "[OFFLOAD_DECISION] "
+              << (result.decision == OffloadingDecision::EXECUTE_LOCALLY ? "EXECUTE_LOCALLY" :
+                  result.decision == OffloadingDecision::OFFLOAD_TO_RSU ? "OFFLOAD_TO_RSU" :
+                  result.decision == OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE ? "OFFLOAD_TO_SERVICE_VEHICLE" :
+                  "REJECT_TASK")
+              << " — " << last_decision_reason << std::endl;
+    return result.decision;
 }
 
 // ============================================================================
