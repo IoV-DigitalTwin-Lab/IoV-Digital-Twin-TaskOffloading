@@ -179,24 +179,44 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         Task* task = (Task*)msg->getContextPointer();
         auto it = pendingOffloadingDecisions.find(task->task_id);
         if (it != pendingOffloadingDecisions.end()) {
+            PendingOffloadDecision pending = it->second;
             task = it->second.task;
             pendingOffloadingDecisions.erase(it);
-            EV_WARN << "RSU decision timeout for task " << task->task_id << " - falling back to local" << endl;
+            pendingDecisionTimeouts.erase(task->task_id);
 
-            if (canAcceptTask(task)) {
-                if (canStartProcessing(task)) {
-                    allocateResourcesAndStart(task);
-                } else {
-                    task->state = QUEUED;
-                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
-                    pending_tasks.push(task);
+            if (pending.must_offload) {
+                EV_WARN << "RSU decision timeout for MUST_OFFLOAD task " << task->task_id
+                        << " - no local fallback" << endl;
+                task->state = FAILED;
+                tasks_failed++;
+                if (task->is_profile_task) {
+                    double latency = (simTime() - task->created_time).dbl();
+                    MetricsManager::getInstance().recordTaskFailed(task->type, latency);
                 }
-            } else {
-                task->state = REJECTED;
-                tasks_rejected++;
-                sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT");
+                sendTaskFailureToRSU(task, "OFFLOAD_TIMEOUT_NO_LOCAL_FALLBACK");
+                sendTaskOffloadingEvent(task->task_id, "OFFLOAD_TIMEOUT_FAIL",
+                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+                    "{\"classification\":\"MUST_OFFLOAD\",\"reason\":\"" + pending.reason + "\"}");
                 cleanupTaskEvents(task);
                 delete task;
+            } else {
+                EV_WARN << "RSU decision timeout for task " << task->task_id
+                        << " - local fallback allowed" << endl;
+                if (canAcceptTask(task)) {
+                    if (canStartProcessing(task)) {
+                        allocateResourcesAndStart(task);
+                    } else {
+                        task->state = QUEUED;
+                        task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                        pending_tasks.push(task);
+                    }
+                } else {
+                    task->state = REJECTED;
+                    tasks_rejected++;
+                    sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT_LOCAL_REJECT");
+                    cleanupTaskEvents(task);
+                    delete task;
+                }
             }
         }
         delete msg;
@@ -1169,7 +1189,12 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         // Schedule a timeout for the decision
         cMessage* timeoutMsg = new cMessage("rsuDecisionTimeout");
         timeoutMsg->setContextPointer(task);
-        scheduleAt(simTime() + rsuDecisionTimeout, timeoutMsg);
+        double timeoutBudgetSec = rsuDecisionTimeout.dbl();
+        auto pendingIt = pendingOffloadingDecisions.find(task->task_id);
+        if (pendingIt != pendingOffloadingDecisions.end()) {
+            timeoutBudgetSec = std::max(0.001, pendingIt->second.rsu_timeout_budget_seconds);
+        }
+        scheduleAt(simTime() + timeoutBudgetSec, timeoutMsg);
         
         // Store timeout message so we can cancel it if decision arrives
         pendingDecisionTimeouts[task->task_id] = timeoutMsg;
@@ -2767,7 +2792,17 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     pending.must_offload = (gateResult.classification == GateBClassification::MUST_OFFLOAD);
     pending.t_local_seconds = gateResult.t_local_seconds;
     pending.remaining_deadline_seconds = gateResult.remaining_deadline_seconds;
-    pending.rsu_timeout_budget_seconds = rsuDecisionTimeout.dbl();
+    const double safety_margin = std::max(0.0, par("gateSafetyMarginSec").doubleValue());
+    const double remaining = std::max(0.0, gateResult.remaining_deadline_seconds);
+    if (pending.must_offload) {
+        // Step 9: MUST_OFFLOAD waits as long as remaining deadline allows.
+        pending.rsu_timeout_budget_seconds = std::max(0.001, remaining);
+    } else {
+        // Step 9: BOTH_FEASIBLE keeps room for local fallback execution.
+        double both_budget = std::min(remaining,
+            std::max(0.001, remaining - gateResult.t_local_seconds - safety_margin));
+        pending.rsu_timeout_budget_seconds = std::max(0.001, both_budget);
+    }
     pending.reason = gateResult.reason;
     pendingOffloadingDecisions[task->task_id] = pending;
     
