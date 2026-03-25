@@ -1390,10 +1390,12 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     
     // Calculate CPU allocation
     task->cpu_allocated = calculateCPUAllocation(task);
-    cpu_available = cpu_allocable;
+    double allocated_sum = 0.0;
     for (Task* t : processing_tasks) {
-        cpu_available -= t->cpu_allocated;
+        allocated_sum += t->cpu_allocated;
     }
+    cpu_available = std::max(0.0, cpu_allocable - allocated_sum);
+    ASSERT(cpu_available >= -1e-9);
     
     EV_INFO << "Resource allocation:" << endl;
     EV_INFO << "  • Memory allocated: " << (task->mem_footprint_bytes / 1e6) << " MB" << endl;
@@ -1527,11 +1529,13 @@ void PayloadVehicleApp::reallocateCPUResources() {
         }
     }
     
-    // Recalculate available CPU
-    cpu_available = cpu_allocable;
+    // Recalculate available CPU with FP-safe clamping
+    double allocated_sum = 0.0;
     for (Task* t : processing_tasks) {
-        cpu_available -= t->cpu_allocated;
+        allocated_sum += t->cpu_allocated;
     }
+    cpu_available = std::max(0.0, cpu_allocable - allocated_sum);
+    ASSERT(cpu_available >= -1e-9);
     
     EV_INFO << "CPU available after reallocation: " << (cpu_available/1e9) << " GHz" << endl;
 }
