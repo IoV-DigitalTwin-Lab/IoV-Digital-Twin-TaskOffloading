@@ -1677,6 +1677,7 @@ void PayloadVehicleApp::processQueuedTasks() {
     }
 
     for (Task* task : deferred_tasks) {
+        task->queue_entry_time = simTime();
         pending_tasks.push(task);
     }
 
