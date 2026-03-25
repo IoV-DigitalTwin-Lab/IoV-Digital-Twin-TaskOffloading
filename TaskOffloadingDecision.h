@@ -157,10 +157,27 @@ public:
     HeuristicDecisionMaker();
     
     OffloadingDecision makeDecision(const DecisionContext& context) override;
+    GateBDecisionResult makeDecisionDetailed(const DecisionContext& context) override;
+
+    // Step 3 tunables (README_GATES)
+    void setGateWeights(double alpha, double beta);
+    void setGateSafetyMarginSeconds(double margin_sec);
+    void setStageThresholds(double k1_value, double k2_value);
+    void setEnergyPowers(double p_compute_w, double p_tx_w, double p_rx_w);
     
-    // Configuration parameters
-    // No additional configuration needed for the simple 3-rule placeholder.
-    // Thresholds / helper methods will be re-introduced when DRL replaces this.
+private:
+    double gate_alpha;
+    double gate_beta;
+    double gate_safety_margin_sec;
+
+    // K thresholds are introduced in Step 3 and used in Step 4 stage rules.
+    double k1;
+    double k2;
+
+    // Simple power model for cost normalization in BOTH_FEASIBLE.
+    double p_compute_w;
+    double p_tx_w;
+    double p_rx_w;
 };
 
 /**

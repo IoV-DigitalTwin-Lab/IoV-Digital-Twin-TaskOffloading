@@ -804,10 +804,19 @@ void PayloadVehicleApp::initializeTaskSystem() {
     
     if (offloadingEnabled) {
         // Initialize decision maker
-        decisionMaker = new HeuristicDecisionMaker();
+        HeuristicDecisionMaker* heuristic = new HeuristicDecisionMaker();
+        heuristic->setGateWeights(par("gateAlpha").doubleValue(), par("gateBeta").doubleValue());
+        heuristic->setGateSafetyMarginSeconds(par("gateSafetyMarginSec").doubleValue());
+        heuristic->setStageThresholds(par("K1").doubleValue(), par("K2").doubleValue());
+        decisionMaker = heuristic;
         EV_INFO << "✓ Task offloading decision maker initialized" << endl;
         std::cout << "OFFLOADING: Decision maker initialized for vehicle " 
                   << getParentModule()->getIndex() << std::endl;
+        EV_INFO << "  Gate-B weights: alpha=" << par("gateAlpha").doubleValue()
+            << ", beta=" << par("gateBeta").doubleValue() << endl;
+        EV_INFO << "  Gate-B safety margin: " << par("gateSafetyMarginSec").doubleValue() << "s" << endl;
+        EV_INFO << "  Stage thresholds: K1=" << par("K1").doubleValue()
+            << ", K2=" << par("K2").doubleValue() << endl;
         
         // Read timeout parameters
         rsuDecisionTimeout = par("rsuDecisionTimeout").doubleValue();
