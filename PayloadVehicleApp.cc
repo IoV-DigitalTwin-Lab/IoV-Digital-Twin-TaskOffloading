@@ -990,13 +990,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     }
     
     if (offloadingEnabled && decisionMaker && task->is_offloadable) {
-        // Only offloadable tasks send metadata to the RSU over the wireless channel
-        sendTaskMetadataToRSU(task);
-        task->state = METADATA_SENT;
-        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
-            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
-            "{\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + ","
-            "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + "}");
+        // Step 6: metadata transmission is deferred until offload is actually committed.
         EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
         
         // Build decision context for the decision maker
@@ -1209,6 +1203,14 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         }
 
         std::cout << "OFFLOAD_REQUEST: Task " << task->task_id << " requesting RSU decision" << std::endl;
+
+        // Commit point reached: this task will be offloaded, so publish metadata now.
+        sendTaskMetadataToRSU(task);
+        task->state = METADATA_SENT;
+        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+            "{\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + ","
+            "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + "}");
         
         // Send offloading request to RSU (includes local recommendation)
         sendOffloadingRequestToRSU(task, localDecision);
