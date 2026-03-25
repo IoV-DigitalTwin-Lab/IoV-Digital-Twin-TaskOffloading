@@ -186,6 +186,30 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     result.remaining_deadline_seconds = remaining_deadline;
 
     // ---------------------------------------------------------------------
+    // Step 5: Stage-2 override (higher priority than Stage-1)
+    // If the task requires edge acceleration or cooperative processing,
+    // force RSU execution regardless of Stage-1 local/offload tags.
+    // ---------------------------------------------------------------------
+    if (context.gpu_required_tag || context.cooperation_required_tag) {
+        result.classification = GateBClassification::MUST_OFFLOAD;
+        result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+
+        if (context.gpu_required_tag && context.cooperation_required_tag) {
+            result.reason = "STAGE2_FORCE_RSU_GPU_AND_COOP";
+        } else if (context.gpu_required_tag) {
+            result.reason = "STAGE2_FORCE_RSU_GPU";
+        } else {
+            result.reason = "STAGE2_FORCE_RSU_COOP";
+        }
+
+        last_decision_reason = result.reason;
+        std::cout << "[GATE_B] " << result.reason
+                  << " (overrides Stage-1)"
+                  << std::endl;
+        return result;
+    }
+
+    // ---------------------------------------------------------------------
     // Step 4: Stage-1 forced-rule checks (executed before feasibility branch)
     // ---------------------------------------------------------------------
     const double task_size_bytes = std::max(1.0, context.task_size_kb * 1024.0);
