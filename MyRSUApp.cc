@@ -2513,6 +2513,7 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
     
     std::string task_id = msg->getTask_id();
     std::string vehicle_id = msg->getOrigin_vehicle_id();
+    rsu_tasks_arrived++;
     
     std::cout << "RSU_PROCESS: Received task " << task_id << " from vehicle " << vehicle_id 
               << " for RSU processing" << std::endl;
@@ -2636,7 +2637,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     // applied once at first admission, not at subsequent CPU reallocations.
     // ======================================================================
     rsu_processing_count++;
-    rsu_tasks_received++;
+    rsu_tasks_admitted++;
     int concurrent = rsu_processing_count;  // includes this new task
 
     double existing_weight_sum = 0.0;
@@ -2783,7 +2784,7 @@ void MyRSUApp::tryStartQueuedRSUTasks() {
         rsu_total_queue_time += wait_time;
 
         rsu_processing_count++;
-        rsu_tasks_received++;
+        rsu_tasks_admitted++;
         int concurrent = rsu_processing_count;
 
         double this_weight = getTaskPriorityWeight(queued.qos_value);
@@ -3157,7 +3158,19 @@ void MyRSUApp::sendRSUStatusUpdate() {
     double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
     double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
     double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
-    double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    double success_rate = (rsu_tasks_admitted > 0) ? ((double)rsu_tasks_processed / rsu_tasks_admitted) : 0.0;
+
+    // Accounting sanity check:
+    // arrived == admitted + rejected + currently_queued
+    int accounted = rsu_tasks_admitted + rsu_tasks_rejected + rsu_queue_length;
+    if (accounted != rsu_tasks_arrived) {
+        EV_WARN << "RSU counter mismatch: arrived=" << rsu_tasks_arrived
+                << " accounted=" << accounted
+                << " (admitted=" << rsu_tasks_admitted
+                << ", rejected=" << rsu_tasks_rejected
+                << ", queued=" << rsu_queue_length
+                << ", in_flight=" << rsu_processing_count << ")" << endl;
+    }
     
     // Update Redis with RSU state (include position)
     if (redis_twin && use_redis) {
@@ -3199,7 +3212,7 @@ void MyRSUApp::insertRSUStatus() {
     double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
     double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
     double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
-    double success_rate = (rsu_tasks_received > 0) ? ((double)rsu_tasks_processed / rsu_tasks_received) : 0.0;
+    double success_rate = (rsu_tasks_admitted > 0) ? ((double)rsu_tasks_processed / rsu_tasks_admitted) : 0.0;
     int connected_vehicles = vehicle_twins.size();
     
     std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
@@ -3221,7 +3234,8 @@ void MyRSUApp::insertRSUStatus() {
     params[9] = std::to_string(rsu_queue_length);
     params[10] = std::to_string(rsu_processing_count);
     params[11] = std::to_string(rsu_max_concurrent);
-    params[12] = std::to_string(rsu_tasks_received);
+    // Keep DB column name tasks_received, but store true arrival count.
+    params[12] = std::to_string(rsu_tasks_arrived);
     params[13] = std::to_string(rsu_tasks_processed);
     params[14] = std::to_string(rsu_tasks_failed);
     params[15] = std::to_string(rsu_tasks_rejected);

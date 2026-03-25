@@ -215,7 +215,8 @@ private:
     int rsu_max_concurrent = 10;        // Max concurrent tasks
     
     // Statistics
-    int rsu_tasks_received = 0;
+    int rsu_tasks_arrived = 0;      // Count of TaskOffloadPacket arrivals at this RSU
+    int rsu_tasks_admitted = 0;     // Count admitted into RSU processing (direct + from waiting queue)
     int rsu_tasks_processed = 0;
     int rsu_tasks_failed = 0;
     int rsu_tasks_rejected = 0;
