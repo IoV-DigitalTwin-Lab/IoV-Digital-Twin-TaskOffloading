@@ -96,6 +96,12 @@ struct TaskProfile {
         bool is_offloadable;          // Can be sent to RSU?
         bool is_safety_critical;      // Safety functions (cannot offload)
         double offloading_benefit_ratio; // Time saved if offloaded (1.0-20.0x)
+
+        // Rule tags for Gate B staged policy (README_GATES Step 2)
+        bool must_local_tag;          // Stage 1: force local execution
+        bool must_offload_tag;        // Stage 1: force offloading
+        bool gpu_required_tag;        // Stage 2: requires RSU/edge acceleration
+        bool cooperation_required_tag; // Stage 2: requires multi-vehicle cooperation
     } offloading;
 
     // Dependency Information

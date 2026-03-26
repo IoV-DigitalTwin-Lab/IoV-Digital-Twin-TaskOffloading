@@ -26,6 +26,7 @@ Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cyc
     
     // Initialize timing
     created_time = simTime();
+    queue_entry_time = created_time;  // Initialize to created_time; will be updated when enqueued
     deadline = created_time + SimTime(deadline_sec);
     received_time = SimTime(0);
     processing_start_time = SimTime(0);
@@ -50,7 +51,9 @@ Task::Task(const std::string& vid, uint64_t seq_num, uint64_t size, uint64_t cyc
 Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
            uint64_t input_size, uint64_t output_size, uint64_t cycles,
            double deadline_sec, double qos, PriorityLevel task_priority,
-           bool offloadable, bool safety_critical)
+                     bool offloadable, bool safety_critical,
+                     bool must_local, bool must_offload,
+                     bool gpu_required, bool cooperation_required)
     : vehicle_id(vid),
       type(task_type),
       is_profile_task(true),
@@ -62,6 +65,10 @@ Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
       priority(task_priority),
       is_offloadable(offloadable),
       is_safety_critical(safety_critical),
+    must_local_tag(must_local),
+    must_offload_tag(must_offload),
+    gpu_required_tag(gpu_required),
+    cooperation_required_tag(cooperation_required),
       state(CREATED),
       cpu_cycles_executed(0),
       cpu_allocated(0.0),
@@ -76,6 +83,7 @@ Task::Task(TaskType task_type, const std::string& vid, uint64_t seq_num,
     
     // Initialize timing
     created_time = simTime();
+    queue_entry_time = created_time;  // Initialize to created_time; will be updated when enqueued
     deadline = created_time + SimTime(deadline_sec);
     received_time = SimTime(0);
     processing_start_time = SimTime(0);
@@ -190,7 +198,11 @@ Task* Task::createFromProfile(TaskType task_type, const std::string& vid, uint64
         profile.timing.qos_value,
         profile.timing.priority,
         profile.offloading.is_offloadable,
-        profile.offloading.is_safety_critical
+        profile.offloading.is_safety_critical,
+        profile.offloading.must_local_tag,
+        profile.offloading.must_offload_tag,
+        profile.offloading.gpu_required_tag,
+        profile.offloading.cooperation_required_tag
     );
 }
 

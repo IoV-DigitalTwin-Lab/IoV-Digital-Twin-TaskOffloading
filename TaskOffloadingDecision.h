@@ -19,6 +19,36 @@ enum class OffloadingDecision {
 };
 
 /**
+ * Gate B feasibility classification (README_GATES Step 1 contract).
+ */
+enum class GateBClassification {
+    MUST_OFFLOAD,
+    MUST_LOCAL,
+    BOTH_FEASIBLE,
+    INFEASIBLE
+};
+
+/**
+ * Structured output for decision-making.
+ *
+ * Step 1 introduces this contract without changing runtime behavior yet.
+ * Existing callers can continue to use makeDecision().
+ */
+struct GateBDecisionResult {
+    OffloadingDecision decision = OffloadingDecision::REJECT_TASK;
+    GateBClassification classification = GateBClassification::INFEASIBLE;
+
+    double t_local_seconds = 0.0;
+    double t_offload_seconds = 0.0;
+    double remaining_deadline_seconds = 0.0;
+
+    double cost_local = 0.0;
+    double cost_offload = 0.0;
+
+    std::string reason;
+};
+
+/**
  * Context information for making offloading decisions
  */
 struct DecisionContext {
@@ -27,6 +57,10 @@ struct DecisionContext {
     double cpu_cycles_required;
     double qos_value;
     double deadline_seconds;
+    bool must_local_tag = false;
+    bool must_offload_tag = false;
+    bool gpu_required_tag = false;
+    bool cooperation_required_tag = false;
     
     // Vehicle state
     double local_cpu_available;      // Available CPU (GHz)
@@ -68,6 +102,14 @@ public:
      * @return Offloading decision (local, offload, or reject)
      */
     virtual OffloadingDecision makeDecision(const DecisionContext& context);
+
+    /**
+     * Detailed decision API introduced for Gate B migration.
+     *
+     * Default implementation preserves legacy behavior by delegating to
+     * makeDecision() and populating a compatible result payload.
+     */
+    virtual GateBDecisionResult makeDecisionDetailed(const DecisionContext& context);
     
     /**
      * Update decision maker with feedback (for learning algorithms)
@@ -119,10 +161,27 @@ public:
     HeuristicDecisionMaker();
     
     OffloadingDecision makeDecision(const DecisionContext& context) override;
+    GateBDecisionResult makeDecisionDetailed(const DecisionContext& context) override;
+
+    // Step 3 tunables (README_GATES)
+    void setGateWeights(double alpha, double beta);
+    void setGateSafetyMarginSeconds(double margin_sec);
+    void setStageThresholds(double k1_value, double k2_value);
+    void setEnergyPowers(double p_compute_w, double p_tx_w, double p_rx_w);
     
-    // Configuration parameters
-    // No additional configuration needed for the simple 3-rule placeholder.
-    // Thresholds / helper methods will be re-introduced when DRL replaces this.
+private:
+    double gate_alpha;
+    double gate_beta;
+    double gate_safety_margin_sec;
+
+    // K thresholds are introduced in Step 3 and used in Step 4 stage rules.
+    double k1;
+    double k2;
+
+    // Simple power model for cost normalization in BOTH_FEASIBLE.
+    double p_compute_w;
+    double p_tx_w;
+    double p_rx_w;
 };
 
 /**
