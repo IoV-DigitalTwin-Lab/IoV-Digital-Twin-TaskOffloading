@@ -5920,6 +5920,551 @@ void TaskOffloadingEventDescriptor::setFieldStructValuePointer(omnetpp::any_ptr 
     }
 }
 
+VehicleDetailInBroadcast::VehicleDetailInBroadcast()
+{
+}
+
+VehicleDetailInBroadcast::VehicleDetailInBroadcast(const VehicleDetailInBroadcast& other)
+{
+    copy(other);
+}
+
+VehicleDetailInBroadcast::~VehicleDetailInBroadcast()
+{
+}
+
+VehicleDetailInBroadcast& VehicleDetailInBroadcast::operator=(const VehicleDetailInBroadcast& other)
+{
+    if (this == &other) return *this;
+    copy(other);
+    return *this;
+}
+
+void VehicleDetailInBroadcast::copy(const VehicleDetailInBroadcast& other)
+{
+    this->vehicle_id = other.vehicle_id;
+    this->pos_x = other.pos_x;
+    this->pos_y = other.pos_y;
+    this->speed = other.speed;
+    this->heading = other.heading;
+    this->cpu_available = other.cpu_available;
+    this->cpu_utilization = other.cpu_utilization;
+    this->mem_available = other.mem_available;
+    this->mem_utilization = other.mem_utilization;
+    this->queue_length = other.queue_length;
+}
+
+void VehicleDetailInBroadcast::parsimPack(omnetpp::cCommBuffer *b) const
+{
+    doParsimPacking(b,this->vehicle_id);
+    doParsimPacking(b,this->pos_x);
+    doParsimPacking(b,this->pos_y);
+    doParsimPacking(b,this->speed);
+    doParsimPacking(b,this->heading);
+    doParsimPacking(b,this->cpu_available);
+    doParsimPacking(b,this->cpu_utilization);
+    doParsimPacking(b,this->mem_available);
+    doParsimPacking(b,this->mem_utilization);
+    doParsimPacking(b,this->queue_length);
+}
+
+void VehicleDetailInBroadcast::parsimUnpack(omnetpp::cCommBuffer *b)
+{
+    doParsimUnpacking(b,this->vehicle_id);
+    doParsimUnpacking(b,this->pos_x);
+    doParsimUnpacking(b,this->pos_y);
+    doParsimUnpacking(b,this->speed);
+    doParsimUnpacking(b,this->heading);
+    doParsimUnpacking(b,this->cpu_available);
+    doParsimUnpacking(b,this->cpu_utilization);
+    doParsimUnpacking(b,this->mem_available);
+    doParsimUnpacking(b,this->mem_utilization);
+    doParsimUnpacking(b,this->queue_length);
+}
+
+const char * VehicleDetailInBroadcast::getVehicle_id() const
+{
+    return this->vehicle_id.c_str();
+}
+
+void VehicleDetailInBroadcast::setVehicle_id(const char * vehicle_id)
+{
+    this->vehicle_id = vehicle_id;
+}
+
+double VehicleDetailInBroadcast::getPos_x() const
+{
+    return this->pos_x;
+}
+
+void VehicleDetailInBroadcast::setPos_x(double pos_x)
+{
+    this->pos_x = pos_x;
+}
+
+double VehicleDetailInBroadcast::getPos_y() const
+{
+    return this->pos_y;
+}
+
+void VehicleDetailInBroadcast::setPos_y(double pos_y)
+{
+    this->pos_y = pos_y;
+}
+
+double VehicleDetailInBroadcast::getSpeed() const
+{
+    return this->speed;
+}
+
+void VehicleDetailInBroadcast::setSpeed(double speed)
+{
+    this->speed = speed;
+}
+
+double VehicleDetailInBroadcast::getHeading() const
+{
+    return this->heading;
+}
+
+void VehicleDetailInBroadcast::setHeading(double heading)
+{
+    this->heading = heading;
+}
+
+double VehicleDetailInBroadcast::getCpu_available() const
+{
+    return this->cpu_available;
+}
+
+void VehicleDetailInBroadcast::setCpu_available(double cpu_available)
+{
+    this->cpu_available = cpu_available;
+}
+
+double VehicleDetailInBroadcast::getCpu_utilization() const
+{
+    return this->cpu_utilization;
+}
+
+void VehicleDetailInBroadcast::setCpu_utilization(double cpu_utilization)
+{
+    this->cpu_utilization = cpu_utilization;
+}
+
+double VehicleDetailInBroadcast::getMem_available() const
+{
+    return this->mem_available;
+}
+
+void VehicleDetailInBroadcast::setMem_available(double mem_available)
+{
+    this->mem_available = mem_available;
+}
+
+double VehicleDetailInBroadcast::getMem_utilization() const
+{
+    return this->mem_utilization;
+}
+
+void VehicleDetailInBroadcast::setMem_utilization(double mem_utilization)
+{
+    this->mem_utilization = mem_utilization;
+}
+
+int VehicleDetailInBroadcast::getQueue_length() const
+{
+    return this->queue_length;
+}
+
+void VehicleDetailInBroadcast::setQueue_length(int queue_length)
+{
+    this->queue_length = queue_length;
+}
+
+class VehicleDetailInBroadcastDescriptor : public omnetpp::cClassDescriptor
+{
+  private:
+    mutable const char **propertyNames;
+    enum FieldConstants {
+        FIELD_vehicle_id,
+        FIELD_pos_x,
+        FIELD_pos_y,
+        FIELD_speed,
+        FIELD_heading,
+        FIELD_cpu_available,
+        FIELD_cpu_utilization,
+        FIELD_mem_available,
+        FIELD_mem_utilization,
+        FIELD_queue_length,
+    };
+  public:
+    VehicleDetailInBroadcastDescriptor();
+    virtual ~VehicleDetailInBroadcastDescriptor();
+
+    virtual bool doesSupport(omnetpp::cObject *obj) const override;
+    virtual const char **getPropertyNames() const override;
+    virtual const char *getProperty(const char *propertyName) const override;
+    virtual int getFieldCount() const override;
+    virtual const char *getFieldName(int field) const override;
+    virtual int findField(const char *fieldName) const override;
+    virtual unsigned int getFieldTypeFlags(int field) const override;
+    virtual const char *getFieldTypeString(int field) const override;
+    virtual const char **getFieldPropertyNames(int field) const override;
+    virtual const char *getFieldProperty(int field, const char *propertyName) const override;
+    virtual int getFieldArraySize(omnetpp::any_ptr object, int field) const override;
+    virtual void setFieldArraySize(omnetpp::any_ptr object, int field, int size) const override;
+
+    virtual const char *getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual std::string getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const override;
+    virtual omnetpp::cValue getFieldValue(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const override;
+
+    virtual const char *getFieldStructName(int field) const override;
+    virtual omnetpp::any_ptr getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const override;
+    virtual void setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const override;
+};
+
+Register_ClassDescriptor(VehicleDetailInBroadcastDescriptor)
+
+VehicleDetailInBroadcastDescriptor::VehicleDetailInBroadcastDescriptor() : omnetpp::cClassDescriptor(omnetpp::opp_typename(typeid(veins::VehicleDetailInBroadcast)), "")
+{
+    propertyNames = nullptr;
+}
+
+VehicleDetailInBroadcastDescriptor::~VehicleDetailInBroadcastDescriptor()
+{
+    delete[] propertyNames;
+}
+
+bool VehicleDetailInBroadcastDescriptor::doesSupport(omnetpp::cObject *obj) const
+{
+    return dynamic_cast<VehicleDetailInBroadcast *>(obj)!=nullptr;
+}
+
+const char **VehicleDetailInBroadcastDescriptor::getPropertyNames() const
+{
+    if (!propertyNames) {
+        static const char *names[] = {  nullptr };
+        omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+        const char **baseNames = base ? base->getPropertyNames() : nullptr;
+        propertyNames = mergeLists(baseNames, names);
+    }
+    return propertyNames;
+}
+
+const char *VehicleDetailInBroadcastDescriptor::getProperty(const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? base->getProperty(propertyName) : nullptr;
+}
+
+int VehicleDetailInBroadcastDescriptor::getFieldCount() const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    return base ? 10+base->getFieldCount() : 10;
+}
+
+unsigned int VehicleDetailInBroadcastDescriptor::getFieldTypeFlags(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeFlags(field);
+        field -= base->getFieldCount();
+    }
+    static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,    // FIELD_vehicle_id
+        FD_ISEDITABLE,    // FIELD_pos_x
+        FD_ISEDITABLE,    // FIELD_pos_y
+        FD_ISEDITABLE,    // FIELD_speed
+        FD_ISEDITABLE,    // FIELD_heading
+        FD_ISEDITABLE,    // FIELD_cpu_available
+        FD_ISEDITABLE,    // FIELD_cpu_utilization
+        FD_ISEDITABLE,    // FIELD_mem_available
+        FD_ISEDITABLE,    // FIELD_mem_utilization
+        FD_ISEDITABLE,    // FIELD_queue_length
+    };
+    return (field >= 0 && field < 10) ? fieldTypeFlags[field] : 0;
+}
+
+const char *VehicleDetailInBroadcastDescriptor::getFieldName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldName(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldNames[] = {
+        "vehicle_id",
+        "pos_x",
+        "pos_y",
+        "speed",
+        "heading",
+        "cpu_available",
+        "cpu_utilization",
+        "mem_available",
+        "mem_utilization",
+        "queue_length",
+    };
+    return (field >= 0 && field < 10) ? fieldNames[field] : nullptr;
+}
+
+int VehicleDetailInBroadcastDescriptor::findField(const char *fieldName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    int baseIndex = base ? base->getFieldCount() : 0;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "speed") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "heading") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "queue_length") == 0) return baseIndex + 9;
+    return base ? base->findField(fieldName) : -1;
+}
+
+const char *VehicleDetailInBroadcastDescriptor::getFieldTypeString(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldTypeString(field);
+        field -= base->getFieldCount();
+    }
+    static const char *fieldTypeStrings[] = {
+        "string",    // FIELD_vehicle_id
+        "double",    // FIELD_pos_x
+        "double",    // FIELD_pos_y
+        "double",    // FIELD_speed
+        "double",    // FIELD_heading
+        "double",    // FIELD_cpu_available
+        "double",    // FIELD_cpu_utilization
+        "double",    // FIELD_mem_available
+        "double",    // FIELD_mem_utilization
+        "int",    // FIELD_queue_length
+    };
+    return (field >= 0 && field < 10) ? fieldTypeStrings[field] : nullptr;
+}
+
+const char **VehicleDetailInBroadcastDescriptor::getFieldPropertyNames(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldPropertyNames(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+const char *VehicleDetailInBroadcastDescriptor::getFieldProperty(int field, const char *propertyName) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldProperty(field, propertyName);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+int VehicleDetailInBroadcastDescriptor::getFieldArraySize(omnetpp::any_ptr object, int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldArraySize(object, field);
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        default: return 0;
+    }
+}
+
+void VehicleDetailInBroadcastDescriptor::setFieldArraySize(omnetpp::any_ptr object, int field, int size) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldArraySize(object, field, size);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'VehicleDetailInBroadcast'", field);
+    }
+}
+
+const char *VehicleDetailInBroadcastDescriptor::getFieldDynamicTypeString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldDynamicTypeString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        default: return nullptr;
+    }
+}
+
+std::string VehicleDetailInBroadcastDescriptor::getFieldValueAsString(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValueAsString(object,field,i);
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
+        case FIELD_pos_x: return double2string(pp->getPos_x());
+        case FIELD_pos_y: return double2string(pp->getPos_y());
+        case FIELD_speed: return double2string(pp->getSpeed());
+        case FIELD_heading: return double2string(pp->getHeading());
+        case FIELD_cpu_available: return double2string(pp->getCpu_available());
+        case FIELD_cpu_utilization: return double2string(pp->getCpu_utilization());
+        case FIELD_mem_available: return double2string(pp->getMem_available());
+        case FIELD_mem_utilization: return double2string(pp->getMem_utilization());
+        case FIELD_queue_length: return long2string(pp->getQueue_length());
+        default: return "";
+    }
+}
+
+void VehicleDetailInBroadcastDescriptor::setFieldValueAsString(omnetpp::any_ptr object, int field, int i, const char *value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValueAsString(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: pp->setVehicle_id((value)); break;
+        case FIELD_pos_x: pp->setPos_x(string2double(value)); break;
+        case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
+        case FIELD_speed: pp->setSpeed(string2double(value)); break;
+        case FIELD_heading: pp->setHeading(string2double(value)); break;
+        case FIELD_cpu_available: pp->setCpu_available(string2double(value)); break;
+        case FIELD_cpu_utilization: pp->setCpu_utilization(string2double(value)); break;
+        case FIELD_mem_available: pp->setMem_available(string2double(value)); break;
+        case FIELD_mem_utilization: pp->setMem_utilization(string2double(value)); break;
+        case FIELD_queue_length: pp->setQueue_length(string2long(value)); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'VehicleDetailInBroadcast'", field);
+    }
+}
+
+omnetpp::cValue VehicleDetailInBroadcastDescriptor::getFieldValue(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldValue(object,field,i);
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: return pp->getVehicle_id();
+        case FIELD_pos_x: return pp->getPos_x();
+        case FIELD_pos_y: return pp->getPos_y();
+        case FIELD_speed: return pp->getSpeed();
+        case FIELD_heading: return pp->getHeading();
+        case FIELD_cpu_available: return pp->getCpu_available();
+        case FIELD_cpu_utilization: return pp->getCpu_utilization();
+        case FIELD_mem_available: return pp->getMem_available();
+        case FIELD_mem_utilization: return pp->getMem_utilization();
+        case FIELD_queue_length: return pp->getQueue_length();
+        default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'VehicleDetailInBroadcast' as cValue -- field index out of range?", field);
+    }
+}
+
+void VehicleDetailInBroadcastDescriptor::setFieldValue(omnetpp::any_ptr object, int field, int i, const omnetpp::cValue& value) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldValue(object, field, i, value);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        case FIELD_vehicle_id: pp->setVehicle_id(value.stringValue()); break;
+        case FIELD_pos_x: pp->setPos_x(value.doubleValue()); break;
+        case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
+        case FIELD_speed: pp->setSpeed(value.doubleValue()); break;
+        case FIELD_heading: pp->setHeading(value.doubleValue()); break;
+        case FIELD_cpu_available: pp->setCpu_available(value.doubleValue()); break;
+        case FIELD_cpu_utilization: pp->setCpu_utilization(value.doubleValue()); break;
+        case FIELD_mem_available: pp->setMem_available(value.doubleValue()); break;
+        case FIELD_mem_utilization: pp->setMem_utilization(value.doubleValue()); break;
+        case FIELD_queue_length: pp->setQueue_length(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'VehicleDetailInBroadcast'", field);
+    }
+}
+
+const char *VehicleDetailInBroadcastDescriptor::getFieldStructName(int field) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructName(field);
+        field -= base->getFieldCount();
+    }
+    switch (field) {
+        default: return nullptr;
+    };
+}
+
+omnetpp::any_ptr VehicleDetailInBroadcastDescriptor::getFieldStructValuePointer(omnetpp::any_ptr object, int field, int i) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount())
+            return base->getFieldStructValuePointer(object, field, i);
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        default: return omnetpp::any_ptr(nullptr);
+    }
+}
+
+void VehicleDetailInBroadcastDescriptor::setFieldStructValuePointer(omnetpp::any_ptr object, int field, int i, omnetpp::any_ptr ptr) const
+{
+    omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
+    if (base) {
+        if (field < base->getFieldCount()){
+            base->setFieldStructValuePointer(object, field, i, ptr);
+            return;
+        }
+        field -= base->getFieldCount();
+    }
+    VehicleDetailInBroadcast *pp = omnetpp::fromAnyPtr<VehicleDetailInBroadcast>(object); (void)pp;
+    switch (field) {
+        default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'VehicleDetailInBroadcast'", field);
+    }
+}
+
 Register_Class(RSUStatusBroadcastMessage)
 
 RSUStatusBroadcastMessage::RSUStatusBroadcastMessage(const char *name, short kind) : ::veins::BaseFrame1609_4(name, kind)
@@ -5933,7 +6478,7 @@ RSUStatusBroadcastMessage::RSUStatusBroadcastMessage(const RSUStatusBroadcastMes
 
 RSUStatusBroadcastMessage::~RSUStatusBroadcastMessage()
 {
-    delete [] this->vehicle_ids_in_coverage;
+    delete [] this->vehicle_details_in_coverage;
 }
 
 RSUStatusBroadcastMessage& RSUStatusBroadcastMessage::operator=(const RSUStatusBroadcastMessage& other)
@@ -5956,11 +6501,11 @@ void RSUStatusBroadcastMessage::copy(const RSUStatusBroadcastMessage& other)
     this->cpu_total_ghz = other.cpu_total_ghz;
     this->memory_available_gb = other.memory_available_gb;
     this->memory_total_gb = other.memory_total_gb;
-    delete [] this->vehicle_ids_in_coverage;
-    this->vehicle_ids_in_coverage = (other.vehicle_ids_in_coverage_arraysize==0) ? nullptr : new ::omnetpp::opp_string[other.vehicle_ids_in_coverage_arraysize];
-    vehicle_ids_in_coverage_arraysize = other.vehicle_ids_in_coverage_arraysize;
-    for (size_t i = 0; i < vehicle_ids_in_coverage_arraysize; i++) {
-        this->vehicle_ids_in_coverage[i] = other.vehicle_ids_in_coverage[i];
+    delete [] this->vehicle_details_in_coverage;
+    this->vehicle_details_in_coverage = (other.vehicle_details_in_coverage_arraysize==0) ? nullptr : new VehicleDetailInBroadcast[other.vehicle_details_in_coverage_arraysize];
+    vehicle_details_in_coverage_arraysize = other.vehicle_details_in_coverage_arraysize;
+    for (size_t i = 0; i < vehicle_details_in_coverage_arraysize; i++) {
+        this->vehicle_details_in_coverage[i] = other.vehicle_details_in_coverage[i];
     }
     this->vehicle_count = other.vehicle_count;
     this->pos_x = other.pos_x;
@@ -5980,8 +6525,8 @@ void RSUStatusBroadcastMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->cpu_total_ghz);
     doParsimPacking(b,this->memory_available_gb);
     doParsimPacking(b,this->memory_total_gb);
-    b->pack(vehicle_ids_in_coverage_arraysize);
-    doParsimArrayPacking(b,this->vehicle_ids_in_coverage,vehicle_ids_in_coverage_arraysize);
+    b->pack(vehicle_details_in_coverage_arraysize);
+    doParsimArrayPacking(b,this->vehicle_details_in_coverage,vehicle_details_in_coverage_arraysize);
     doParsimPacking(b,this->vehicle_count);
     doParsimPacking(b,this->pos_x);
     doParsimPacking(b,this->pos_y);
@@ -6000,13 +6545,13 @@ void RSUStatusBroadcastMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->cpu_total_ghz);
     doParsimUnpacking(b,this->memory_available_gb);
     doParsimUnpacking(b,this->memory_total_gb);
-    delete [] this->vehicle_ids_in_coverage;
-    b->unpack(vehicle_ids_in_coverage_arraysize);
-    if (vehicle_ids_in_coverage_arraysize == 0) {
-        this->vehicle_ids_in_coverage = nullptr;
+    delete [] this->vehicle_details_in_coverage;
+    b->unpack(vehicle_details_in_coverage_arraysize);
+    if (vehicle_details_in_coverage_arraysize == 0) {
+        this->vehicle_details_in_coverage = nullptr;
     } else {
-        this->vehicle_ids_in_coverage = new ::omnetpp::opp_string[vehicle_ids_in_coverage_arraysize];
-        doParsimArrayUnpacking(b,this->vehicle_ids_in_coverage,vehicle_ids_in_coverage_arraysize);
+        this->vehicle_details_in_coverage = new VehicleDetailInBroadcast[vehicle_details_in_coverage_arraysize];
+        doParsimArrayUnpacking(b,this->vehicle_details_in_coverage,vehicle_details_in_coverage_arraysize);
     }
     doParsimUnpacking(b,this->vehicle_count);
     doParsimUnpacking(b,this->pos_x);
@@ -6113,68 +6658,68 @@ void RSUStatusBroadcastMessage::setMemory_total_gb(double memory_total_gb)
     this->memory_total_gb = memory_total_gb;
 }
 
-size_t RSUStatusBroadcastMessage::getVehicle_ids_in_coverageArraySize() const
+size_t RSUStatusBroadcastMessage::getVehicle_details_in_coverageArraySize() const
 {
-    return vehicle_ids_in_coverage_arraysize;
+    return vehicle_details_in_coverage_arraysize;
 }
 
-const char * RSUStatusBroadcastMessage::getVehicle_ids_in_coverage(size_t k) const
+const VehicleDetailInBroadcast& RSUStatusBroadcastMessage::getVehicle_details_in_coverage(size_t k) const
 {
-    if (k >= vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
-    return this->vehicle_ids_in_coverage[k].c_str();
+    if (k >= vehicle_details_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_details_in_coverage_arraysize, (unsigned long)k);
+    return this->vehicle_details_in_coverage[k];
 }
 
-void RSUStatusBroadcastMessage::setVehicle_ids_in_coverageArraySize(size_t newSize)
+void RSUStatusBroadcastMessage::setVehicle_details_in_coverageArraySize(size_t newSize)
 {
-    ::omnetpp::opp_string *vehicle_ids_in_coverage2 = (newSize==0) ? nullptr : new ::omnetpp::opp_string[newSize];
-    size_t minSize = vehicle_ids_in_coverage_arraysize < newSize ? vehicle_ids_in_coverage_arraysize : newSize;
+    VehicleDetailInBroadcast *vehicle_details_in_coverage2 = (newSize==0) ? nullptr : new VehicleDetailInBroadcast[newSize];
+    size_t minSize = vehicle_details_in_coverage_arraysize < newSize ? vehicle_details_in_coverage_arraysize : newSize;
     for (size_t i = 0; i < minSize; i++)
-        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i];
-    delete [] this->vehicle_ids_in_coverage;
-    this->vehicle_ids_in_coverage = vehicle_ids_in_coverage2;
-    vehicle_ids_in_coverage_arraysize = newSize;
+        vehicle_details_in_coverage2[i] = this->vehicle_details_in_coverage[i];
+    delete [] this->vehicle_details_in_coverage;
+    this->vehicle_details_in_coverage = vehicle_details_in_coverage2;
+    vehicle_details_in_coverage_arraysize = newSize;
 }
 
-void RSUStatusBroadcastMessage::setVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage)
+void RSUStatusBroadcastMessage::setVehicle_details_in_coverage(size_t k, const VehicleDetailInBroadcast& vehicle_details_in_coverage)
 {
-    if (k >= vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
-    this->vehicle_ids_in_coverage[k] = vehicle_ids_in_coverage;
+    if (k >= vehicle_details_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_details_in_coverage_arraysize, (unsigned long)k);
+    this->vehicle_details_in_coverage[k] = vehicle_details_in_coverage;
 }
 
-void RSUStatusBroadcastMessage::insertVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage)
+void RSUStatusBroadcastMessage::insertVehicle_details_in_coverage(size_t k, const VehicleDetailInBroadcast& vehicle_details_in_coverage)
 {
-    if (k > vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
-    size_t newSize = vehicle_ids_in_coverage_arraysize + 1;
-    ::omnetpp::opp_string *vehicle_ids_in_coverage2 = new ::omnetpp::opp_string[newSize];
+    if (k > vehicle_details_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_details_in_coverage_arraysize, (unsigned long)k);
+    size_t newSize = vehicle_details_in_coverage_arraysize + 1;
+    VehicleDetailInBroadcast *vehicle_details_in_coverage2 = new VehicleDetailInBroadcast[newSize];
     size_t i;
     for (i = 0; i < k; i++)
-        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i];
-    vehicle_ids_in_coverage2[k] = vehicle_ids_in_coverage;
+        vehicle_details_in_coverage2[i] = this->vehicle_details_in_coverage[i];
+    vehicle_details_in_coverage2[k] = vehicle_details_in_coverage;
     for (i = k + 1; i < newSize; i++)
-        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i-1];
-    delete [] this->vehicle_ids_in_coverage;
-    this->vehicle_ids_in_coverage = vehicle_ids_in_coverage2;
-    vehicle_ids_in_coverage_arraysize = newSize;
+        vehicle_details_in_coverage2[i] = this->vehicle_details_in_coverage[i-1];
+    delete [] this->vehicle_details_in_coverage;
+    this->vehicle_details_in_coverage = vehicle_details_in_coverage2;
+    vehicle_details_in_coverage_arraysize = newSize;
 }
 
-void RSUStatusBroadcastMessage::appendVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage)
+void RSUStatusBroadcastMessage::appendVehicle_details_in_coverage(const VehicleDetailInBroadcast& vehicle_details_in_coverage)
 {
-    insertVehicle_ids_in_coverage(vehicle_ids_in_coverage_arraysize, vehicle_ids_in_coverage);
+    insertVehicle_details_in_coverage(vehicle_details_in_coverage_arraysize, vehicle_details_in_coverage);
 }
 
-void RSUStatusBroadcastMessage::eraseVehicle_ids_in_coverage(size_t k)
+void RSUStatusBroadcastMessage::eraseVehicle_details_in_coverage(size_t k)
 {
-    if (k >= vehicle_ids_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_ids_in_coverage_arraysize, (unsigned long)k);
-    size_t newSize = vehicle_ids_in_coverage_arraysize - 1;
-    ::omnetpp::opp_string *vehicle_ids_in_coverage2 = (newSize == 0) ? nullptr : new ::omnetpp::opp_string[newSize];
+    if (k >= vehicle_details_in_coverage_arraysize) throw omnetpp::cRuntimeError("Array of size %lu indexed by %lu", (unsigned long)vehicle_details_in_coverage_arraysize, (unsigned long)k);
+    size_t newSize = vehicle_details_in_coverage_arraysize - 1;
+    VehicleDetailInBroadcast *vehicle_details_in_coverage2 = (newSize == 0) ? nullptr : new VehicleDetailInBroadcast[newSize];
     size_t i;
     for (i = 0; i < k; i++)
-        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i];
+        vehicle_details_in_coverage2[i] = this->vehicle_details_in_coverage[i];
     for (i = k; i < newSize; i++)
-        vehicle_ids_in_coverage2[i] = this->vehicle_ids_in_coverage[i+1];
-    delete [] this->vehicle_ids_in_coverage;
-    this->vehicle_ids_in_coverage = vehicle_ids_in_coverage2;
-    vehicle_ids_in_coverage_arraysize = newSize;
+        vehicle_details_in_coverage2[i] = this->vehicle_details_in_coverage[i+1];
+    delete [] this->vehicle_details_in_coverage;
+    this->vehicle_details_in_coverage = vehicle_details_in_coverage2;
+    vehicle_details_in_coverage_arraysize = newSize;
 }
 
 int RSUStatusBroadcastMessage::getVehicle_count() const
@@ -6222,7 +6767,7 @@ class RSUStatusBroadcastMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_cpu_total_ghz,
         FIELD_memory_available_gb,
         FIELD_memory_total_gb,
-        FIELD_vehicle_ids_in_coverage,
+        FIELD_vehicle_details_in_coverage,
         FIELD_vehicle_count,
         FIELD_pos_x,
         FIELD_pos_y,
@@ -6314,7 +6859,7 @@ unsigned int RSUStatusBroadcastMessageDescriptor::getFieldTypeFlags(int field) c
         FD_ISEDITABLE,    // FIELD_cpu_total_ghz
         FD_ISEDITABLE,    // FIELD_memory_available_gb
         FD_ISEDITABLE,    // FIELD_memory_total_gb
-        FD_ISARRAY | FD_ISEDITABLE | FD_ISRESIZABLE,    // FIELD_vehicle_ids_in_coverage
+        FD_ISARRAY | FD_ISCOMPOUND | FD_ISRESIZABLE,    // FIELD_vehicle_details_in_coverage
         FD_ISEDITABLE,    // FIELD_vehicle_count
         FD_ISEDITABLE,    // FIELD_pos_x
         FD_ISEDITABLE,    // FIELD_pos_y
@@ -6341,7 +6886,7 @@ const char *RSUStatusBroadcastMessageDescriptor::getFieldName(int field) const
         "cpu_total_ghz",
         "memory_available_gb",
         "memory_total_gb",
-        "vehicle_ids_in_coverage",
+        "vehicle_details_in_coverage",
         "vehicle_count",
         "pos_x",
         "pos_y",
@@ -6363,7 +6908,7 @@ int RSUStatusBroadcastMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "cpu_total_ghz") == 0) return baseIndex + 7;
     if (strcmp(fieldName, "memory_available_gb") == 0) return baseIndex + 8;
     if (strcmp(fieldName, "memory_total_gb") == 0) return baseIndex + 9;
-    if (strcmp(fieldName, "vehicle_ids_in_coverage") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "vehicle_details_in_coverage") == 0) return baseIndex + 10;
     if (strcmp(fieldName, "vehicle_count") == 0) return baseIndex + 11;
     if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 12;
     if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 13;
@@ -6389,7 +6934,7 @@ const char *RSUStatusBroadcastMessageDescriptor::getFieldTypeString(int field) c
         "double",    // FIELD_cpu_total_ghz
         "double",    // FIELD_memory_available_gb
         "double",    // FIELD_memory_total_gb
-        "string",    // FIELD_vehicle_ids_in_coverage
+        "veins::VehicleDetailInBroadcast",    // FIELD_vehicle_details_in_coverage
         "int",    // FIELD_vehicle_count
         "double",    // FIELD_pos_x
         "double",    // FIELD_pos_y
@@ -6433,7 +6978,7 @@ int RSUStatusBroadcastMessageDescriptor::getFieldArraySize(omnetpp::any_ptr obje
     }
     RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
     switch (field) {
-        case FIELD_vehicle_ids_in_coverage: return pp->getVehicle_ids_in_coverageArraySize();
+        case FIELD_vehicle_details_in_coverage: return pp->getVehicle_details_in_coverageArraySize();
         default: return 0;
     }
 }
@@ -6450,7 +6995,7 @@ void RSUStatusBroadcastMessageDescriptor::setFieldArraySize(omnetpp::any_ptr obj
     }
     RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
     switch (field) {
-        case FIELD_vehicle_ids_in_coverage: pp->setVehicle_ids_in_coverageArraySize(size); break;
+        case FIELD_vehicle_details_in_coverage: pp->setVehicle_details_in_coverageArraySize(size); break;
         default: throw omnetpp::cRuntimeError("Cannot set array size of field %d of class 'RSUStatusBroadcastMessage'", field);
     }
 }
@@ -6489,7 +7034,7 @@ std::string RSUStatusBroadcastMessageDescriptor::getFieldValueAsString(omnetpp::
         case FIELD_cpu_total_ghz: return double2string(pp->getCpu_total_ghz());
         case FIELD_memory_available_gb: return double2string(pp->getMemory_available_gb());
         case FIELD_memory_total_gb: return double2string(pp->getMemory_total_gb());
-        case FIELD_vehicle_ids_in_coverage: return oppstring2string(pp->getVehicle_ids_in_coverage(i));
+        case FIELD_vehicle_details_in_coverage: return "";
         case FIELD_vehicle_count: return long2string(pp->getVehicle_count());
         case FIELD_pos_x: return double2string(pp->getPos_x());
         case FIELD_pos_y: return double2string(pp->getPos_y());
@@ -6518,7 +7063,6 @@ void RSUStatusBroadcastMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr
         case FIELD_cpu_total_ghz: pp->setCpu_total_ghz(string2double(value)); break;
         case FIELD_memory_available_gb: pp->setMemory_available_gb(string2double(value)); break;
         case FIELD_memory_total_gb: pp->setMemory_total_gb(string2double(value)); break;
-        case FIELD_vehicle_ids_in_coverage: pp->setVehicle_ids_in_coverage(i,(value)); break;
         case FIELD_vehicle_count: pp->setVehicle_count(string2long(value)); break;
         case FIELD_pos_x: pp->setPos_x(string2double(value)); break;
         case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
@@ -6546,7 +7090,7 @@ omnetpp::cValue RSUStatusBroadcastMessageDescriptor::getFieldValue(omnetpp::any_
         case FIELD_cpu_total_ghz: return pp->getCpu_total_ghz();
         case FIELD_memory_available_gb: return pp->getMemory_available_gb();
         case FIELD_memory_total_gb: return pp->getMemory_total_gb();
-        case FIELD_vehicle_ids_in_coverage: return pp->getVehicle_ids_in_coverage(i);
+        case FIELD_vehicle_details_in_coverage: return omnetpp::toAnyPtr(&pp->getVehicle_details_in_coverage(i)); break;
         case FIELD_vehicle_count: return pp->getVehicle_count();
         case FIELD_pos_x: return pp->getPos_x();
         case FIELD_pos_y: return pp->getPos_y();
@@ -6575,7 +7119,6 @@ void RSUStatusBroadcastMessageDescriptor::setFieldValue(omnetpp::any_ptr object,
         case FIELD_cpu_total_ghz: pp->setCpu_total_ghz(value.doubleValue()); break;
         case FIELD_memory_available_gb: pp->setMemory_available_gb(value.doubleValue()); break;
         case FIELD_memory_total_gb: pp->setMemory_total_gb(value.doubleValue()); break;
-        case FIELD_vehicle_ids_in_coverage: pp->setVehicle_ids_in_coverage(i,value.stringValue()); break;
         case FIELD_vehicle_count: pp->setVehicle_count(omnetpp::checked_int_cast<int>(value.intValue())); break;
         case FIELD_pos_x: pp->setPos_x(value.doubleValue()); break;
         case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
@@ -6592,6 +7135,7 @@ const char *RSUStatusBroadcastMessageDescriptor::getFieldStructName(int field) c
         field -= base->getFieldCount();
     }
     switch (field) {
+        case FIELD_vehicle_details_in_coverage: return omnetpp::opp_typename(typeid(VehicleDetailInBroadcast));
         default: return nullptr;
     };
 }
@@ -6607,6 +7151,7 @@ omnetpp::any_ptr RSUStatusBroadcastMessageDescriptor::getFieldStructValuePointer
     RSUStatusBroadcastMessage *pp = omnetpp::fromAnyPtr<RSUStatusBroadcastMessage>(object); (void)pp;
     switch (field) {
         case FIELD_rsu_mac: return omnetpp::toAnyPtr(&pp->getRsu_mac()); break;
+        case FIELD_vehicle_details_in_coverage: return omnetpp::toAnyPtr(&pp->getVehicle_details_in_coverage(i)); break;
         default: return omnetpp::any_ptr(nullptr);
     }
 }

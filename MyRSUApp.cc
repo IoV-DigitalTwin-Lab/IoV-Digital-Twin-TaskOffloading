@@ -447,8 +447,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
                 rsuPendingTasks.erase(it);
                 if (rsu_processing_count > 0) {
-                    double new_cpu = (edgeCPU_GHz * 1e9) / rsu_processing_count;
-                    reallocateRSUTasks(new_cpu);
+                    reallocateRSUTasks();
                 }
                 return;
             }
@@ -3527,23 +3526,37 @@ void MyRSUApp::broadcastRSUStatus() {
     msg->setMemory_available_gb(rsu_memory_available);
     msg->setMemory_total_gb(rsu_memory_total);
     
-    // Coverage information - include only vehicles currently owned by self range
-    // and limit list size to avoid huge packets.
-    std::vector<std::string> vehicle_list;
+    // Coverage information with full vehicle details
+    // Include only vehicles currently owned by self range, limit list size to avoid huge packets
+    std::vector<VehicleDetailInBroadcast> vehicle_details_list;
     int count = 0;
     for (const auto& pair : vehicle_twins) {
         if (count >= max_vehicles_in_broadcast) break;
         refreshVehicleCoverageRecord(pair.first);
         auto covIt = vehicle_coverage_records.find(pair.first);
         if (covIt != vehicle_coverage_records.end() && covIt->second.in_self_range) {
-            vehicle_list.push_back(pair.first);
+            // Extract full vehicle detail from VehicleDigitalTwin
+            const VehicleDigitalTwin& vdt = pair.second;
+            VehicleDetailInBroadcast detail;
+            detail.setVehicle_id(vdt.vehicle_id.c_str());
+            detail.setPos_x(vdt.pos_x);
+            detail.setPos_y(vdt.pos_y);
+            detail.setSpeed(vdt.speed);
+            detail.setHeading(vdt.heading);
+            detail.setCpu_available(vdt.cpu_available);
+            detail.setCpu_utilization(vdt.cpu_utilization);
+            detail.setMem_available(vdt.mem_available);
+            detail.setMem_utilization(vdt.mem_utilization);
+            detail.setQueue_length(vdt.current_queue_length);
+
+            vehicle_details_list.push_back(detail);
             count++;
         }
     }
-    
-    msg->setVehicle_ids_in_coverageArraySize(vehicle_list.size());
-    for (size_t i = 0; i < vehicle_list.size(); i++) {
-        msg->setVehicle_ids_in_coverage(i, vehicle_list[i].c_str());
+
+    msg->setVehicle_details_in_coverageArraySize(vehicle_details_list.size());
+    for (size_t i = 0; i < vehicle_details_list.size(); i++) {
+        msg->setVehicle_details_in_coverage(i, vehicle_details_list[i]);
     }
     msg->setVehicle_count(vehicle_twins.size());
     
@@ -3597,9 +3610,21 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     state.memory_total_gb = msg->getMemory_total_gb();
     
     state.vehicle_count = msg->getVehicle_count();
-    state.vehicle_ids_in_coverage.clear();
-    for (size_t i = 0; i < msg->getVehicle_ids_in_coverageArraySize(); i++) {
-        state.vehicle_ids_in_coverage.push_back(msg->getVehicle_ids_in_coverage(i));
+    state.vehicle_details_in_coverage.clear();
+    for (size_t i = 0; i < msg->getVehicle_details_in_coverageArraySize(); i++) {
+        const VehicleDetailInBroadcast& detail = msg->getVehicle_details_in_coverage(i);
+        VehicleDetail vd;
+        vd.vehicle_id = detail.getVehicle_id();
+        vd.pos_x = detail.getPos_x();
+        vd.pos_y = detail.getPos_y();
+        vd.speed = detail.getSpeed();
+        vd.heading = detail.getHeading();
+        vd.cpu_available = detail.getCpu_available();
+        vd.cpu_utilization = detail.getCpu_utilization();
+        vd.mem_available = detail.getMem_available();
+        vd.mem_utilization = detail.getMem_utilization();
+        vd.queue_length = detail.getQueue_length();
+        state.vehicle_details_in_coverage.push_back(vd);
     }
     
     state.pos_x = msg->getPos_x();
@@ -3635,8 +3660,8 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     }
 
     // Refresh ownership records now that neighbor position/coverage set has changed.
-    for (const auto& v : state.vehicle_ids_in_coverage) {
-        refreshVehicleCoverageRecord(v);
+    for (const auto& v : state.vehicle_details_in_coverage) {
+        refreshVehicleCoverageRecord(v.vehicle_id);
     }
 
     EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
@@ -3712,29 +3737,33 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
             }
 
             rsu_processing_count++;
-            rsu_tasks_received++;
-            double cpu_per_task_Hz = (edgeCPU_GHz * 1e9) / static_cast<double>(rsu_processing_count);
-            reallocateRSUTasks(cpu_per_task_Hz);
+            rsu_tasks_admitted++;
 
-            double exec_time = static_cast<double>(record.cpu_cycles) / cpu_per_task_Hz
-                               + processingDelay_ms / 1000.0;
-
-            cMessage* doneMsg = new cMessage("rsuTaskComplete");
-            doneMsg->setContextPointer(new std::string(sub_id));
-            scheduleAt(simTime() + exec_time, doneMsg);
-
+            // Create pending task structure
             PendingRSUTask p;
             p.vehicle_id            = record.vehicle_id;
             p.vehicle_mac           = 0;          // sub-task: no vehicle notification
             p.ingress_rsu_mac       = myId;
             p.cpu_cycles            = record.cpu_cycles;
             p.cycles_remaining      = static_cast<double>(record.cpu_cycles);
-            p.exec_time_s           = exec_time;
+            p.qos_value             = record.qos_value;
             p.scheduled_at          = simTime().dbl();
             p.last_reschedule_time  = simTime().dbl();
-            p.cpu_allocated_hz      = cpu_per_task_Hz;
+
+            // Create completion event for this task
+            cMessage* doneMsg = new cMessage("rsuTaskComplete");
+            doneMsg->setContextPointer(new std::string(sub_id));
             p.completion_event      = doneMsg;
+
+            // Add to pending tasks
             rsuPendingTasks[sub_id] = p;
+
+            // Recompute CPU allocation for all tasks (including this new one)
+            // This function internally schedules completion events
+            reallocateRSUTasks();
+
+            // Extract computed exec_time for logging/debug
+            double exec_time = rsuPendingTasks[sub_id].exec_time_s;
 
             std::cout << "AGENT_SUBTASK: " << sub_id
                       << " queued on " << this_rsu
