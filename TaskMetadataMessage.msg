@@ -224,11 +224,26 @@ packet TaskOffloadingEvent extends BaseFrame1609_4 {
 //
 // RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)
 //
+
+// Vehicle detail information included in RSU broadcasts
+class VehicleDetailInBroadcast {
+    string vehicle_id;                   // Vehicle identifier
+    double pos_x;                        // Vehicle position X coordinate (meters)
+    double pos_y;                        // Vehicle position Y coordinate (meters)
+    double speed;                        // Vehicle speed (m/s)
+    double heading;                      // Vehicle heading (degrees)
+    double cpu_available;                // Available CPU (MIPS)
+    double cpu_utilization;              // CPU utilization percentage (0-100)
+    double mem_available;                // Available memory (MB)
+    double mem_utilization;              // Memory utilization percentage (0-100)
+    int queue_length;                    // Number of tasks in vehicle's queue
+}
+
 packet RSUStatusBroadcastMessage extends BaseFrame1609_4 {
     string rsu_id;                       // RSU identifier (e.g., "RSU_0")
     LAddress::L2Type rsu_mac;            // RSU MAC address
     double broadcast_time;               // When this status was broadcast
-    
+
     // RSU Resource State
     int queue_length;                    // Current task queue length
     int processing_count;                // Currently processing tasks
@@ -237,11 +252,11 @@ packet RSUStatusBroadcastMessage extends BaseFrame1609_4 {
     double cpu_total_ghz;                // Total CPU capacity (GHz)
     double memory_available_gb;          // Available memory (GB)
     double memory_total_gb;              // Total memory (GB)
-    
-    // Coverage Information
-    string vehicle_ids_in_coverage[];    // Vehicle IDs currently in this RSU's coverage
+
+    // Coverage Information with Vehicle Details
+    VehicleDetailInBroadcast vehicle_details_in_coverage[];  // Full vehicle state in coverage
     int vehicle_count;                   // Number of vehicles in coverage
-    
+
     // Network Topology
     double pos_x;                        // RSU position X
     double pos_y;                        // RSU position Y
