@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS task_metadata (
     task_id TEXT NOT NULL,
     vehicle_id TEXT NOT NULL,
     rsu_id INTEGER,
-    task_size_bytes BIGINT,
+    mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     qos_value DOUBLE PRECISION,
     created_time DOUBLE PRECISION,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS offloading_requests (
     request_time DOUBLE PRECISION,
     
     -- Task characteristics
-    task_size_bytes BIGINT,
+    mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     deadline_seconds DOUBLE PRECISION,
     qos_value DOUBLE PRECISION,
@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS offloaded_task_completions (
     deadline_seconds DOUBLE PRECISION, -- Original deadline
     
     -- Task characteristics
-    task_size_bytes BIGINT,
+    mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     qos_value DOUBLE PRECISION,
     
@@ -336,6 +336,104 @@ CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_type ON vehicle_metadata (vehicl
 CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_service ON vehicle_metadata (service_vehicle);
 
 -- ============================================================================
+-- SECONDARY DIGITAL TWIN (MOTION + CHANNEL CONTEXT, NO SINR VALUES)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS dt_secondary_progress (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    sim_time DOUBLE PRECISION NOT NULL,
+    sample_interval_s DOUBLE PRECISION,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_secondary_progress_run_time
+    ON dt_secondary_progress (run_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_vehicle_state_samples (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    vehicle_id TEXT NOT NULL,
+    sim_time DOUBLE PRECISION NOT NULL,
+    pos_x DOUBLE PRECISION,
+    pos_y DOUBLE PRECISION,
+    speed DOUBLE PRECISION,
+    heading DOUBLE PRECISION,
+    acceleration DOUBLE PRECISION,
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_vehicle_state_samples_vehicle_time
+    ON dt_vehicle_state_samples (run_id, vehicle_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_link_context_samples (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    link_type TEXT NOT NULL, -- V2RSU or V2V
+    tx_entity_id TEXT NOT NULL,
+    rx_entity_id TEXT NOT NULL,
+    sim_time DOUBLE PRECISION NOT NULL,
+    tx_pos_x DOUBLE PRECISION,
+    tx_pos_y DOUBLE PRECISION,
+    rx_pos_x DOUBLE PRECISION,
+    rx_pos_y DOUBLE PRECISION,
+    distance_m DOUBLE PRECISION,
+    relative_speed DOUBLE PRECISION,
+    tx_heading DOUBLE PRECISION,
+    rx_heading DOUBLE PRECISION,
+    payload JSONB,
+    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_link_context_samples_lookup
+    ON dt_link_context_samples (run_id, link_type, tx_entity_id, rx_entity_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_secondary_q_cycles (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    cycle_id BIGINT NOT NULL,
+    sim_time DOUBLE PRECISION NOT NULL,
+    prediction_horizon_s DOUBLE PRECISION,
+    prediction_step_s DOUBLE PRECISION,
+    sinr_threshold_db DOUBLE PRECISION,
+    trajectory_count INTEGER,
+    candidate_count INTEGER,
+    entry_count INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE (run_id, rsu_id, cycle_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_secondary_q_cycles_lookup
+    ON dt_secondary_q_cycles (run_id, rsu_id, cycle_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_secondary_q_entries (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    cycle_id BIGINT NOT NULL,
+    link_type TEXT NOT NULL,
+    tx_entity_id TEXT NOT NULL,
+    rx_entity_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    predicted_time DOUBLE PRECISION NOT NULL,
+    tx_pos_x DOUBLE PRECISION,
+    tx_pos_y DOUBLE PRECISION,
+    rx_pos_x DOUBLE PRECISION,
+    rx_pos_y DOUBLE PRECISION,
+    distance_m DOUBLE PRECISION,
+    sinr_db DOUBLE PRECISION,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_secondary_q_entries_lookup
+    ON dt_secondary_q_entries (run_id, rsu_id, cycle_id, tx_entity_id, rx_entity_id, step_index);
+
+-- ============================================================================
 -- MIGRATION: Add task profile columns to task_metadata (idempotent)
 -- ============================================================================
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_name TEXT;
@@ -345,3 +443,7 @@ ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS output_size_bytes BIGINT DEFA
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_offloadable BOOLEAN DEFAULT TRUE;
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_safety_critical BOOLEAN DEFAULT FALSE;
 ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS priority_level INTEGER DEFAULT 2;
+
+ALTER TABLE task_metadata RENAME COLUMN task_size_bytes TO mem_footprint_bytes;
+ALTER TABLE offloading_requests RENAME COLUMN task_size_bytes TO mem_footprint_bytes;
+ALTER TABLE offloaded_task_completions RENAME COLUMN task_size_bytes TO mem_footprint_bytes;

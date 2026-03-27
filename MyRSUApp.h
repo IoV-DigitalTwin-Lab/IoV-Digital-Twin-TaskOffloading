@@ -3,12 +3,17 @@
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
-#include "rsu_http_poster.h"
+// #include "rsu_http_poster.h"  // Disabled - using direct PostgreSQL
 #include "TaskMetadataMessage_m.h"
 #include "RedisDigitalTwin.h"
+#include "FuturePositionPredictor.h"
+#include "LinkRateModel.h"
 #include <map>
 #include <vector>
+#include <deque>
 #include <string>
+#include <set>
+#include <memory>
 #include <libpq-fe.h>
 
 using namespace veins;
@@ -64,7 +69,7 @@ struct TaskRecord {
     std::string task_id;
     std::string vehicle_id;
     
-    uint64_t task_size_bytes;
+    uint64_t mem_footprint_bytes;    // working memory held on the processing entity
     uint64_t cpu_cycles;
     
     double created_time;
@@ -94,6 +99,78 @@ struct TaskRecord {
     bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
 };
 
+/**
+ * RSU Neighbor State (for RSU-to-RSU communication)
+ */
+struct RSUNeighborState {
+    std::string rsu_id;
+    LAddress::L2Type rsu_mac;
+    double last_update_time;
+    
+    // Resource state
+    int queue_length;
+    int processing_count;
+    int max_concurrent_tasks;
+    double cpu_available_ghz;
+    double cpu_total_ghz;
+    double memory_available_gb;
+    double memory_total_gb;
+    
+    // Coverage information
+    std::vector<std::string> vehicle_ids_in_coverage;
+    int vehicle_count;
+    
+    // Position
+    double pos_x;
+    double pos_y;
+    
+    // Computed metrics
+    double load_factor = 0.0;        // CPU utilization factor (0-1)
+    bool is_overloaded = false;      // Overload flag
+};
+
+/**
+ * Vehicle coverage ownership record used by RSU Digital Twin.
+ * It identifies whether a vehicle currently belongs to self RSU range
+ * or to one of the neighboring RSU ranges.
+ */
+struct VehicleCoverageRecord {
+    std::string vehicle_id;
+    std::string best_rsu_id;
+    LAddress::L2Type best_rsu_mac = 0;
+    bool in_self_range = false;
+    double best_rssi = -1e9;
+    double self_rssi = -1e9;
+    double last_update_time = 0.0;
+};
+
+/**
+ * RSU Active Task (for task queue and processing)
+ */
+struct RSUActiveTask {
+    std::string task_id;
+    std::string vehicle_id;
+    LAddress::L2Type vehicle_mac;
+    
+    // Task parameters
+    uint64_t cpu_cycles;
+    uint64_t task_size_bytes;
+    double deadline_seconds;
+    
+    // Timing
+    double arrival_time;      // When task arrived at RSU (for queue wait tracking)
+    double start_time;         // When task started processing
+    double allocated_cpu_ghz;  // CPU allocated to this task
+    double estimated_completion_time;  // Expected completion time
+    
+    // State
+    enum State { QUEUED, PROCESSING, COMPLETED, FAILED } state;
+    std::string failure_reason;
+    
+    // Self-message for completion event
+    cMessage* completion_msg = nullptr;
+};
+
 class MyRSUApp : public DemoBaseApplLayer {
 public:
     void initialize(int stage) override;
@@ -106,12 +183,15 @@ protected:
     void handleMessage(cMessage* msg) override;
 
 private:
-    RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};
+    // RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};  // Disabled - using direct PostgreSQL
     // self-message used for periodic beacons; keep as member so we can cancel/delete safely
     omnetpp::cMessage* beaconMsg{nullptr};
     
     // Decision polling timer (for reading ML decisions from database)
     cMessage* checkDecisionMsg = nullptr;
+    
+    // RSU status broadcast timer (for RSU-to-RSU communication)
+    cMessage* rsu_broadcast_timer = nullptr;
     
     // Vehicle MAC address mapping (for sending decisions)
     std::map<std::string, LAddress::L2Type> vehicle_macs;  // vehicle_id -> MAC address
@@ -146,8 +226,27 @@ private:
     double rsu_total_queue_time = 0.0;
     
     // Status update timing
-    double rsu_status_update_interval = 1.0;  // Update every 1 second
+    double rsu_status_update_interval = 0.5;  // Update every 0.5 second
     cMessage* rsu_status_update_timer = nullptr;
+    
+    // ============================================================================
+    // RSU-TO-RSU COMMUNICATION (I2I)
+    // ============================================================================
+    
+    // Neighbor RSU states (learned via broadcast)
+    std::map<std::string, RSUNeighborState> neighbor_rsus;  // rsu_id -> state
+    
+    // RSU broadcast parameters
+    double rsu_broadcast_interval = 0.5;      // Broadcast every 500ms
+    double neighbor_state_ttl = 1.5;          // Consider state stale after 1.5s
+    int max_vehicles_in_broadcast = 20;       // Limit vehicle list size to avoid huge packets
+    
+    // Task redirect parameters
+    int max_redirect_hops = 2;                // Maximum allowed redirect hops
+    
+    // Task queue and active tasks
+    std::deque<RSUActiveTask> task_queue;           // FIFO queue for pending tasks
+    std::map<std::string, RSUActiveTask> active_tasks;  // Currently processing tasks (task_id -> task)
     
     // ============================================================================
     // DIGITAL TWIN TRACKING SYSTEM
@@ -156,15 +255,22 @@ private:
     // Digital Twin Data Structures
     std::map<std::string, VehicleDigitalTwin> vehicle_twins;  // vehicle_id -> twin
     std::map<std::string, TaskRecord> task_records;           // task_id -> record
+    std::map<std::string, VehicleCoverageRecord> vehicle_coverage_records; // vehicle_id -> coverage owner
     
     // Digital Twin Management Methods
     void handleTaskMetadata(TaskMetadataMessage* msg);
     void handleTaskCompletion(TaskCompletionMessage* msg);
     void handleTaskFailure(TaskFailureMessage* msg);
     void handleTaskResultWithCompletion(TaskResultMessage* msg);
+    void handleRSUTaskResultRelay(TaskResultMessage* msg);
+    void handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress::L2Type targetRsuMac);
     void handleVehicleResourceStatus(VehicleResourceStatusMessage* msg);
     
     VehicleDigitalTwin& getOrCreateVehicleTwin(const std::string& vehicle_id);
+    void refreshVehicleCoverageRecord(const std::string& vehicle_id);
+    LAddress::L2Type getBestRsuByRssiForVehicle(const std::string& vehicle_id,
+                                                 std::string* bestRsuId = nullptr,
+                                                 bool* inSelfRange = nullptr);
     void updateDigitalTwinStatistics();
     void logDigitalTwinState();
     void logTaskRecord(const TaskRecord& record, const std::string& event);
@@ -182,7 +288,7 @@ private:
         std::string local_decision;
         
         // Task characteristics
-        uint64_t task_size_bytes;
+        uint64_t mem_footprint_bytes;  // working memory on processing entity
         uint64_t cpu_cycles;
         double deadline_seconds;
         double qos_value;
@@ -218,20 +324,33 @@ private:
     struct PendingRSUTask {
         std::string vehicle_id;
         LAddress::L2Type vehicle_mac = 0;
-        uint64_t cpu_cycles = 0;          // cycles required for this task instance
-        double exec_time_s = 0.0;         // computed execution time (seconds)
-        double scheduled_at = 0.0;        // simTime when task was accepted
+        LAddress::L2Type ingress_rsu_mac = 0;
+        uint64_t cpu_cycles = 0;            // total cycles required for this task
+        double cycles_remaining = 0.0;      // cycles not yet executed (updated at each reschedule)
+        double exec_time_s = 0.0;           // current projected execution time (seconds)
+        double scheduled_at = 0.0;          // simTime when task was first accepted
+        double last_reschedule_time = 0.0;  // simTime of last CPU reallocation
+        double cpu_allocated_hz = 0.0;      // per-task CPU share at last reschedule (Hz)
+        cMessage* completion_event = nullptr; // pointer to scheduled completion self-msg
     };
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
 
-    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet);
+    void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac);
+    // Recomputes each in-flight task's remaining cycles and reschedules all completion
+    // events so every task gets an equal share of edgeCPU_GHz.
+    void reallocateRSUTasks(double new_cpu_per_task_Hz);
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
-                                  LAddress::L2Type vehicle_mac, bool success, double processing_time);
+                                  LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
+                                  bool success, double processing_time);
     
     // Configuration parameters
     bool mlModelEnabled = false;
     int maxConcurrentOffloadedTasks = 10;
     bool serviceVehicleSelectionEnabled = true;
+    double offload_link_bandwidth_hz = 10e6;
+    double offload_rate_efficiency = 0.8;
+    double offload_rate_cap_bps = -1.0;
+    double offload_response_ratio = 0.2;
     
     // ============================================================================
     // POSTGRESQL DATABASE INTEGRATION
@@ -249,6 +368,41 @@ private:
     bool use_redis = true;  // Config parameter
     std::string redis_host = "127.0.0.1";
     int redis_port = 6379;
+    int redis_db = 0;
+
+    // Secondary run export controls (motion + channel context only, no SINR math)
+    bool secondary_link_context_export = false;
+    std::string secondary_run_id = "dt2_default";
+    double secondary_link_sample_interval = 0.1;
+    int secondary_redis_max_series_len = 6000;
+    std::string secondary_predictor_mode = "placeholder";
+    bool secondary_use_external_predictions = true;
+    double secondary_prediction_horizon_s = 0.5;
+    double secondary_prediction_step_s = 0.02;
+    double secondary_cycle_interval_s = 0.1;
+    double secondary_candidate_radius_m = 1500.0;
+    bool secondary_q_publish_enabled = true;
+    double secondary_sinr_threshold_db = 3.0;
+    int secondary_q_ttl_s = 2;
+    int secondary_q_stream_maxlen = 200000;
+    std::map<std::string, double> secondary_last_export_time; // vehicle_id -> last export sim_time
+    std::unique_ptr<IFuturePositionPredictor> secondary_predictor;
+    cMessage* secondary_cycle_timer = nullptr;
+    uint64_t secondary_cycle_index = 0;
+
+    struct SecondaryCandidateSet {
+        std::vector<std::string> rsu_ids;
+        std::vector<std::string> vehicle_ids;
+    };
+    std::map<std::string, std::vector<PredictedVehicleState>> secondary_cycle_predictions;
+    std::map<std::string, SecondaryCandidateSet> secondary_cycle_candidates;
+
+    struct RsuStaticContext {
+        std::string rsu_id;
+        double pos_x = 0.0;
+        double pos_y = 0.0;
+    };
+    std::vector<RsuStaticContext> rsu_static_contexts;
     
     void initDatabase();
     void closeDatabase();
@@ -263,11 +417,14 @@ private:
     void insertOffloadingRequest(const OffloadingRequest& request);
     void insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision);
     void insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event);
+    void insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
+                              const std::string& source, const std::string& target,
+                              const std::string& details = "{}");
     void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
                                        const std::string& decision_type, const std::string& processor_id,
                                        double request_time, double decision_time, double start_time, 
                                        double completion_time, bool success, bool completed_on_time,
-                                       double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                       double deadline_seconds, uint64_t mem_footprint_bytes, uint64_t cpu_cycles,
                                        double qos_value, const std::string& result_data, const std::string& failure_reason);
     
     // RSU status and metadata tracking
@@ -275,6 +432,60 @@ private:
     void insertRSUMetadata();
     void insertVehicleMetadata(const std::string& vehicle_id);
     void sendRSUStatusUpdate();
+
+    // Secondary DT storage exports (DB + Redis)
+    void initializeRsuStaticContexts();
+    void initializeSecondaryPredictor();
+    void initializeSecondaryCycleWorker();
+    void runSecondaryCycle();
+    void exportSecondaryContextSamples(const VehicleResourceStatusMessage* msg,
+                                       const VehicleDigitalTwin& sourceTwin);
+    void insertSecondaryProgress(double sim_time);
+    void insertSecondaryVehicleSample(const VehicleResourceStatusMessage* msg);
+    void insertSecondaryLinkSample(const std::string& link_type,
+                                   const std::string& tx_entity_id,
+                                   const std::string& rx_entity_id,
+                                   double sim_time,
+                                   double tx_pos_x,
+                                   double tx_pos_y,
+                                   double rx_pos_x,
+                                   double rx_pos_y,
+                                   double distance_m,
+                                   double relative_speed,
+                                   double tx_heading,
+                                   double rx_heading);
+    void insertSecondaryQCycle(uint64_t cycle_id,
+                               double sim_time,
+                               int trajectory_count,
+                               int candidate_count,
+                               int entry_count);
+    void insertSecondaryQEntry(uint64_t cycle_id,
+                               const std::string& link_type,
+                               const std::string& tx_entity_id,
+                               const std::string& rx_entity_id,
+                               int step_index,
+                               double predicted_time,
+                               double tx_pos_x,
+                               double tx_pos_y,
+                               double rx_pos_x,
+                               double rx_pos_y,
+                               double distance_m,
+                               double sinr_db);
+    
+    // ============================================================================
+    // RSU-TO-RSU COMMUNICATION METHODS
+    // ============================================================================
+    void broadcastRSUStatus();
+    void handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg);
+    void updateNeighborState(const RSUNeighborState& state);
+    bool isNeighborStateFresh(const RSUNeighborState& state);
+    void cleanupStaleNeighborStates();
+    
+    void queueTaskForProcessing(const RSUActiveTask& active_task);
+    void startNextQueuedTask();
+    double calculateProcessingTime(const RSUActiveTask& task);
+    void deallocateTaskResources(const RSUActiveTask& task);
+    void checkDeadlineAndNotify(const RSUActiveTask& task);
 };
 
 } // namespace complex_network

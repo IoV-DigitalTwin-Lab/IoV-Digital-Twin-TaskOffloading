@@ -40,10 +40,13 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
 OBJS = \
+    $O/EnergyModel.o \
+	$O/FuturePositionPredictor.o \
+	$O/LinkRateModel.o \
+    $O/MetricsManager.o \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \
     $O/RedisDigitalTwin.o \
-    $O/rsu_http_poster.o \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
     $O/Task.o \

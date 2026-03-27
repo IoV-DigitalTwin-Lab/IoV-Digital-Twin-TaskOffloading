@@ -5,10 +5,127 @@
 #include <ctime>
 #include <iomanip>
 #include <cmath>
+#include <limits>
+#include <algorithm>
 
 using namespace veins;
 
 namespace complex_network {
+
+namespace {
+constexpr const char* kRoutePrefix = "ROUTE|";
+constexpr const char* kRelayPayloadPrefix = "RSU_RELAY_RESULT|";
+constexpr const char* kServiceRoutePrefix = "SVROUTE|";
+constexpr const char* kServiceResultRelayPrefix = "SV_RESULT_RELAY|";
+
+bool parseRouteHint(const std::string& routeHint, LAddress::L2Type& ingressRsuMac, LAddress::L2Type& processorRsuMac) {
+    ingressRsuMac = 0;
+    processorRsuMac = 0;
+    if (routeHint.rfind(kRoutePrefix, 0) != 0) {
+        return false;
+    }
+
+    size_t ingressPos = routeHint.find("ingress=");
+    size_t processorPos = routeHint.find("processor=");
+    if (ingressPos == std::string::npos || processorPos == std::string::npos) {
+        return false;
+    }
+
+    try {
+        size_t ingressStart = ingressPos + 8;
+        size_t ingressEnd = routeHint.find('|', ingressStart);
+        size_t processorStart = processorPos + 10;
+        size_t processorEnd = routeHint.find('|', processorStart);
+
+        std::string ingressStr = routeHint.substr(ingressStart, ingressEnd - ingressStart);
+        std::string processorStr = routeHint.substr(processorStart, processorEnd - processorStart);
+
+        ingressRsuMac = static_cast<LAddress::L2Type>(std::stoull(ingressStr));
+        processorRsuMac = static_cast<LAddress::L2Type>(std::stoull(processorStr));
+    }
+    catch (...) {
+        ingressRsuMac = 0;
+        processorRsuMac = 0;
+        return false;
+    }
+    return true;
+}
+
+bool isRelayTaskResult(const TaskResultMessage* msg) {
+    std::string payload = msg->getTask_output_data();
+    return payload.rfind(kRelayPayloadPrefix, 0) == 0;
+}
+
+std::string stripRelayPrefix(const std::string& payload) {
+    if (payload.rfind(kRelayPayloadPrefix, 0) == 0) {
+        return payload.substr(std::char_traits<char>::length(kRelayPayloadPrefix));
+    }
+    return payload;
+}
+
+bool parseServiceRouteHint(const std::string& hint, LAddress::L2Type& serviceVehicleMac, LAddress::L2Type& anchorRsuMac) {
+    serviceVehicleMac = 0;
+    anchorRsuMac = 0;
+    if (hint.rfind(kServiceRoutePrefix, 0) != 0) return false;
+
+    size_t svPos = hint.find("sv=");
+    size_t anchorPos = hint.find("anchor=");
+    if (svPos == std::string::npos || anchorPos == std::string::npos) return false;
+
+    try {
+        size_t svStart = svPos + 3;
+        size_t svEnd = hint.find('|', svStart);
+        size_t anchorStart = anchorPos + 7;
+        size_t anchorEnd = hint.find('|', anchorStart);
+        serviceVehicleMac = static_cast<LAddress::L2Type>(std::stoull(hint.substr(svStart, svEnd - svStart)));
+        anchorRsuMac = static_cast<LAddress::L2Type>(std::stoull(hint.substr(anchorStart, anchorEnd - anchorStart)));
+    } catch (...) {
+        serviceVehicleMac = 0;
+        anchorRsuMac = 0;
+        return false;
+    }
+    return true;
+}
+
+bool parseServiceResultRelayHint(const std::string& payload, LAddress::L2Type& targetRsuMac, std::string& cleanPayload) {
+    targetRsuMac = 0;
+    cleanPayload = payload;
+    if (payload.rfind(kServiceResultRelayPrefix, 0) != 0) return false;
+
+    size_t targetPos = payload.find("target=");
+    if (targetPos == std::string::npos) return false;
+
+    try {
+        size_t valueStart = targetPos + 7;
+        size_t valueEnd = payload.find('|', valueStart);
+        targetRsuMac = static_cast<LAddress::L2Type>(std::stoull(payload.substr(valueStart, valueEnd - valueStart)));
+        cleanPayload = (valueEnd == std::string::npos) ? std::string() : payload.substr(valueEnd + 1);
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+double estimateRssiFromDistance(double distanceMeters) {
+    // Lightweight monotonic RSSI proxy for ranking RSUs by radio proximity.
+    // Absolute calibration is not required here; ordering by distance is the goal.
+    double d = std::max(1.0, distanceMeters);
+    return -40.0 - 20.0 * std::log10(d);
+}
+
+double estimateSinrDbFromDistance(double distanceMeters) {
+    const double tx_power_dbm = 20.0;
+    const double frequency_mhz = 5890.0;
+    const double noise_floor_dbm = -110.0;
+
+    const double d_km = std::max(1.0, distanceMeters) / 1000.0;
+    const double path_loss_db = 32.44 + 20.0 * std::log10(frequency_mhz) + 20.0 * std::log10(d_km);
+    const double rx_power_dbm = tx_power_dbm - path_loss_db;
+    const double sinr_db = rx_power_dbm - noise_floor_dbm;
+
+    return std::max(-30.0, std::min(80.0, sinr_db));
+}
+}
 
 Define_Module(MyRSUApp);
 
@@ -24,6 +141,30 @@ void MyRSUApp::initialize(int stage) {
         edgeMemory_GB = par("edgeMemory_GB").doubleValue();
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
+        offload_link_bandwidth_hz = par("offloadLinkBandwidthHz").doubleValue();
+        offload_rate_efficiency = par("offloadRateEfficiency").doubleValue();
+        offload_rate_cap_bps = par("offloadRateCapBps").doubleValue();
+        offload_response_ratio = par("offloadResponseRatio").doubleValue();
+
+        secondary_link_context_export = par("secondaryLinkContextExport").boolValue();
+        secondary_run_id = par("secondaryRunId").stdstringValue();
+        secondary_link_sample_interval = par("secondaryLinkSampleInterval").doubleValue();
+        secondary_redis_max_series_len = par("secondaryRedisMaxSeriesLen").intValue();
+        secondary_predictor_mode = par("secondaryPredictorMode").stdstringValue();
+        secondary_use_external_predictions = par("secondaryUseExternalPredictions").boolValue();
+        secondary_prediction_horizon_s = par("secondaryPredictionHorizon").doubleValue();
+        secondary_prediction_step_s = par("secondaryPredictionStep").doubleValue();
+        secondary_cycle_interval_s = par("secondaryCycleInterval").doubleValue();
+        secondary_candidate_radius_m = par("secondaryCandidateRadius").doubleValue();
+        secondary_q_publish_enabled = par("secondaryQPublishEnabled").boolValue();
+        secondary_sinr_threshold_db = par("secondarySinrThresholdDb").doubleValue();
+        secondary_q_ttl_s = par("secondaryQTTLSec").intValue();
+        secondary_q_stream_maxlen = par("secondaryQStreamMaxLen").intValue();
+        if (!secondary_use_external_predictions) {
+            initializeSecondaryPredictor();
+        }
+        initializeSecondaryCycleWorker();
+        initializeRsuStaticContexts();
         
         // Initialize RSU resource tracking (dynamic state)
         rsu_cpu_total = edgeCPU_GHz;
@@ -41,10 +182,17 @@ void MyRSUApp::initialize(int stage) {
         if (use_redis) {
             redis_host = par("redisHost").stdstringValue();
             redis_port = par("redisPort").intValue();
-            redis_twin = new RedisDigitalTwin(redis_host, redis_port);
+            redis_db = par("redisDb").intValue();
+            // If unset or invalid, default to RSU index so each RSU gets its own DB.
+            if (redis_db < 0) {
+                redis_db = rsu_id;
+            }
+            redis_twin = new RedisDigitalTwin(redis_host, redis_port, redis_db);
             if (redis_twin->isConnected()) {
-                EV_INFO << "✓ Redis Digital Twin connected at " << redis_host << ":" << redis_port << std::endl;
-                std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected" << std::endl;
+                EV_INFO << "✓ Redis Digital Twin connected at " << redis_host << ":" << redis_port
+                        << " db=" << redis_db << std::endl;
+                std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected (db="
+                          << redis_db << ")" << std::endl;
             } else {
                 EV_WARN << "✗ Redis connection failed, continuing without digital twin" << std::endl;
                 std::cerr << "⚠ RSU[" << rsu_id << "] Redis connection failed" << std::endl;
@@ -56,10 +204,36 @@ void MyRSUApp::initialize(int stage) {
         // Insert RSU metadata (static info) once at initialization
         insertRSUMetadata();
         
+        // Initialize RSU-to-RSU broadcast parameters (try to get from config, use defaults if not set)
+        try {
+            rsu_broadcast_interval = par("rsuStatusBroadcastInterval").doubleValue();
+        } catch (...) {
+            rsu_broadcast_interval = 0.5;  // Default: 500ms
+        }
+        try {
+            neighbor_state_ttl = par("neighborStateTtl").doubleValue();
+        } catch (...) {
+            neighbor_state_ttl = 1.5;  // Default: 1.5s
+        }
+        try {
+            max_vehicles_in_broadcast = par("maxVehiclesInBroadcast").intValue();
+        } catch (...) {
+            max_vehicles_in_broadcast = 20;  // Default: 20 vehicles
+        }
+        try {
+            max_redirect_hops = par("maxRedirectHops").intValue();
+        } catch (...) {
+            max_redirect_hops = 2;  // Default: 2 hops
+        }
+        
         // Start periodic RSU status updates
         rsu_status_update_timer = new cMessage("rsuStatusUpdate");
         // First RSU status at t=0 so Redis sees RSUs immediately
         scheduleAt(simTime(), rsu_status_update_timer);
+        
+        // Start periodic RSU-to-RSU status broadcast
+        rsu_broadcast_timer = new cMessage("rsuBroadcast");
+        scheduleAt(simTime() + uniform(0.0, rsu_broadcast_interval), rsu_broadcast_timer);  // Stagger initial broadcasts
         
         // Initialize decision checker
         checkDecisionMsg = new cMessage("checkDecision");
@@ -110,6 +284,18 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         // Handle RSU status update
         sendRSUStatusUpdate();
     } 
+    else if (msg == rsu_broadcast_timer) {
+        // Handle RSU-to-RSU status broadcast
+        broadcastRSUStatus();
+        // Cleanup stale neighbor states periodically
+        cleanupStaleNeighborStates();
+        // Reschedule next broadcast
+        scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
+    } 
+    else if (msg == secondary_cycle_timer) {
+        runSecondaryCycle();
+        scheduleAt(simTime() + secondary_cycle_interval_s, secondary_cycle_timer);
+    }
     else if (msg == checkDecisionMsg) {
         // Poll Redis first (fast), fallback to PostgreSQL if needed
         int decisions_found = 0;
@@ -236,8 +422,17 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                       << " completed in " << pending.exec_time_s << "s" << std::endl;
 
             sendTaskResultToVehicle(task_id, pending.vehicle_id, pending.vehicle_mac,
-                                    true, pending.exec_time_s);
+                                    pending.ingress_rsu_mac, true, pending.exec_time_s);
             rsuPendingTasks.erase(it);
+
+            // Task completed → remaining tasks each get a larger CPU share.
+            // Reallocate so they finish sooner (fair-share release).
+            if (rsu_processing_count > 0) {
+                double new_cpu = (edgeCPU_GHz * 1e9) / rsu_processing_count;
+                reallocateRSUTasks(new_cpu);
+                EV_INFO << "  RSU load released: " << rsu_processing_count
+                        << " task(s) reallocated to " << (new_cpu/1e9) << " GHz each" << endl;
+            }
         } else {
             EV_WARN << "⚠ rsuTaskComplete: no pending record for " << task_id << endl;
         }
@@ -266,6 +461,17 @@ void MyRSUApp::handleLowerMsg(cMessage* msg) {
     DemoBaseApplLayer::handleLowerMsg(msg);
     
     std::cout << "CONSOLE: MyRSUApp - handleLowerMsg() completed\n" << std::endl;
+}
+
+void MyRSUApp::initializeSecondaryPredictor() {
+    secondary_predictor = createFuturePositionPredictor(secondary_predictor_mode);
+    if (!secondary_predictor) {
+        throw cRuntimeError("Failed to initialize secondary predictor");
+    }
+
+    EV_INFO << "Secondary predictor initialized: mode=" << secondary_predictor->mode()
+            << " horizon=" << secondary_prediction_horizon_s
+            << "s step=" << secondary_prediction_step_s << "s" << endl;
 }
 
 void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
@@ -302,9 +508,28 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         return;
     }
     
+    // Handle RSU-to-RSU status broadcasts
+    RSUStatusBroadcastMessage* rsuStatus = dynamic_cast<RSUStatusBroadcastMessage*>(wsm);
+    if (rsuStatus) {
+        EV_DEBUG << "📥 RSU received RSUStatusBroadcastMessage" << endl;
+        handleRSUStatusBroadcast(rsuStatus);
+        return;
+    }
+    
     // Handle TaskResultMessage with completion timing data
     TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
     if (taskResult) {
+        LAddress::L2Type svTargetRsuMac = 0;
+        std::string cleanPayload;
+        if (parseServiceResultRelayHint(taskResult->getTask_output_data(), svTargetRsuMac, cleanPayload)) {
+            handleServiceVehicleResultRelay(taskResult, svTargetRsuMac);
+            return;
+        }
+        if (isRelayTaskResult(taskResult)) {
+            EV_INFO << "📥 RSU received relayed TaskResultMessage" << endl;
+            handleRSUTaskResultRelay(taskResult);
+            return;
+        }
         EV_INFO << "📥 RSU received TaskResultMessage with completion data" << endl;
         handleTaskResultWithCompletion(taskResult);
         return;
@@ -423,10 +648,22 @@ void MyRSUApp::finish() {
         rsu_status_update_timer = nullptr;
     }
     
+    // Cancel and delete RSU broadcast timer
+    if (rsu_broadcast_timer) {
+        cancelAndDelete(rsu_broadcast_timer);
+        rsu_broadcast_timer = nullptr;
+    }
+    
     // Cancel and delete decision checker timer
     if (checkDecisionMsg) {
         cancelAndDelete(checkDecisionMsg);
         checkDecisionMsg = nullptr;
+    }
+
+    // Cancel and delete secondary cycle timer
+    if (secondary_cycle_timer) {
+        cancelAndDelete(secondary_cycle_timer);
+        secondary_cycle_timer = nullptr;
     }
 
     // RSUHttpPoster disabled - using direct PostgreSQL insertion
@@ -437,6 +674,342 @@ void MyRSUApp::finish() {
     EV << "MyRSUApp: RSUHttpPoster stopped\n";
 
     DemoBaseApplLayer::finish();
+}
+
+void MyRSUApp::initializeSecondaryCycleWorker() {
+    if (!secondary_link_context_export) {
+        return;
+    }
+
+    if (!secondary_cycle_timer) {
+        secondary_cycle_timer = new cMessage("secondaryCycle");
+    }
+    if (!secondary_cycle_timer->isScheduled()) {
+        scheduleAt(simTime() + secondary_cycle_interval_s, secondary_cycle_timer);
+    }
+
+    EV_INFO << "Secondary cycle worker started: interval=" << secondary_cycle_interval_s
+            << "s candidate_radius=" << secondary_candidate_radius_m << "m" << endl;
+}
+
+void MyRSUApp::runSecondaryCycle() {
+    if (!secondary_link_context_export) {
+        return;
+    }
+    if (!secondary_use_external_predictions && !secondary_predictor) {
+        return;
+    }
+
+    std::vector<PredictorInputState> inputs;
+    inputs.reserve(vehicle_twins.size());
+
+    if (secondary_use_external_predictions) {
+        if (redis_twin && use_redis) {
+            const int64_t latest_cycle = redis_twin->getLatestSecondaryPredictionCycle(secondary_run_id);
+            if (latest_cycle >= 0) {
+                const auto points = redis_twin->getSecondaryPredictedPoints(secondary_run_id, static_cast<uint64_t>(latest_cycle));
+                secondary_cycle_predictions.clear();
+                secondary_cycle_candidates.clear();
+
+                for (const auto& point : points) {
+                    PredictedVehicleState st;
+                    st.vehicle_id = point.vehicle_id;
+                    st.step_index = point.step_index;
+                    st.sim_time = point.predicted_time;
+                    st.pos_x = point.pos_x;
+                    st.pos_y = point.pos_y;
+                    st.speed = point.speed;
+                    st.heading_deg = point.heading;
+                    st.acceleration = point.acceleration;
+                    secondary_cycle_predictions[point.vehicle_id].push_back(st);
+                }
+
+                for (auto& kv : secondary_cycle_predictions) {
+                    auto& traj = kv.second;
+                    std::sort(traj.begin(), traj.end(), [](const PredictedVehicleState& a, const PredictedVehicleState& b) {
+                        return a.step_index < b.step_index;
+                    });
+                }
+            }
+        }
+
+        if (secondary_cycle_predictions.empty()) {
+            EV_WARN << "Secondary cycle skipped: no external predicted trajectories available in Redis" << endl;
+            return;
+        }
+    } else {
+        if (redis_twin && use_redis) {
+            const auto snapshots = redis_twin->getAllVehicles();
+            inputs.reserve(snapshots.size());
+            for (const auto& snap : snapshots) {
+                PredictorInputState in;
+                in.vehicle_id = snap.vehicle_id;
+                in.source_timestamp = snap.source_timestamp > 0.0 ? snap.source_timestamp : simTime().dbl();
+                in.pos_x = snap.pos_x;
+                in.pos_y = snap.pos_y;
+                in.speed = snap.speed;
+                in.heading_deg = snap.heading;
+                in.acceleration = snap.acceleration;
+                inputs.push_back(in);
+            }
+        }
+
+        if (inputs.empty()) {
+            for (const auto& kv : vehicle_twins) {
+                const auto& twin = kv.second;
+                PredictorInputState in;
+                in.vehicle_id = twin.vehicle_id;
+                in.source_timestamp = simTime().dbl();
+                in.pos_x = twin.pos_x;
+                in.pos_y = twin.pos_y;
+                in.speed = twin.speed;
+                in.heading_deg = twin.heading;
+                in.acceleration = 0.0;
+                inputs.push_back(in);
+            }
+        }
+    }
+
+    if (!secondary_use_external_predictions) {
+        secondary_cycle_predictions.clear();
+        secondary_cycle_candidates.clear();
+    }
+    std::map<std::string, PredictedVehicleState> first_step_state;
+
+    if (secondary_use_external_predictions) {
+        for (const auto& kv : secondary_cycle_predictions) {
+            if (!kv.second.empty()) {
+                first_step_state[kv.first] = kv.second.front();
+            }
+        }
+    } else {
+        for (const auto& input : inputs) {
+            std::vector<PredictedVehicleState> predicted;
+            predicted = secondary_predictor->predict(
+                input,
+                secondary_prediction_horizon_s,
+                secondary_prediction_step_s
+            );
+            if (predicted.empty()) {
+                continue;
+            }
+            first_step_state[input.vehicle_id] = predicted.front();
+            secondary_cycle_predictions.emplace(input.vehicle_id, std::move(predicted));
+        }
+    }
+
+    for (const auto& kv : first_step_state) {
+        const std::string& src_id = kv.first;
+        const auto& src = kv.second;
+
+        SecondaryCandidateSet set;
+        for (const auto& rsu : rsu_static_contexts) {
+            const double dx = src.pos_x - rsu.pos_x;
+            const double dy = src.pos_y - rsu.pos_y;
+            const double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist <= secondary_candidate_radius_m) {
+                set.rsu_ids.push_back(rsu.rsu_id);
+            }
+        }
+
+        for (const auto& other : first_step_state) {
+            if (other.first == src_id) {
+                continue;
+            }
+            const double dx = src.pos_x - other.second.pos_x;
+            const double dy = src.pos_y - other.second.pos_y;
+            const double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist <= secondary_candidate_radius_m) {
+                set.vehicle_ids.push_back(other.first);
+            }
+        }
+
+        secondary_cycle_candidates.emplace(src_id, std::move(set));
+    }
+
+    const uint64_t cycle_id = secondary_cycle_index + 1;
+    int q_entry_count = 0;
+    std::map<std::string, RsuStaticContext> rsu_by_id;
+    for (const auto& rsu : rsu_static_contexts) {
+        rsu_by_id[rsu.rsu_id] = rsu;
+    }
+
+    auto emitQEntry = [&](const std::string& link_type,
+                          const std::string& tx_id,
+                          const std::string& rx_id,
+                          int step_index,
+                          double predicted_time,
+                          double tx_x,
+                          double tx_y,
+                          double rx_x,
+                          double rx_y,
+                          double dist,
+                          double sinr_db) {
+        insertSecondaryQEntry(
+            cycle_id,
+            link_type,
+            tx_id,
+            rx_id,
+            step_index,
+            predicted_time,
+            tx_x,
+            tx_y,
+            rx_x,
+            rx_y,
+            dist,
+            sinr_db
+        );
+
+        if (secondary_q_publish_enabled && redis_twin && use_redis) {
+            redis_twin->pushSecondaryQEntry(
+                secondary_run_id,
+                cycle_id,
+                link_type,
+                tx_id,
+                rx_id,
+                step_index,
+                predicted_time,
+                tx_x,
+                tx_y,
+                rx_x,
+                rx_y,
+                dist,
+                sinr_db,
+                secondary_q_stream_maxlen
+            );
+        }
+        q_entry_count++;
+    };
+
+    for (const auto& kv : secondary_cycle_candidates) {
+        const std::string& src_id = kv.first;
+        const auto pred_it = secondary_cycle_predictions.find(src_id);
+        if (pred_it == secondary_cycle_predictions.end()) {
+            continue;
+        }
+
+        const auto& src_traj = pred_it->second;
+        const auto& candidates = kv.second;
+
+        for (const auto& rsu_id : candidates.rsu_ids) {
+            const auto rsu_it = rsu_by_id.find(rsu_id);
+            if (rsu_it == rsu_by_id.end()) {
+                continue;
+            }
+            const auto& rsu = rsu_it->second;
+
+            for (const auto& step : src_traj) {
+                const double dx = step.pos_x - rsu.pos_x;
+                const double dy = step.pos_y - rsu.pos_y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                const double sinr_db = estimateSinrDbFromDistance(dist);
+                if (sinr_db < secondary_sinr_threshold_db) {
+                    continue;
+                }
+
+                emitQEntry(
+                    "V2RSU",
+                    src_id,
+                    rsu_id,
+                    step.step_index,
+                    step.sim_time,
+                    step.pos_x,
+                    step.pos_y,
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    dist,
+                    sinr_db
+                );
+                emitQEntry(
+                    "RSU2V",
+                    rsu_id,
+                    src_id,
+                    step.step_index,
+                    step.sim_time,
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    step.pos_x,
+                    step.pos_y,
+                    dist,
+                    sinr_db
+                );
+            }
+        }
+
+        for (const auto& peer_id : candidates.vehicle_ids) {
+            const auto peer_it = secondary_cycle_predictions.find(peer_id);
+            if (peer_it == secondary_cycle_predictions.end()) {
+                continue;
+            }
+            const auto& peer_traj = peer_it->second;
+            const int common_steps = std::min(static_cast<int>(src_traj.size()), static_cast<int>(peer_traj.size()));
+
+            for (int i = 0; i < common_steps; ++i) {
+                const auto& src_step = src_traj[i];
+                const auto& peer_step = peer_traj[i];
+                const double dx = src_step.pos_x - peer_step.pos_x;
+                const double dy = src_step.pos_y - peer_step.pos_y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                const double sinr_db = estimateSinrDbFromDistance(dist);
+                if (sinr_db < secondary_sinr_threshold_db) {
+                    continue;
+                }
+
+                emitQEntry(
+                    "V2V",
+                    src_id,
+                    peer_id,
+                    src_step.step_index,
+                    src_step.sim_time,
+                    src_step.pos_x,
+                    src_step.pos_y,
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    dist,
+                    sinr_db
+                );
+                emitQEntry(
+                    "V2V",
+                    peer_id,
+                    src_id,
+                    src_step.step_index,
+                    src_step.sim_time,
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    src_step.pos_x,
+                    src_step.pos_y,
+                    dist,
+                    sinr_db
+                );
+            }
+        }
+    }
+
+    secondary_cycle_index = cycle_id;
+    insertSecondaryQCycle(
+        cycle_id,
+        simTime().dbl(),
+        static_cast<int>(secondary_cycle_predictions.size()),
+        static_cast<int>(secondary_cycle_candidates.size()),
+        q_entry_count
+    );
+    if (secondary_q_publish_enabled && redis_twin && use_redis) {
+        redis_twin->updateSecondaryQCycle(
+            secondary_run_id,
+            cycle_id,
+            simTime().dbl(),
+            secondary_prediction_horizon_s,
+            secondary_prediction_step_s,
+            secondary_sinr_threshold_db,
+            static_cast<int>(secondary_cycle_predictions.size()),
+            q_entry_count,
+            secondary_q_ttl_s
+        );
+    }
+    EV_INFO << "Secondary cycle #" << secondary_cycle_index
+            << " generated " << secondary_cycle_predictions.size() << " trajectories and "
+            << secondary_cycle_candidates.size() << " candidate sets, published "
+            << q_entry_count << " directional q entries" << endl;
 }
 
 void MyRSUApp::handleMessage(cMessage* msg) {
@@ -473,6 +1046,14 @@ void MyRSUApp::handleMessage(cMessage* msg) {
         return;
     }
 
+    veins::TaskResultMessage* relayedResult = dynamic_cast<veins::TaskResultMessage*>(msg);
+    if (relayedResult) {
+        if (isRelayTaskResult(relayedResult)) {
+            handleRSUTaskResultRelay(relayedResult);
+            return;
+        }
+    }
+
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
         std::cout << "CONSOLE: MyRSUApp handleMessage received BaseFrame1609_4! forwarding to onWSM()" << std::endl;
@@ -499,7 +1080,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     TaskRecord record;
     record.task_id = task_id;
     record.vehicle_id = vehicle_id;
-    record.task_size_bytes = msg->getTask_size_bytes();
+    record.mem_footprint_bytes = msg->getMem_footprint_bytes();
     record.cpu_cycles = msg->getCpu_cycles();
     record.created_time = msg->getCreated_time();
     record.deadline_seconds = msg->getDeadline_seconds();
@@ -527,7 +1108,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     EV_INFO << "Task metadata stored:" << endl;
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
-    EV_INFO << "  Size: " << (record.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Size: " << (record.mem_footprint_bytes / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Deadline: " << record.deadline_seconds << " sec" << endl;
     EV_INFO << "  QoS: " << record.qos_value << endl;
@@ -560,7 +1141,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
             task_id,
             vehicle_id,
             "RSU_" + std::to_string(rsu_id),
-            record.task_size_bytes,
+            record.mem_footprint_bytes,
             record.cpu_cycles,
             record.deadline_seconds,
             record.qos_value,
@@ -712,6 +1293,8 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::string vehicle_id = msg->getVehicle_id();
     VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
+    // VehicleResourceStatusMessage in this build does not carry senderAddress,
+    // so MAC mapping remains sourced from offloading request/decision traffic.
     
     // Update vehicle state
     twin.pos_x = msg->getPos_x();
@@ -742,18 +1325,22 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.deadline_miss_ratio = msg->getDeadline_miss_ratio();
     
     twin.last_update_time = simTime().dbl();
+    refreshVehicleCoverageRecord(vehicle_id);
     
     EV_INFO << "Vehicle " << vehicle_id << " Digital Twin updated:" << endl;
     
     // Update Redis Digital Twin (instant, for ML queries)
     if (redis_twin && use_redis) {
+        const double source_timestamp = msg->getCreationTime().dbl();
         redis_twin->updateVehicleState(
             vehicle_id,
             twin.pos_x, twin.pos_y, twin.speed, twin.heading,
             twin.cpu_available, twin.cpu_utilization,
             twin.mem_available, twin.mem_utilization,
             twin.current_queue_length, twin.current_processing_count,
-            simTime().dbl()
+            simTime().dbl(),
+            msg->getAcceleration(),
+            source_timestamp
         );
     }
     
@@ -762,9 +1349,10 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     // Insert/update vehicle metadata (first time or periodic update)
     insertVehicleMetadata(vehicle_id);
-    
-    // Note: MAC address will be stored when OffloadingRequestMessage arrives
-    // (OffloadingRequestMessage has getSenderAddress() inherited from BaseFrame1609_4)
+
+    if (secondary_link_context_export) {
+        exportSecondaryContextSamples(msg, twin);
+    }
     
     EV_INFO << "  Position: (" << twin.pos_x << ", " << twin.pos_y << ")" << endl;
     EV_INFO << "  CPU Utilization: " << (twin.cpu_utilization * 100.0) << "%" << endl;
@@ -774,6 +1362,204 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+}
+
+void MyRSUApp::initializeRsuStaticContexts() {
+    rsu_static_contexts.clear();
+
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        return;
+    }
+
+    for (int idx = 0;; ++idx) {
+        cModule* rsuModule = networkModule->getSubmodule("rsu", idx);
+        if (!rsuModule) break;
+
+        RsuStaticContext ctx;
+        ctx.rsu_id = "RSU_" + std::to_string(idx);
+
+        try {
+            cModule* mob = rsuModule->getSubmodule("mobility");
+            if (mob && mob->hasPar("x") && mob->hasPar("y")) {
+                ctx.pos_x = mob->par("x").doubleValue();
+                ctx.pos_y = mob->par("y").doubleValue();
+            }
+        } catch (...) {
+            // Keep defaults if position is unavailable.
+        }
+
+        rsu_static_contexts.push_back(ctx);
+    }
+}
+
+void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage* msg,
+                                             const VehicleDigitalTwin& sourceTwin) {
+    const std::string source_id = msg->getVehicle_id();
+    const double now = simTime().dbl();
+
+    auto itLast = secondary_last_export_time.find(source_id);
+    if (itLast != secondary_last_export_time.end()) {
+        if ((now - itLast->second) < secondary_link_sample_interval) {
+            return;
+        }
+    }
+    secondary_last_export_time[source_id] = now;
+
+    insertSecondaryProgress(now);
+    insertSecondaryVehicleSample(msg);
+
+    if (redis_twin && use_redis) {
+        redis_twin->updateSecondaryProgress(secondary_run_id, now, secondary_link_sample_interval);
+        redis_twin->pushSecondaryVehicleSample(
+            secondary_run_id,
+            source_id,
+            now,
+            sourceTwin.pos_x,
+            sourceTwin.pos_y,
+            sourceTwin.speed,
+            sourceTwin.heading,
+            msg->getAcceleration(),
+            secondary_redis_max_series_len
+        );
+    }
+
+    // V2RSU link context samples for this source vehicle.
+    for (const auto& rsu : rsu_static_contexts) {
+        const double dx = sourceTwin.pos_x - rsu.pos_x;
+        const double dy = sourceTwin.pos_y - rsu.pos_y;
+        const double dist = std::sqrt(dx * dx + dy * dy);
+        const double rel_speed = std::fabs(sourceTwin.speed);
+
+        insertSecondaryLinkSample(
+            "V2RSU", source_id, rsu.rsu_id, now,
+            sourceTwin.pos_x, sourceTwin.pos_y,
+            rsu.pos_x, rsu.pos_y,
+            dist, rel_speed,
+            sourceTwin.heading, 0.0
+        );
+
+        if (redis_twin && use_redis) {
+            redis_twin->pushSecondaryV2RsuLinkSample(
+                secondary_run_id,
+                source_id,
+                rsu.rsu_id,
+                now,
+                sourceTwin.pos_x,
+                sourceTwin.pos_y,
+                rsu.pos_x,
+                rsu.pos_y,
+                dist,
+                rel_speed,
+                sourceTwin.heading,
+                secondary_redis_max_series_len
+            );
+        }
+    }
+
+    // V2V link context samples from source vehicle to all known peers.
+    for (const auto& kv : vehicle_twins) {
+        const std::string& peer_id = kv.first;
+        if (peer_id == source_id) continue;
+
+        const VehicleDigitalTwin& peer = kv.second;
+        const double dx = sourceTwin.pos_x - peer.pos_x;
+        const double dy = sourceTwin.pos_y - peer.pos_y;
+        const double dist = std::sqrt(dx * dx + dy * dy);
+        const double rel_speed = std::fabs(sourceTwin.speed - peer.speed);
+
+        insertSecondaryLinkSample(
+            "V2V", source_id, peer_id, now,
+            sourceTwin.pos_x, sourceTwin.pos_y,
+            peer.pos_x, peer.pos_y,
+            dist, rel_speed,
+            sourceTwin.heading, peer.heading
+        );
+
+        if (redis_twin && use_redis) {
+            redis_twin->pushSecondaryV2vLinkSample(
+                secondary_run_id,
+                source_id,
+                peer_id,
+                now,
+                sourceTwin.pos_x,
+                sourceTwin.pos_y,
+                peer.pos_x,
+                peer.pos_y,
+                dist,
+                rel_speed,
+                sourceTwin.heading,
+                peer.heading,
+                secondary_redis_max_series_len
+            );
+        }
+    }
+}
+
+void MyRSUApp::refreshVehicleCoverageRecord(const std::string& vehicle_id) {
+    auto twinIt = vehicle_twins.find(vehicle_id);
+    if (twinIt == vehicle_twins.end()) {
+        return;
+    }
+
+    const VehicleDigitalTwin& vt = twinIt->second;
+    Coord vehiclePos(vt.pos_x, vt.pos_y);
+
+    double selfDistance = vehiclePos.distance(curPosition);
+    double selfRssi = estimateRssiFromDistance(selfDistance);
+
+    LAddress::L2Type bestMac = myId;
+    std::string bestId = "RSU_" + std::to_string(rsu_id);
+    double bestRssi = selfRssi;
+
+    for (const auto& kv : neighbor_rsus) {
+        const RSUNeighborState& neighbor = kv.second;
+        if (!isNeighborStateFresh(neighbor)) {
+            continue;
+        }
+        Coord npos(neighbor.pos_x, neighbor.pos_y);
+        double rssi = estimateRssiFromDistance(vehiclePos.distance(npos));
+        if (rssi > bestRssi) {
+            bestRssi = rssi;
+            bestMac = neighbor.rsu_mac;
+            bestId = neighbor.rsu_id;
+        }
+    }
+
+    double coverageRadius = 300.0;
+    try {
+        coverageRadius = par("rsuCoverageRadius_m").doubleValue();
+    } catch (...) {
+        // keep default radius
+    }
+
+    VehicleCoverageRecord rec;
+    rec.vehicle_id = vehicle_id;
+    rec.best_rsu_id = bestId;
+    rec.best_rsu_mac = bestMac;
+    rec.best_rssi = bestRssi;
+    rec.self_rssi = selfRssi;
+    rec.in_self_range = (selfDistance <= coverageRadius) && (bestMac == myId);
+    rec.last_update_time = simTime().dbl();
+
+    vehicle_coverage_records[vehicle_id] = rec;
+}
+
+LAddress::L2Type MyRSUApp::getBestRsuByRssiForVehicle(const std::string& vehicle_id,
+                                                       std::string* bestRsuId,
+                                                       bool* inSelfRange) {
+    refreshVehicleCoverageRecord(vehicle_id);
+
+    auto it = vehicle_coverage_records.find(vehicle_id);
+    if (it == vehicle_coverage_records.end()) {
+        if (bestRsuId) *bestRsuId = "";
+        if (inSelfRange) *inSelfRange = false;
+        return 0;
+    }
+
+    if (bestRsuId) *bestRsuId = it->second.best_rsu_id;
+    if (inSelfRange) *inSelfRange = it->second.in_self_range;
+    return it->second.best_rsu_mac;
 }
 
 VehicleDigitalTwin& MyRSUApp::getOrCreateVehicleTwin(const std::string& vehicle_id) {
@@ -870,7 +1656,7 @@ void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event)
     EV_INFO << "📝 TASK RECORD [" << event << "]:" << endl;
     EV_INFO << "  ID: " << record.task_id << endl;
     EV_INFO << "  Vehicle: " << record.vehicle_id << endl;
-    EV_INFO << "  Size: " << (record.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Size: " << (record.mem_footprint_bytes / 1024.0) << " KB" << endl;
     EV_INFO << "  Cycles: " << (record.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  QoS: " << record.qos_value << endl;
     EV_INFO << "  Created: " << record.created_time << " s" << endl;
@@ -987,15 +1773,14 @@ void MyRSUApp::initDatabase() {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     EV_INFO << "Database: " << db_conninfo << endl;
     
-    // Add connection timeout to prevent hanging
-    // For URI format (postgresql://...), use ? for parameters, otherwise use space
+    // Add connection timeout - use proper format based on connection string type
     std::string conninfo_with_timeout;
-    if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-        // URI format - check if parameters already exist
+    if (db_conninfo.find("://") != std::string::npos) {
+        // URL-style connection string - use ? or & for parameters
         conninfo_with_timeout = db_conninfo + 
             (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
     } else {
-        // Keyword=value format
+        // Key=value style - append with space
         conninfo_with_timeout = db_conninfo + " connect_timeout=5";
     }
     db_conn = PQconnectdb(conninfo_with_timeout.c_str());
@@ -1027,15 +1812,14 @@ PGconn* MyRSUApp::getDBConnection() {
         if (db_conn) {
             PQfinish(db_conn);
         }
-        // Add connection timeout to prevent hanging
-        // For URI format (postgresql://...), use ? for parameters, otherwise use space
+        // Add connection timeout - use proper format based on connection string type
         std::string conninfo_with_timeout;
-        if (db_conninfo.find("postgresql://") == 0 || db_conninfo.find("postgres://") == 0) {
-            // URI format - check if parameters already exist
+        if (db_conninfo.find("://") != std::string::npos) {
+            // URL-style connection string - use ? or & for parameters
             conninfo_with_timeout = db_conninfo + 
                 (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
         } else {
-            // Keyword=value format
+            // Key=value style - append with space
             conninfo_with_timeout = db_conninfo + " connect_timeout=5";
         }
         db_conn = PQconnectdb(conninfo_with_timeout.c_str());
@@ -1065,7 +1849,7 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     payload_json << "{"
                  << "\"task_id\":\"" << msg->getTask_id() << "\","
                  << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
-                 << "\"task_size_bytes\":" << msg->getTask_size_bytes() << ","
+                 << "\"mem_footprint_bytes\":" << msg->getMem_footprint_bytes() << ","
                  << "\"cpu_cycles\":" << msg->getCpu_cycles() << ","
                  << "\"qos_value\":" << msg->getQos_value() << ","
                  << "\"created_time\":" << msg->getCreated_time() << ","
@@ -1084,7 +1868,7 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     std::string task_id = msg->getTask_id();
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
-    std::string task_size = std::to_string(msg->getTask_size_bytes());
+    std::string task_size = std::to_string(msg->getMem_footprint_bytes());
     std::string cpu_cycles = std::to_string(msg->getCpu_cycles());
     std::string qos = std::to_string(msg->getQos_value());
     std::string created = std::to_string(msg->getCreated_time());
@@ -1117,7 +1901,7 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
     paramValues[15] = priority_level.c_str();
     paramValues[16] = payload.c_str();
     
-    const char* query = "INSERT INTO task_metadata (task_id, vehicle_id, rsu_id, task_size_bytes, "
+    const char* query = "INSERT INTO task_metadata (task_id, vehicle_id, rsu_id, mem_footprint_bytes, "
                         "cpu_cycles, qos_value, created_time, deadline_seconds, received_time, "
                         "task_type_name, task_type_id, input_size_bytes, output_size_bytes, "
                         "is_offloadable, is_safety_critical, priority_level, payload) "
@@ -1271,7 +2055,7 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
                  << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
                  << "}";
     
-    const char* paramValues[24];
+    const char* paramValues[25];
     std::string vehicle_id = msg->getVehicle_id();
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string update_time = std::to_string(simTime().dbl());
@@ -1349,6 +2133,237 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
     PQclear(res);
 }
 
+void MyRSUApp::insertSecondaryProgress(double sim_time) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    const char* paramValues[4];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string sim_time_str = std::to_string(sim_time);
+    std::string interval_str = std::to_string(secondary_link_sample_interval);
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = sim_time_str.c_str();
+    paramValues[3] = interval_str.c_str();
+
+    const char* query = "INSERT INTO dt_secondary_progress (run_id, rsu_id, sim_time, sample_interval_s) "
+                        "VALUES ($1, $2, $3, $4)";
+
+    PGresult* res = PQexecParams(conn, query, 4, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryVehicleSample(const VehicleResourceStatusMessage* msg) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"speed\":" << msg->getSpeed() << ","
+                 << "\"heading\":" << msg->getHeading() << ","
+                 << "\"acceleration\":" << msg->getAcceleration()
+                 << "}";
+
+    const char* paramValues[10];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string vehicle_id = msg->getVehicle_id();
+    std::string sim_time = std::to_string(simTime().dbl());
+    std::string pos_x = std::to_string(msg->getPos_x());
+    std::string pos_y = std::to_string(msg->getPos_y());
+    std::string speed = std::to_string(msg->getSpeed());
+    std::string heading = std::to_string(msg->getHeading());
+    std::string acceleration = std::to_string(msg->getAcceleration());
+    std::string payload = payload_json.str();
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = vehicle_id.c_str();
+    paramValues[3] = sim_time.c_str();
+    paramValues[4] = pos_x.c_str();
+    paramValues[5] = pos_y.c_str();
+    paramValues[6] = speed.c_str();
+    paramValues[7] = heading.c_str();
+    paramValues[8] = acceleration.c_str();
+    paramValues[9] = payload.c_str();
+
+    const char* query = "INSERT INTO dt_vehicle_state_samples (run_id, rsu_id, vehicle_id, sim_time, "
+                        "pos_x, pos_y, speed, heading, acceleration, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryLinkSample(const std::string& link_type,
+                                         const std::string& tx_entity_id,
+                                         const std::string& rx_entity_id,
+                                         double sim_time,
+                                         double tx_pos_x,
+                                         double tx_pos_y,
+                                         double rx_pos_x,
+                                         double rx_pos_y,
+                                         double distance_m,
+                                         double relative_speed,
+                                         double tx_heading,
+                                         double rx_heading) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::ostringstream payload_json;
+    payload_json << "{"
+                 << "\"distance_m\":" << distance_m << ","
+                 << "\"relative_speed\":" << relative_speed << ","
+                 << "\"tx_heading\":" << tx_heading << ","
+                 << "\"rx_heading\":" << rx_heading
+                 << "}";
+
+    const char* paramValues[15];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string sim_time_str = std::to_string(sim_time);
+    std::string tx_x = std::to_string(tx_pos_x);
+    std::string tx_y = std::to_string(tx_pos_y);
+    std::string rx_x = std::to_string(rx_pos_x);
+    std::string rx_y = std::to_string(rx_pos_y);
+    std::string dist = std::to_string(distance_m);
+    std::string rel = std::to_string(relative_speed);
+    std::string tx_h = std::to_string(tx_heading);
+    std::string rx_h = std::to_string(rx_heading);
+    std::string payload = payload_json.str();
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = link_type.c_str();
+    paramValues[3] = tx_entity_id.c_str();
+    paramValues[4] = rx_entity_id.c_str();
+    paramValues[5] = sim_time_str.c_str();
+    paramValues[6] = tx_x.c_str();
+    paramValues[7] = tx_y.c_str();
+    paramValues[8] = rx_x.c_str();
+    paramValues[9] = rx_y.c_str();
+    paramValues[10] = dist.c_str();
+    paramValues[11] = rel.c_str();
+    paramValues[12] = tx_h.c_str();
+    paramValues[13] = rx_h.c_str();
+    paramValues[14] = payload.c_str();
+
+    const char* query = "INSERT INTO dt_link_context_samples (run_id, rsu_id, link_type, tx_entity_id, rx_entity_id, "
+                        "sim_time, tx_pos_x, tx_pos_y, rx_pos_x, rx_pos_y, distance_m, relative_speed, tx_heading, rx_heading, payload) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 15, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryQCycle(uint64_t cycle_id,
+                                     double sim_time,
+                                     int trajectory_count,
+                                     int candidate_count,
+                                     int entry_count) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    const char* paramValues[11];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string cycle_id_str = std::to_string(cycle_id);
+    std::string sim_time_str = std::to_string(sim_time);
+    std::string horizon_s = std::to_string(secondary_prediction_horizon_s);
+    std::string step_s = std::to_string(secondary_prediction_step_s);
+    std::string sinr_threshold = std::to_string(secondary_sinr_threshold_db);
+    std::string traj_count = std::to_string(trajectory_count);
+    std::string cand_count = std::to_string(candidate_count);
+    std::string ent_count = std::to_string(entry_count);
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = cycle_id_str.c_str();
+    paramValues[3] = sim_time_str.c_str();
+    paramValues[4] = horizon_s.c_str();
+    paramValues[5] = step_s.c_str();
+    paramValues[6] = sinr_threshold.c_str();
+    paramValues[7] = traj_count.c_str();
+    paramValues[8] = cand_count.c_str();
+    paramValues[9] = ent_count.c_str();
+    paramValues[10] = ent_count.c_str();
+
+    const char* query =
+        "INSERT INTO dt_secondary_q_cycles "
+        "(run_id, rsu_id, cycle_id, sim_time, prediction_horizon_s, prediction_step_s, sinr_threshold_db, trajectory_count, candidate_count, entry_count) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+        "ON CONFLICT (run_id, rsu_id, cycle_id) DO UPDATE SET "
+        "sim_time = EXCLUDED.sim_time, "
+        "prediction_horizon_s = EXCLUDED.prediction_horizon_s, "
+        "prediction_step_s = EXCLUDED.prediction_step_s, "
+        "sinr_threshold_db = EXCLUDED.sinr_threshold_db, "
+        "trajectory_count = EXCLUDED.trajectory_count, "
+        "candidate_count = EXCLUDED.candidate_count, "
+        "entry_count = EXCLUDED.entry_count";
+
+    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryQEntry(uint64_t cycle_id,
+                                     const std::string& link_type,
+                                     const std::string& tx_entity_id,
+                                     const std::string& rx_entity_id,
+                                     int step_index,
+                                     double predicted_time,
+                                     double tx_pos_x,
+                                     double tx_pos_y,
+                                     double rx_pos_x,
+                                     double rx_pos_y,
+                                     double distance_m,
+                                     double sinr_db) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    const char* paramValues[13];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string cycle_id_str = std::to_string(cycle_id);
+    std::string step_str = std::to_string(step_index);
+    std::string pred_time = std::to_string(predicted_time);
+    std::string tx_x = std::to_string(tx_pos_x);
+    std::string tx_y = std::to_string(tx_pos_y);
+    std::string rx_x = std::to_string(rx_pos_x);
+    std::string rx_y = std::to_string(rx_pos_y);
+    std::string dist = std::to_string(distance_m);
+    std::string sinr = std::to_string(sinr_db);
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = cycle_id_str.c_str();
+    paramValues[3] = link_type.c_str();
+    paramValues[4] = tx_entity_id.c_str();
+    paramValues[5] = rx_entity_id.c_str();
+    paramValues[6] = step_str.c_str();
+    paramValues[7] = pred_time.c_str();
+    paramValues[8] = tx_x.c_str();
+    paramValues[9] = tx_y.c_str();
+    paramValues[10] = rx_x.c_str();
+    paramValues[11] = rx_y.c_str();
+    paramValues[12] = dist.c_str();
+
+    const char* query =
+        "INSERT INTO dt_secondary_q_entries "
+        "(run_id, rsu_id, cycle_id, link_type, tx_entity_id, rx_entity_id, step_index, predicted_time, tx_pos_x, tx_pos_y, rx_pos_x, rx_pos_y, distance_m, sinr_db) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)";
+
+    const char* extendedParamValues[14] = {
+        paramValues[0], paramValues[1], paramValues[2], paramValues[3], paramValues[4], paramValues[5],
+        paramValues[6], paramValues[7], paramValues[8], paramValues[9], paramValues[10], paramValues[11],
+        paramValues[12], sinr.c_str()
+    };
+
+    PGresult* res = PQexecParams(conn, query, 14, nullptr, extendedParamValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
 // ============================================================================
 // OFFLOADING DATABASE INSERTIONS
 // ============================================================================
@@ -1370,7 +2385,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
                  << "\"task_id\":\"" << request.task_id << "\","
                  << "\"vehicle_id\":\"" << request.vehicle_id << "\","
                  << "\"local_decision\":\"" << request.local_decision << "\","
-                 << "\"task_size_bytes\":" << request.task_size_bytes << ","
+                 << "\"mem_footprint_bytes\":" << request.mem_footprint_bytes << ","
                  << "\"cpu_cycles\":" << request.cpu_cycles << ","
                  << "\"deadline_seconds\":" << request.deadline_seconds << ","
                  << "\"qos_value\":" << request.qos_value
@@ -1381,7 +2396,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     std::string vehicle_id = request.vehicle_id;
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string request_time = std::to_string(request.request_time);
-    std::string task_size = std::to_string(request.task_size_bytes);
+    std::string task_size = std::to_string(request.mem_footprint_bytes);
     std::string cpu_cycles = std::to_string(request.cpu_cycles);
     std::string deadline = std::to_string(request.deadline_seconds);
     std::string qos = std::to_string(request.qos_value);
@@ -1416,7 +2431,7 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     paramValues[17] = payload.c_str();
     
     const char* query = "INSERT INTO offloading_requests (task_id, vehicle_id, rsu_id, request_time, "
-                        "task_size_bytes, cpu_cycles, deadline_seconds, qos_value, "
+                        "mem_footprint_bytes, cpu_cycles, deadline_seconds, qos_value, "
                         "vehicle_cpu_available, vehicle_cpu_utilization, vehicle_mem_available, "
                         "vehicle_queue_length, vehicle_processing_count, "
                         "pos_x, pos_y, speed, local_decision, payload) "
@@ -1538,7 +2553,7 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
                                              const std::string& decision_type, const std::string& processor_id,
                                              double request_time, double decision_time, double start_time,
                                              double completion_time, bool success, bool completed_on_time,
-                                             double deadline_seconds, uint64_t task_size_bytes, uint64_t cpu_cycles,
+                                             double deadline_seconds, uint64_t mem_footprint_bytes, uint64_t cpu_cycles,
                                              double qos_value, const std::string& result_data, const std::string& failure_reason) {
     PGconn* conn = getDBConnection();
     if (!conn) {
@@ -1574,7 +2589,7 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
     std::string succ = success ? "true" : "false";
     std::string comp_on_time = completed_on_time ? "true" : "false";
     std::string deadline = std::to_string(deadline_seconds);
-    std::string tsize = std::to_string(task_size_bytes);
+    std::string tsize = std::to_string(mem_footprint_bytes);
     std::string cycles = std::to_string(cpu_cycles);
     std::string qos = std::to_string(qos_value);
     std::string result = result_data;
@@ -1602,7 +2617,7 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
     const char* query = "INSERT INTO offloaded_task_completions (task_id, vehicle_id, rsu_id, "
                         "decision_type, processor_id, request_time, decision_time, start_time, completion_time, "
                         "decision_latency, processing_latency, total_latency, success, completed_on_time, "
-                        "deadline_seconds, task_size_bytes, cpu_cycles, qos_value, result_data) "
+                        "deadline_seconds, mem_footprint_bytes, cpu_cycles, qos_value, result_data) "
                         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::boolean, $14::boolean, "
                         "$15, $16, $17, $18, $19)";
     
@@ -1650,9 +2665,20 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     // Store vehicle MAC address for later decision sending
     vehicle_macs[vehicle_id] = request.vehicle_mac;
     EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
+
+    // Update Digital Twin with current resource state so selectBestServiceVehicle()
+    // has fresh CPU/queue data for this vehicle
+    VehicleDigitalTwin& req_twin = getOrCreateVehicleTwin(vehicle_id);
+    req_twin.cpu_available             = msg->getLocal_cpu_available_ghz();
+    req_twin.cpu_utilization           = msg->getLocal_cpu_utilization();
+    req_twin.current_queue_length      = msg->getLocal_queue_length();
+    req_twin.current_processing_count  = msg->getLocal_processing_count();
+    req_twin.pos_x = msg->getPos_x();
+    req_twin.pos_y = msg->getPos_y();
+    req_twin.last_update_time = simTime().dbl();
     
     // Task characteristics
-    request.task_size_bytes = msg->getTask_size_bytes();
+    request.mem_footprint_bytes = msg->getMem_footprint_bytes();
     request.cpu_cycles = msg->getCpu_cycles();
     request.deadline_seconds = msg->getDeadline_seconds();
     request.qos_value = msg->getQos_value();
@@ -1678,7 +2704,7 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Vehicle ID: " << vehicle_id << endl;
-    EV_INFO << "  Task Size: " << (request.task_size_bytes / 1024.0) << " KB" << endl;
+    EV_INFO << "  Task Size: " << (request.mem_footprint_bytes / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles: " << (request.cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Deadline: " << request.deadline_seconds << " s" << endl;
     EV_INFO << "  QoS: " << request.qos_value << endl;
@@ -1693,11 +2719,18 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     if (decision) {
         // Store decision in Digital Twin database
         insertOffloadingDecision(task_id, decision);
-        
+        insertLifecycleEvent(task_id, "OFFLOADING_DECISION_IN_PROCESS",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\","
+            "\"confidence\":" + std::to_string(decision->getConfidence_score()) + "}");
+
         // Send decision back to vehicle
         populateWSM(decision, request.vehicle_mac);
         sendDown(decision);
-        
+        insertLifecycleEvent(task_id, "OFFLOADING_DECISION_SENDING",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
+
         EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
         std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id 
                   << ": " << decision->getDecision_type() << std::endl;
@@ -1721,54 +2754,114 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     double confidence = 0.0;
     double estimated_completion_time = 0.0;
     std::string target_service_vehicle_id;
+    std::string remote_processor_rsu_id;
     LAddress::L2Type target_service_vehicle_mac = 0;
+    LAddress::L2Type remote_processor_rsu_mac = 0;
     
     if (!mlModelEnabled) {
-        // PLACEHOLDER: Simple rule-based decision
-        EV_INFO << "  Using placeholder rule-based decision (ML model disabled)" << endl;
-        
-        // Rule 1: If vehicle queue is long, offload to RSU
-        if (request.vehicle_queue_length > 5) {
-            decisionType = "RSU";
-            reason = "Vehicle queue overloaded (>" + std::to_string((int)request.vehicle_queue_length) + " tasks)";
-            confidence = 0.8;
-            estimated_completion_time = request.deadline_seconds * 0.6;  // Estimate 60% of deadline
-        }
-        // Rule 2: If vehicle CPU utilization is high, try service vehicle
-        else if (request.vehicle_cpu_utilization > 0.8 && serviceVehicleSelectionEnabled) {
+        // ----------------------------------------------------------------
+        // PLACEHOLDER: Round-robin rule-based decision
+        // (Will be replaced by the DRL algorithm)
+        //
+        // Routing: every 3rd offloadable request → SERVICE_VEHICLE (V2V),
+        //          others → RSU or LOCAL. Exercises all 3 execution paths
+        //          so each can be independently verified before DRL lands.
+        // ----------------------------------------------------------------
+        EV_INFO << "  Using placeholder round-robin decision (DRL not yet integrated)" << endl;
+
+        static int sv_dispatch_counter = 0;
+        bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
+
+        if (try_sv) {
             std::string sv_id = selectBestServiceVehicle(request);
-            if (!sv_id.empty()) {
+            if (!sv_id.empty() && vehicle_macs.count(sv_id)) {
                 decisionType = "SERVICE_VEHICLE";
-                target_service_vehicle_id = sv_id;
-                // TODO: Get actual MAC address from Digital Twin
-                target_service_vehicle_mac = 0;  // Placeholder
-                reason = "Vehicle CPU high (" + std::to_string((int)(request.vehicle_cpu_utilization*100)) + "%), service vehicle available";
+                target_service_vehicle_id  = sv_id;
+                target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
+
+                double sv_tau_total = request.deadline_seconds * 0.7;
+                auto svIt = vehicle_twins.find(sv_id);
+                if (svIt != vehicle_twins.end()) {
+                    const VehicleDigitalTwin& sv = svIt->second;
+                    const double tv_sv_dist = std::sqrt(
+                        (request.pos_x - sv.pos_x) * (request.pos_x - sv.pos_x) +
+                        (request.pos_y - sv.pos_y) * (request.pos_y - sv.pos_y)
+                    );
+                    const double tv_sv_sinr_db = estimateSinrDbFromDistance(tv_sv_dist);
+                    const double tv_sv_rate_bps = LinkRateModel::effectiveRateBps(
+                        tv_sv_sinr_db,
+                        offload_link_bandwidth_hz,
+                        offload_rate_efficiency,
+                        offload_rate_cap_bps
+                    );
+                    const double tau_up = LinkRateModel::transferDelaySeconds(
+                        static_cast<double>(request.mem_footprint_bytes),
+                        tv_sv_rate_bps
+                    );
+                    const double tau_down = LinkRateModel::transferDelaySeconds(
+                        static_cast<double>(request.mem_footprint_bytes) * std::max(0.01, offload_response_ratio),
+                        tv_sv_rate_bps
+                    );
+                    const double sv_cpu_hz = std::max(1.0, sv.cpu_available * 1e9);
+                    const double tau_comp = static_cast<double>(request.cpu_cycles) / sv_cpu_hz;
+                    sv_tau_total = tau_up + tau_comp + tau_down;
+                }
+
+                reason = "Round-robin placeholder: delegating to service vehicle " + sv_id
+                         + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
+                             vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
                 confidence = 0.75;
-                estimated_completion_time = request.deadline_seconds * 0.7;
+                estimated_completion_time = sv_tau_total;
+                std::cout << "SV_DECISION: Task " << request.task_id
+                          << " routed to service vehicle " << sv_id
+                          << " MAC=" << target_service_vehicle_mac << std::endl;
             } else {
-                // No service vehicle available, use RSU
-                decisionType = "RSU";
-                reason = "Vehicle CPU high but no service vehicle available";
-                confidence = 0.7;
-                estimated_completion_time = request.deadline_seconds * 0.6;
+                try_sv = false;  // no suitable SV → fall through to RSU/LOCAL
             }
         }
-        // Rule 3: Vehicle can handle it locally
-        // BUT: if vehicle explicitly requested offloading, never send back as LOCAL
-        else if (request.vehicle_cpu_available > 0.5 &&
-                 request.local_decision != "OFFLOAD_TO_RSU" &&
-                 request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
-            decisionType = "LOCAL";
-            reason = "Vehicle has sufficient resources (CPU available: " + std::to_string(request.vehicle_cpu_available) + " GHz)";
-            confidence = 0.85;
-            estimated_completion_time = request.deadline_seconds * 0.5;
-        }
-        // Rule 4: Borderline case - default to RSU
-        else {
-            decisionType = "RSU";
-            reason = "Borderline case, using RSU for reliability";
-            confidence = 0.65;
-            estimated_completion_time = request.deadline_seconds * 0.7;
+
+        if (!try_sv) {
+            // Use CPU utilization ratio (0-1) not raw GHz — vehicles have 3-7 GHz
+            // so a raw 0.5 GHz threshold is always satisfied and everything became LOCAL.
+            // Now: utilization < 0.3 (under 30% load) AND vehicle didn't request RSU → LOCAL.
+            // Otherwise → RSU processes the task.
+            if (request.vehicle_cpu_utilization < 0.3 &&
+                request.local_decision != "OFFLOAD_TO_RSU" &&
+                request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
+                decisionType = "LOCAL";
+                reason = "Vehicle has low utilization ("
+                         + std::to_string((int)(request.vehicle_cpu_utilization * 100))
+                         + "%), execute locally";
+                confidence = 0.85;
+                estimated_completion_time = request.deadline_seconds * 0.5;
+            } else {
+                decisionType = "RSU";
+                reason = "RSU offloading (round-robin placeholder)";
+                confidence = 0.8;
+
+                const double tv_rsu_dist = std::sqrt(
+                    (request.pos_x - curPosition.x) * (request.pos_x - curPosition.x) +
+                    (request.pos_y - curPosition.y) * (request.pos_y - curPosition.y)
+                );
+                const double tv_rsu_sinr_db = estimateSinrDbFromDistance(tv_rsu_dist);
+                const double tv_rsu_rate_bps = LinkRateModel::effectiveRateBps(
+                    tv_rsu_sinr_db,
+                    offload_link_bandwidth_hz,
+                    offload_rate_efficiency,
+                    offload_rate_cap_bps
+                );
+                const double tau_up = LinkRateModel::transferDelaySeconds(
+                    static_cast<double>(request.mem_footprint_bytes),
+                    tv_rsu_rate_bps
+                );
+                const double tau_down = LinkRateModel::transferDelaySeconds(
+                    static_cast<double>(request.mem_footprint_bytes) * std::max(0.01, offload_response_ratio),
+                    tv_rsu_rate_bps
+                );
+                const double rsu_cpu_hz = std::max(1.0, rsu_cpu_available * 1e9);
+                const double tau_comp = static_cast<double>(request.cpu_cycles) / rsu_cpu_hz;
+                estimated_completion_time = tau_up + tau_comp + tau_down;
+            }
         }
     } else {
         // TODO: ML MODEL INFERENCE HERE
@@ -1800,24 +2893,131 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     if (decisionType == "SERVICE_VEHICLE") {
         decision->setTarget_service_vehicle_id(target_service_vehicle_id.c_str());
         decision->setTarget_service_vehicle_mac(target_service_vehicle_mac);
+
+        // Service-vehicle case routing policy:
+        // - If TV<->SV direct RSSI is strong: direct V2V.
+        // - Otherwise use RSU infrastructure with anchor RSU nearest to SV.
+        auto svIt = vehicle_twins.find(target_service_vehicle_id);
+        if (svIt != vehicle_twins.end()) {
+            Coord tvPos(request.pos_x, request.pos_y);
+            Coord svPos(svIt->second.pos_x, svIt->second.pos_y);
+            double tvSvRssi = estimateRssiFromDistance(tvPos.distance(svPos));
+            const double DIRECT_SV_RSSI_THRESHOLD = -72.0;
+
+            if (tvSvRssi < DIRECT_SV_RSSI_THRESHOLD) {
+                LAddress::L2Type bestAnchorMac = myId;
+                std::string bestAnchorId = "RSU_" + std::to_string(rsu_id);
+                double bestRssiToSv = estimateRssiFromDistance(svPos.distance(curPosition));
+
+                for (const auto& kv : neighbor_rsus) {
+                    const RSUNeighborState& neighbor = kv.second;
+                    if (!isNeighborStateFresh(neighbor)) {
+                        continue;
+                    }
+                    Coord npos(neighbor.pos_x, neighbor.pos_y);
+                    double rssiToSv = estimateRssiFromDistance(svPos.distance(npos));
+                    if (rssiToSv > bestRssiToSv) {
+                        bestRssiToSv = rssiToSv;
+                        bestAnchorMac = neighbor.rsu_mac;
+                        bestAnchorId = neighbor.rsu_id;
+                    }
+                }
+
+                decision->setRedirect_target_rsu_id(bestAnchorId.c_str());
+                decision->setRedirect_target_rsu_mac(bestAnchorMac);
+                decision->setNext_candidate_index(0);
+                reason += "; infra SV route via " + bestAnchorId;
+                decision->setDecision_reason(reason.c_str());
+            }
+        }
+    }
+
+    // Phase 3: keep ingress stable but allow ingress RSU to forward execution to a healthier neighbor.
+    if (decisionType == "RSU") {
+        double localLoad = (rsu_max_concurrent > 0)
+            ? static_cast<double>(rsu_processing_count) / static_cast<double>(rsu_max_concurrent)
+            : 1.0;
+
+        if (localLoad >= 0.75) {
+            double bestLoad = std::numeric_limits<double>::max();
+            std::string bestNeighborId;
+            LAddress::L2Type bestNeighborMac = 0;
+
+            for (const auto& kv : neighbor_rsus) {
+                const RSUNeighborState& neighbor = kv.second;
+                if (!isNeighborStateFresh(neighbor)) {
+                    continue;
+                }
+                if (neighbor.is_overloaded) {
+                    continue;
+                }
+                if (neighbor.load_factor >= bestLoad) {
+                    continue;
+                }
+                bestLoad = neighbor.load_factor;
+                bestNeighborId = neighbor.rsu_id;
+                bestNeighborMac = neighbor.rsu_mac;
+            }
+
+            if (bestNeighborMac != 0) {
+                remote_processor_rsu_id = bestNeighborId;
+                remote_processor_rsu_mac = bestNeighborMac;
+                reason += "; remote processor " + remote_processor_rsu_id
+                       + " selected (ingress load=" + std::to_string(localLoad) + ")";
+            }
+        }
+    }
+
+    if (remote_processor_rsu_mac != 0) {
+        decision->setRedirect_target_rsu_id(remote_processor_rsu_id.c_str());
+        decision->setRedirect_target_rsu_mac(remote_processor_rsu_mac);
+        decision->setNext_candidate_index(0);
+        decision->setDecision_reason(reason.c_str());
     }
     
     return decision;
 }
 
 std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) {
-    EV_INFO << "  Searching for best service vehicle..." << endl;
-    
-    // Query Digital Twin for available service vehicles
-    // TODO: Implement proper service vehicle selection based on:
-    // - CPU/memory availability
-    // - Distance from task vehicle
-    // - Current workload
-    // - Historical reliability
-    
-    // PLACEHOLDER: Return empty (no service vehicle available)
-    EV_INFO << "    No service vehicles available (placeholder)" << endl;
-    return "";
+    EV_INFO << "  Searching for best service vehicle (twin-based selection)..." << endl;
+
+    // Temporary placeholder selection:
+    //   Pick the least-queue-loaded vehicle whose MAC is known and whose Digital
+    //   Twin was updated within the last 3 simulation seconds.
+    //   Excludes the requesting vehicle.
+    //   DRL will replace this whole function later.
+    std::string best_id;
+    uint32_t    best_queue = UINT32_MAX;
+    double      best_cpu   = -1.0;
+    const double STALE_THRESHOLD = 3.0;  // seconds
+
+    for (const auto& kv : vehicle_macs) {
+        const std::string& candidate_id = kv.first;
+        if (candidate_id == request.vehicle_id) continue;  // never offload back to requester
+
+        auto twin_it = vehicle_twins.find(candidate_id);
+        if (twin_it == vehicle_twins.end()) continue;  // no state known
+        const VehicleDigitalTwin& twin = twin_it->second;
+
+        if (simTime().dbl() - twin.last_update_time > STALE_THRESHOLD) continue;  // stale
+
+        if (twin.current_queue_length < best_queue ||
+            (twin.current_queue_length == best_queue && twin.cpu_available > best_cpu)) {
+            best_queue = twin.current_queue_length;
+            best_cpu   = twin.cpu_available;
+            best_id    = candidate_id;
+        }
+    }
+
+    if (best_id.empty()) {
+        EV_INFO << "    No suitable service vehicle found" << endl;
+    } else {
+        EV_INFO << "    Selected service vehicle " << best_id
+                << " (queue=" << best_queue << ", cpu_avail=" << best_cpu << " GHz)" << endl;
+        std::cout << "SV_SELECTED: best=" << best_id
+                  << " queue=" << best_queue << " cpu=" << best_cpu << std::endl;
+    }
+    return best_id;
 }
 
 void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
@@ -1834,17 +3034,60 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
     
     EV_INFO << "  Task ID: " << task_id << endl;
     EV_INFO << "  Origin Vehicle: " << vehicle_id << endl;
-    EV_INFO << "  Task Size: " << (msg->getTask_size_bytes() / 1024.0) << " KB" << endl;
+    EV_INFO << "  Task Size: " << (msg->getMem_footprint_bytes() / 1024.0) << " KB" << endl;
     EV_INFO << "  CPU Cycles Required: " << (msg->getCpu_cycles() / 1e9) << " G" << endl;
+
+    // Service-vehicle path routing:
+    // TV -> ingress RSU -> optional anchor RSU -> SV
+    LAddress::L2Type serviceVehicleMac = 0;
+    LAddress::L2Type anchorRsuMac = 0;
+    if (parseServiceRouteHint(msg->getTask_input_data(), serviceVehicleMac, anchorRsuMac)) {
+        if (anchorRsuMac != 0 && anchorRsuMac != myId) {
+            EV_INFO << "↪ Forwarding service task " << task_id << " to anchor RSU MAC " << anchorRsuMac << endl;
+            populateWSM(msg, anchorRsuMac);
+            sendDown(msg);
+            insertLifecycleEvent(task_id, "SV_TASK_FORWARD_TO_ANCHOR_RSU",
+                "RSU_" + std::to_string(rsu_id), "RSU",
+                std::string("{\"anchor_rsu_mac\":") + std::to_string(anchorRsuMac) + "}");
+            return;
+        }
+
+        if (serviceVehicleMac != 0) {
+            EV_INFO << "↪ Relaying service task " << task_id << " to SV MAC " << serviceVehicleMac << endl;
+            populateWSM(msg, serviceVehicleMac);
+            sendDown(msg);
+            insertLifecycleEvent(task_id, "SV_TASK_RELAY_TO_VEHICLE",
+                "RSU_" + std::to_string(rsu_id), "SERVICE_VEHICLE",
+                std::string("{\"service_vehicle_mac\":") + std::to_string(serviceVehicleMac) + "}");
+            return;
+        }
+    }
+
+    LAddress::L2Type ingressRsuMac = myId;
+    LAddress::L2Type processorRsuMac = 0;
+    if (!parseRouteHint(msg->getTask_input_data(), ingressRsuMac, processorRsuMac)) {
+        ingressRsuMac = myId;
+        processorRsuMac = 0;
+    }
+
+    if (processorRsuMac != 0 && processorRsuMac != myId) {
+        EV_INFO << "↪ Forwarding task " << task_id << " to processor RSU MAC " << processorRsuMac << endl;
+        populateWSM(msg, processorRsuMac);
+        sendDown(msg);
+        insertLifecycleEvent(task_id, "RSU_TASK_FORWARDED",
+            "RSU_" + std::to_string(rsu_id), "RSU_FORWARD",
+            std::string("{\"processor_rsu_mac\":") + std::to_string(processorRsuMac) + "}");
+        return;
+    }
     
     // Process task on RSU edge server
-    processTaskOnRSU(task_id, msg);
+    processTaskOnRSU(task_id, msg, ingressRsuMac);
     
     // msg will be deleted in processTaskOnRSU or here
     delete msg;
 }
 
-void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet) {
+void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac) {
     std::string vehicle_id  = packet->getOrigin_vehicle_id();
     LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
     uint64_t cpu_cycles     = packet->getCpu_cycles();
@@ -1857,45 +3100,63 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
                 << ") — rejecting task " << task_id << endl;
         std::cout << "RSU_OVERLOAD: Task " << task_id << " rejected (RSU at capacity "
                   << rsu_processing_count << "/" << rsu_max_concurrent << ")" << std::endl;
-        // Send failure back so vehicle can fall back to local execution
-        sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, false, 0.0);
-        delete packet;
+        sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, ingress_rsu_mac, false, 0.0);
         return;
     }
 
     // ======================================================================
-    // PHYSICS-BASED EXECUTION TIME
-    // exec_time = cpu_cycles / RSU_speed_Hz + base_overhead
-    // RSU has edgeCPU_GHz total throughput; tasks run concurrently on
-    // multi-core hardware, so each task gets a fair share of total capacity.
-    // concurrent_share = edgeCPU_GHz / max(1, rsu_processing_count + 1)
-    // This causes heavier load to slow all in-flight tasks equally.
+    // PHYSICS-BASED EXECUTION TIME WITH FAIR CPU SHARING
+    //
+    // Model: RSU has edgeCPU_GHz total throughput spread equally across all
+    // concurrent tasks (processor sharing / GPS model).
+    //
+    //   cpu_per_task = edgeCPU_GHz / N_concurrent
+    //   exec_time    = cpu_cycles / cpu_per_task + overhead_once
+    //
+    // When N changes (new task arrives or task completes), ALL in-flight tasks
+    // are rescheduled so each gets its updated fair share — this correctly
+    // slows tasks when load increases and speeds them up when load drops.
+    // The overhead (processingDelay_ms) models OS/memory latency and is only
+    // applied once at first admission, not at subsequent CPU reallocations.
     // ======================================================================
-    int concurrent = rsu_processing_count + 1;  // +1 for this new task
+    rsu_processing_count++;
+    rsu_tasks_received++;
+    int concurrent = rsu_processing_count;  // includes this new task
     double cpu_per_task_Hz = (edgeCPU_GHz * 1e9) / static_cast<double>(concurrent);
+
+    // Step 1: reschedule all EXISTING in-flight tasks at the new (lower) per-task share
+    reallocateRSUTasks(cpu_per_task_Hz);
+
+    // Step 2: schedule THIS new task
+    // overhead applied once here; reallocateRSUTasks() will never re-add it
     double exec_time = static_cast<double>(cpu_cycles) / cpu_per_task_Hz
                        + processingDelay_ms / 1000.0;
 
-    // Resource tracking
-    rsu_processing_count++;
-    rsu_tasks_received++;
-
-    PendingRSUTask pending;
-    pending.vehicle_id   = vehicle_id;
-    pending.vehicle_mac  = vehicle_mac;
-    pending.cpu_cycles   = cpu_cycles;
-    pending.exec_time_s  = exec_time;
-    pending.scheduled_at = simTime().dbl();
-    rsuPendingTasks[task_id] = pending;
-
-    // Schedule a self-message to fire when processing completes
     cMessage* completeMsg = new cMessage("rsuTaskComplete");
     completeMsg->setContextPointer(new std::string(task_id));
     scheduleAt(simTime() + exec_time, completeMsg);
 
+    PendingRSUTask pending;
+    pending.vehicle_id            = vehicle_id;
+    pending.vehicle_mac           = vehicle_mac;
+    pending.ingress_rsu_mac       = ingress_rsu_mac;
+    pending.cpu_cycles            = cpu_cycles;
+    pending.cycles_remaining      = static_cast<double>(cpu_cycles);
+    pending.exec_time_s           = exec_time;
+    pending.scheduled_at          = simTime().dbl();
+    pending.last_reschedule_time  = simTime().dbl();
+    pending.cpu_allocated_hz      = cpu_per_task_Hz;
+    pending.completion_event      = completeMsg;
+    rsuPendingTasks[task_id]      = pending;
+    insertLifecycleEvent(task_id, "PROCESSING_STARTED",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"exec_time_s\":" + std::to_string(exec_time) + ","
+        "\"concurrent\":" + std::to_string(concurrent) + ","
+        "\"cpu_per_task_ghz\":" + std::to_string(cpu_per_task_Hz/1e9) + "}");
+
     EV_INFO << "⚙️ RSU: Task " << task_id << " accepted for edge processing" << endl;
-    EV_INFO << "  Edge CPU: " << edgeCPU_GHz << " GHz total / " << concurrent
-            << " concurrent task(s) = " << (cpu_per_task_Hz/1e9) << " GHz per task" << endl;
+    EV_INFO << "  Edge CPU: " << edgeCPU_GHz << " GHz / " << concurrent
+            << " task(s) = " << (cpu_per_task_Hz/1e9) << " GHz per task" << endl;
     EV_INFO << "  Exec time: " << (cpu_cycles/1e9) << "G cycles / "
             << (cpu_per_task_Hz/1e9) << " GHz + " << processingDelay_ms
             << "ms overhead = " << exec_time << "s" << endl;
@@ -1903,34 +3164,195 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
               << "s (" << concurrent << " concurrent tasks)" << std::endl;
 }
 
+// ============================================================================
+// RSU FAIR-SHARE CPU REALLOCATION
+// Called whenever N_concurrent changes (task arrival or completion).
+// Burns down cycles already executed for each in-flight task, then
+// reschedules each completion event at the new equal CPU share.
+// ============================================================================
+void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
+    if (rsuPendingTasks.empty()) return;
+
+    double now = simTime().dbl();
+    for (auto& kv : rsuPendingTasks) {
+        PendingRSUTask& t = kv.second;
+
+        // Burn down cycles consumed since this task was last rescheduled
+        double elapsed       = now - t.last_reschedule_time;
+        double cycles_burned = t.cpu_allocated_hz * elapsed;
+        t.cycles_remaining   = std::max(0.0, t.cycles_remaining - cycles_burned);
+        t.last_reschedule_time = now;
+        t.cpu_allocated_hz   = new_cpu_per_task_Hz;
+
+        // Reschedule completion event — no overhead added here (already paid at admission)
+        if (t.completion_event && t.completion_event->isScheduled()) {
+            cancelEvent(t.completion_event);
+        }
+        double new_exec = (new_cpu_per_task_Hz > 0.0)
+                          ? t.cycles_remaining / new_cpu_per_task_Hz
+                          : 0.0;
+        t.exec_time_s = new_exec;
+        scheduleAt(simTime() + new_exec, t.completion_event);
+
+        EV_INFO << "  RSU realloc: task " << kv.first
+                << " → " << (new_cpu_per_task_Hz/1e9) << " GHz, "
+                << (t.cycles_remaining/1e9) << "G cycles left, "
+                << "completes in " << new_exec << "s" << endl;
+    }
+}
+
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
-                                        LAddress::L2Type vehicle_mac, bool success,
+                                        LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
+                                        bool success,
                                         double processing_time) {
     EV_INFO << "📤 RSU: Sending task result to vehicle " << vehicle_id << endl;
+
+    insertLifecycleEvent(task_id, "PROCESSING_COMPLETED",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"success\":" + std::string(success ? "true" : "false") + ","
+        "\"processing_time_s\":" + std::to_string(processing_time) + "}");
     
     // Create result message
     veins::TaskResultMessage* result = new veins::TaskResultMessage();
     result->setTask_id(task_id.c_str());
-    result->setProcessor_id("RSU");
+    result->setOrigin_vehicle_id(vehicle_id.c_str());
+    result->setProcessor_id(("RSU_" + std::to_string(rsu_id)).c_str());
     result->setSuccess(success);
     result->setProcessing_time(processing_time);
     result->setCompletion_time(simTime().dbl());
     
     if (success) {
-        result->setTask_output_data("RSU_PROCESSED_DATA");
+        result->setTask_output_data("RSU_EDGE_RESULT");
         EV_INFO << "  Result: SUCCESS (" << processing_time << "s)" << endl;
     } else {
         result->setFailure_reason("Processing failed");
         EV_INFO << "  Result: FAILED" << endl;
     }
-    
-    // Send to vehicle
-    populateWSM(result, vehicle_mac);
-    sendDown(result);
-    
+
+    std::string bestRsuId;
+    bool inSelfRange = false;
+    LAddress::L2Type bestRsuMac = getBestRsuByRssiForVehicle(vehicle_id, &bestRsuId, &inSelfRange);
+
+    // Fallback when RSSI ranking is unavailable (e.g., no twin yet).
+    if (bestRsuMac == 0 && ingress_rsu_mac != 0) {
+        bestRsuMac = ingress_rsu_mac;
+        bestRsuId = "INGRESS";
+    }
+
+    if (bestRsuMac == 0) {
+        bestRsuMac = myId;
+        bestRsuId = "RSU_" + std::to_string(rsu_id);
+    }
+
+    if (bestRsuMac != myId) {
+        std::string relayedPayload = std::string(kRelayPayloadPrefix) + result->getTask_output_data();
+        result->setTask_output_data(relayedPayload.c_str());
+        populateWSM(result, bestRsuMac);
+        sendDown(result);
+        insertLifecycleEvent(task_id, "TASK_RESULTS_SENDING",
+            "RSU_" + std::to_string(rsu_id), bestRsuId,
+            "{\"success\":" + std::string(success ? "true" : "false") + ","
+            "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+    } else {
+        populateWSM(result, vehicle_mac);
+        sendDown(result);
+        insertLifecycleEvent(task_id, "TASK_RESULTS_SENDING",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            "{\"success\":" + std::string(success ? "true" : "false") + ","
+            "\"processing_time_s\":" + std::to_string(processing_time) + "}");
+    }
+
     std::cout << "RSU_RESULT: Sent task result for " << task_id
               << " to vehicle " << vehicle_id
               << " (processing_time=" << processing_time << "s)" << std::endl;
+}
+
+void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
+    const std::string task_id = msg->getTask_id();
+    const std::string vehicle_id = msg->getOrigin_vehicle_id();
+
+    auto macIt = vehicle_macs.find(vehicle_id);
+    if (macIt == vehicle_macs.end()) {
+        EV_WARN << "RSU relay received task result but vehicle MAC is unknown for " << vehicle_id << endl;
+        delete msg;
+        return;
+    }
+
+    std::string cleanedPayload = stripRelayPrefix(msg->getTask_output_data());
+    msg->setTask_output_data(cleanedPayload.c_str());
+    populateWSM(msg, macIt->second);
+    sendDown(msg);
+    insertLifecycleEvent(task_id, "RSU_RESULT_RELAY_TO_VEHICLE",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"relay\":true}");
+}
+
+void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress::L2Type targetRsuMac) {
+    const std::string task_id = msg->getTask_id();
+    const std::string vehicle_id = msg->getOrigin_vehicle_id();
+
+    // Keep relay metadata for intermediate RSU hops and strip it only at final egress RSU.
+    LAddress::L2Type parsedTarget = 0;
+    std::string cleanPayload;
+    if (parseServiceResultRelayHint(msg->getTask_output_data(), parsedTarget, cleanPayload)) {
+        if (targetRsuMac == 0) {
+            targetRsuMac = parsedTarget;
+        }
+    }
+
+    if (targetRsuMac != 0 && targetRsuMac != myId) {
+        populateWSM(msg, targetRsuMac);
+        sendDown(msg);
+        insertLifecycleEvent(task_id, "SV_RESULT_FORWARD_TO_TARGET_RSU",
+            "RSU_" + std::to_string(rsu_id), "RSU",
+            std::string("{\"target_rsu_mac\":") + std::to_string(targetRsuMac) + "}");
+        return;
+    }
+
+    auto macIt = vehicle_macs.find(vehicle_id);
+    if (macIt == vehicle_macs.end()) {
+        EV_WARN << "SV result relay: vehicle MAC unknown for " << vehicle_id << endl;
+        delete msg;
+        return;
+    }
+
+    if (!cleanPayload.empty()) {
+        msg->setTask_output_data(cleanPayload.c_str());
+    }
+
+    populateWSM(msg, macIt->second);
+    sendDown(msg);
+    insertLifecycleEvent(task_id, "SV_RESULT_DELIVERED_TO_VEHICLE",
+        "RSU_" + std::to_string(rsu_id), vehicle_id,
+        "{\"relay\":true}");
+}
+
+void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
+                                     const std::string& source, const std::string& target,
+                                     const std::string& details) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    std::string rsu_id_str   = std::to_string(rsu_id);
+    std::string event_time_s = std::to_string(simTime().dbl());
+
+    const char* paramValues[7] = {
+        task_id.c_str(), event_type.c_str(), event_time_s.c_str(),
+        source.c_str(),  target.c_str(),     rsu_id_str.c_str(), details.c_str()
+    };
+    const char* query =
+        "INSERT INTO task_offloading_events "
+        "(task_id, event_type, event_time, source_entity_id, target_entity_id, rsu_id, event_details) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)";
+
+    PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
+    } else {
+        std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
+                  << " (" << source << "->" << target << ")" << std::endl;
+    }
+    PQclear(res);
 }
 
 void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
@@ -1967,13 +3389,13 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         // Manual JSON parsing (simple approach)
         double request_time = 0.0, decision_time = 0.0, start_time = 0.0, completion_time = 0.0;
         double qos_value = 0.0;
-        uint64_t task_size_bytes = 0, cpu_cycles = 0;
+        uint64_t mem_footprint_bytes = 0, cpu_cycles = 0;
         bool on_time = false;
         std::string decision_type, processor_id, result;
-        
+
         // Extract values from JSON string (simple parsing)
         size_t pos = 0;
-        
+
         // Helper lambda to extract numeric value
         auto extractDouble = [&result_data](const std::string& key) -> double {
             size_t keyPos = result_data.find("\"" + key + "\":");
@@ -1983,7 +3405,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
             return std::stod(valueStr);
         };
-        
+
         auto extractUint64 = [&result_data](const std::string& key) -> uint64_t {
             size_t keyPos = result_data.find("\"" + key + "\":");
             if (keyPos == std::string::npos) return 0;
@@ -1992,7 +3414,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             std::string valueStr = result_data.substr(valueStart, valueEnd - valueStart);
             return std::stoull(valueStr);
         };
-        
+
         auto extractString = [&result_data](const std::string& key) -> std::string {
             size_t keyPos = result_data.find("\"" + key + "\":");
             if (keyPos == std::string::npos) return "";
@@ -2000,7 +3422,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             size_t valueEnd = result_data.find("\"", valueStart);
             return result_data.substr(valueStart, valueEnd - valueStart);
         };
-        
+
         auto extractBool = [&result_data](const std::string& key) -> bool {
             size_t keyPos = result_data.find("\"" + key + "\":");
             if (keyPos == std::string::npos) return false;
@@ -2008,14 +3430,14 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             std::string valueStr = result_data.substr(valueStart, 4);
             return (valueStr.find("true") != std::string::npos);
         };
-        
+
         // Extract all timing values
         request_time = extractDouble("request_time");
         decision_time = extractDouble("decision_time");
         start_time = extractDouble("start_time");
         completion_time = extractDouble("completion_time");
         qos_value = extractDouble("qos_value");
-        task_size_bytes = extractUint64("task_size_bytes");
+        mem_footprint_bytes = extractUint64("mem_footprint_bytes");
         cpu_cycles = extractUint64("cpu_cycles");
         on_time = extractBool("on_time");
         decision_type = extractString("decision_type");
@@ -2041,25 +3463,28 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         double total_latency = completion_time - request_time;
         double deadline_seconds = total_latency * 1.5;  // Estimate deadline (could be extracted from original request)
         
-        // Insert into database
-        insertOffloadedTaskCompletion(
-            task_id,
-            origin_vehicle_id,
-            decision_type,
-            processor_id,
-            request_time,
-            decision_time,
-            start_time,
-            completion_time,
-            success,
-            on_time,
-            deadline_seconds,
-            task_size_bytes,
-            cpu_cycles,
-            qos_value,
-            result_data,
-            msg->getFailure_reason()
-        );
+        // Insert into offloaded_task_completions only for actual offloads (RSU / SERVICE_VEHICLE).
+        // LOCAL completions are already tracked in task_events via insertTaskCompletion.
+        if (decision_type != "LOCAL") {
+            insertOffloadedTaskCompletion(
+                task_id,
+                origin_vehicle_id,
+                decision_type,
+                processor_id,
+                request_time,
+                decision_time,
+                start_time,
+                completion_time,
+                success,
+                on_time,
+                deadline_seconds,
+                mem_footprint_bytes,
+                cpu_cycles,
+                qos_value,
+                result_data,
+                msg->getFailure_reason()
+            );
+        }
         
         std::cout << "COMPLETION_DB: Task " << task_id << " completion data inserted - "
                   << "Total latency: " << total_latency << "s, Success: " << success 
@@ -2313,8 +3738,169 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
 }
 
 
+void MyRSUApp::broadcastRSUStatus() {
+    EV_DEBUG << "📡 RSU broadcasting status to neighbors..." << endl;
+    
+    // Create RSU status broadcast message
+    RSUStatusBroadcastMessage* msg = new RSUStatusBroadcastMessage();
+    
+    // RSU identification
+    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
+    msg->setRsu_id(rsu_id_str.c_str());
+    msg->setRsu_mac(myId);
+    msg->setBroadcast_time(simTime().dbl());
+    
+    // Resource state
+    msg->setQueue_length(rsu_queue_length);
+    msg->setProcessing_count(rsu_processing_count);
+    msg->setMax_concurrent_tasks(rsu_max_concurrent);
+    msg->setCpu_available_ghz(rsu_cpu_available);
+    msg->setCpu_total_ghz(rsu_cpu_total);
+    msg->setMemory_available_gb(rsu_memory_available);
+    msg->setMemory_total_gb(rsu_memory_total);
+    
+    // Coverage information - include only vehicles currently owned by self range
+    // and limit list size to avoid huge packets.
+    std::vector<std::string> vehicle_list;
+    int count = 0;
+    for (const auto& pair : vehicle_twins) {
+        if (count >= max_vehicles_in_broadcast) break;
+        refreshVehicleCoverageRecord(pair.first);
+        auto covIt = vehicle_coverage_records.find(pair.first);
+        if (covIt != vehicle_coverage_records.end() && covIt->second.in_self_range) {
+            vehicle_list.push_back(pair.first);
+            count++;
+        }
+    }
+    
+    msg->setVehicle_ids_in_coverageArraySize(vehicle_list.size());
+    for (size_t i = 0; i < vehicle_list.size(); i++) {
+        msg->setVehicle_ids_in_coverage(i, vehicle_list[i].c_str());
+    }
+    msg->setVehicle_count(vehicle_twins.size());
+    
+    // Position (from mobility or parameters)
+    cModule* mobilityModule = getParentModule()->getSubmodule("mobility");
+    if (mobilityModule) {
+        msg->setPos_x(mobilityModule->par("x").doubleValue());
+        msg->setPos_y(mobilityModule->par("y").doubleValue());
+    } else {
+        msg->setPos_x(0.0);
+        msg->setPos_y(0.0);
+    }
+    
+    // Broadcast to all RSU neighbors (wireless for now, will be wired backhaul later)
+    populateWSM(msg);  // Broadcast
+    sendDown(msg);
+    
+    EV_DEBUG << "  Broadcast: queue=" << rsu_queue_length 
+             << ", processing=" << rsu_processing_count
+             << ", cpu_avail=" << rsu_cpu_available << " GHz"
+             << ", vehicles=" << vehicle_twins.size() << endl;
+    
+    std::cout << "RSU_BROADCAST: " << rsu_id_str << " status - Q:" << rsu_queue_length 
+              << " P:" << rsu_processing_count << " CPU:" << rsu_cpu_available << "GHz" << std::endl;
+}
+
+void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
+    std::string neighbor_rsu_id = msg->getRsu_id();
+    
+    // Don't process our own broadcasts
+    std::string our_rsu_id = "RSU_" + std::to_string(rsu_id);
+    if (neighbor_rsu_id == our_rsu_id) {
+        delete msg;
+        return;
+    }
+    
+    EV_DEBUG << "📥 Processing status from neighbor " << neighbor_rsu_id << endl;
+    
+    // Build neighbor state structure
+    RSUNeighborState state;
+    state.rsu_id = neighbor_rsu_id;
+    state.rsu_mac = msg->getRsu_mac();
+    state.last_update_time = simTime().dbl();
+    
+    state.queue_length = msg->getQueue_length();
+    state.processing_count = msg->getProcessing_count();
+    state.max_concurrent_tasks = msg->getMax_concurrent_tasks();
+    state.cpu_available_ghz = msg->getCpu_available_ghz();
+    state.cpu_total_ghz = msg->getCpu_total_ghz();
+    state.memory_available_gb = msg->getMemory_available_gb();
+    state.memory_total_gb = msg->getMemory_total_gb();
+    
+    state.vehicle_count = msg->getVehicle_count();
+    state.vehicle_ids_in_coverage.clear();
+    for (size_t i = 0; i < msg->getVehicle_ids_in_coverageArraySize(); i++) {
+        state.vehicle_ids_in_coverage.push_back(msg->getVehicle_ids_in_coverage(i));
+    }
+    
+    state.pos_x = msg->getPos_x();
+    state.pos_y = msg->getPos_y();
+    
+    // Compute derived metrics
+    double cpu_util = (state.cpu_total_ghz > 0) ? 
+                      ((state.cpu_total_ghz - state.cpu_available_ghz) / state.cpu_total_ghz) : 0.0;
+    state.load_factor = cpu_util;
+    
+    // Simple overload heuristic: queue near max OR processing at max OR CPU < 10%
+    state.is_overloaded = (state.queue_length >= (state.max_concurrent_tasks * 0.8)) ||
+                          (state.processing_count >= state.max_concurrent_tasks) ||
+                          (state.cpu_available_ghz < (state.cpu_total_ghz * 0.1));
+    
+    // Update or insert neighbor state
+    updateNeighborState(state);
+
+    // Refresh ownership records now that neighbor position/coverage set has changed.
+    for (const auto& v : state.vehicle_ids_in_coverage) {
+        refreshVehicleCoverageRecord(v);
+    }
+    
+    EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
+             << "Q=" << state.queue_length << "/" << state.max_concurrent_tasks
+             << ", CPU=" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << " GHz"
+             << ", overloaded=" << (state.is_overloaded ? "YES" : "NO") << endl;
+    
+    std::cout << "RSU_NEIGHBOR_UPDATE: " << neighbor_rsu_id 
+              << " Q:" << state.queue_length 
+              << " P:" << state.processing_count
+              << " CPU:" << state.cpu_available_ghz << "GHz"
+              << " overload:" << (state.is_overloaded ? "YES" : "NO") << std::endl;
+    
+    delete msg;
+}
+
+void MyRSUApp::updateNeighborState(const RSUNeighborState& state) {
+    neighbor_rsus[state.rsu_id] = state;
+    
+    EV_DEBUG << "✓ Updated neighbor cache for " << state.rsu_id 
+             << " (total neighbors: " << neighbor_rsus.size() << ")" << endl;
+}
+
+bool MyRSUApp::isNeighborStateFresh(const RSUNeighborState& state) {
+    double age = simTime().dbl() - state.last_update_time;
+    return age <= neighbor_state_ttl;
+}
+
+void MyRSUApp::cleanupStaleNeighborStates() {
+    auto it = neighbor_rsus.begin();
+    int removed = 0;
+    
+    while (it != neighbor_rsus.end()) {
+        if (!isNeighborStateFresh(it->second)) {
+            EV_DEBUG << "Removing stale neighbor state for " << it->first << endl;
+            it = neighbor_rsus.erase(it);
+            removed++;
+        } else {
+            ++it;
+        }
+    }
+    
+    if (removed > 0) {
+        EV_DEBUG << "Cleaned up " << removed << " stale neighbor state(s)" << endl;
+    }
+}
+
+
+
 }  // namespace complex_network
-
-
-
 
