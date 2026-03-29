@@ -402,23 +402,26 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
                                         const std::string& agent_name,
                                         const std::string& status,
                                         double total_latency,
-                                        double energy_joules)
+                                        double energy_joules,
+                                        const std::string& fail_reason)
 {
     if (!redis_ctx || !is_connected) return;
 
     std::string key = "task:" + task_id + ":results";
 
-    // Write the three per-agent fields atomically
+    // Write four per-agent fields atomically: status, latency, energy, fail_reason
     std::string status_field  = agent_name + "_status";
     std::string latency_field = agent_name + "_latency";
     std::string energy_field  = agent_name + "_energy";
+    std::string reason_field  = agent_name + "_reason";
 
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
-        "HSET %s %s %s %s %f %s %f",
+        "HSET %s %s %s %s %f %s %f %s %s",
         key.c_str(),
         status_field.c_str(),  status.c_str(),
         latency_field.c_str(), total_latency,
-        energy_field.c_str(),  energy_joules
+        energy_field.c_str(),  energy_joules,
+        reason_field.c_str(),  fail_reason.c_str()
     );
 
     if (reply) {
@@ -433,8 +436,8 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
     if (reply) freeReplyObject(reply);
 
     EV_INFO << "✓ writeTaskResults: task=" << task_id << " agent=" << agent_name
-            << " status=" << status << " latency=" << total_latency
-            << "s energy=" << energy_joules << "J" << std::endl;
+            << " status=" << status << " reason=" << fail_reason
+            << " latency=" << total_latency << "s energy=" << energy_joules << "J" << std::endl;
 }
 
 void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,

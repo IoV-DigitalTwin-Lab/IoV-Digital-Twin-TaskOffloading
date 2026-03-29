@@ -89,11 +89,14 @@ public:
     std::map<std::string, std::string> getMultiAgentDecisions(const std::string& task_id);
 
     // Write per-agent execution result to task:{task_id}:results (read by DRL for reward calculation)
+    // fail_reason values: "NONE" | "DEADLINE_MISSED" | "RSU_QUEUE_FULL" |
+    //                     "SV_MAC_UNKNOWN" | "NEIGHBOR_RSU_UNKNOWN" | "UNKNOWN_TARGET" | "EXECUTION_FAILED"
     void writeTaskResults(const std::string& task_id,
                           const std::string& agent_name,
                           const std::string& status,
                           double total_latency,
-                          double energy_joules);
+                          double energy_joules,
+                          const std::string& fail_reason = "NONE");
 
     // RSU Resource State — cpu_utilization written directly so DRL does not need cpu_total
     void updateRSUResources(const std::string& rsu_id,

@@ -440,10 +440,12 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     double deadline = task_records.at(orig_id).deadline_seconds;
                     status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
                 }
+                std::string fail_reason = (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
-                redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j);
+                redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason);
                 std::cout << "AGENT_RESULT: orig=" << orig_id << " agent=" << agent_name
-                          << " status=" << status << " latency=" << total_latency << "s" << std::endl;
+                          << " status=" << status << " reason=" << fail_reason
+                          << " latency=" << total_latency << "s" << std::endl;
 
                 rsuPendingTasks.erase(it);
                 if (rsu_processing_count > 0) {
@@ -2988,10 +2990,13 @@ void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
                 status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
             }
         }
+        std::string fail_reason_relay = !success ? "EXECUTION_FAILED"
+                                       : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
-        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j);
+        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason_relay);
         std::cout << "AGENT_RELAY_RESULT: orig=" << orig_id << " agent=" << agent_name
-                  << " status=" << status << " latency=" << total_latency << "s" << std::endl;
+                  << " status=" << status << " reason=" << fail_reason_relay
+                  << " latency=" << total_latency << "s" << std::endl;
         delete msg;
         return;
     }
@@ -3127,10 +3132,13 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
         }
         // Approximate energy for service vehicle execution (vehicle CPU ~1GHz, κ_v=5e-27)
         double energy_j = success ? 5e-27 * 1e9 * 1e9 : 0.0; // placeholder
+        std::string fail_reason_sv = !success ? "EXECUTION_FAILED"
+                                    : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
-        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j);
+        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason_sv);
         std::cout << "AGENT_SV_RESULT: orig=" << orig_id << " agent=" << agent_name
-                  << " status=" << status << " latency=" << total_latency << "s" << std::endl;
+                  << " status=" << status << " reason=" << fail_reason_sv
+                  << " latency=" << total_latency << "s" << std::endl;
         delete msg;
         return;
     }
@@ -3731,7 +3739,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
             // ── Target is THIS RSU: truly execute in the local queue ──────
             if (rsu_processing_count >= rsu_max_concurrent) {
                 redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
-                                             record.deadline_seconds, 0.0);
+                                             record.deadline_seconds, 0.0, "RSU_QUEUE_FULL");
                 std::cout << "AGENT_SUBTASK: " << sub_id << " REJECTED (RSU full)" << std::endl;
                 return;
             }
@@ -3774,7 +3782,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
             auto it = neighbor_rsus.find(target_id);
             if (it == neighbor_rsus.end()) {
                 redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
-                                             record.deadline_seconds, 0.0);
+                                             record.deadline_seconds, 0.0, "NEIGHBOR_RSU_UNKNOWN");
                 std::cout << "AGENT_SUBTASK: " << sub_id
                           << " FAILED (neighbor " << target_id << " unknown)" << std::endl;
                 return;
@@ -3808,7 +3816,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
         auto macIt = vehicle_macs.find(target_id);
         if (macIt == vehicle_macs.end()) {
             redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
-                                         record.deadline_seconds, 0.0);
+                                         record.deadline_seconds, 0.0, "SV_MAC_UNKNOWN");
             std::cout << "AGENT_SUBTASK: " << sub_id
                       << " FAILED (SV " << target_id << " MAC unknown)" << std::endl;
             return;
@@ -3839,7 +3847,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
     } else {
         // Unknown target type → write FAILED immediately
         redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
-                                     record.deadline_seconds, 0.0);
+                                     record.deadline_seconds, 0.0, "UNKNOWN_TARGET");
         std::cout << "AGENT_SUBTASK: " << sub_id
                   << " FAILED (unknown target_type=" << target_type << ")" << std::endl;
     }
