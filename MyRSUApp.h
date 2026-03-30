@@ -271,6 +271,13 @@ private:
     std::map<std::string, VehicleDigitalTwin> vehicle_twins;  // vehicle_id -> twin
     std::map<std::string, TaskRecord> task_records;           // task_id -> record
     std::map<std::string, VehicleCoverageRecord> vehicle_coverage_records; // vehicle_id -> coverage owner
+
+    // Pending SV agent subtasks: sub_id (orig::agent) → simtime of dispatch.
+    // Written when an agent subtask is sent to a service vehicle; erased when the result
+    // arrives.  The checkDecisionMsg timer writes FAILED to Redis for any subtask that
+    // has been pending longer than sv_subtask_timeout_s (SV unreachable / message dropped).
+    std::map<std::string, simtime_t> sv_subtask_pending_;
+    static constexpr double sv_subtask_timeout_s = 5.0;
     
     // Digital Twin Management Methods
     void handleTaskMetadata(TaskMetadataMessage* msg);

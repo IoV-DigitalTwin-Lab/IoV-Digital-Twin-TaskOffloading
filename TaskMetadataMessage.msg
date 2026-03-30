@@ -78,8 +78,9 @@ packet TaskFailureMessage extends BaseFrame1609_4 {
 // Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
 //
 packet VehicleResourceStatusMessage extends BaseFrame1609_4 {
+    LAddress::L2Type senderAddress = -1; // Sender's MAC address (set by vehicle via populateWSM)
     string vehicle_id;           // Vehicle identifier
-    
+
     // Vehicle State
     double pos_x;                // Position X
     double pos_y;                // Position Y
@@ -172,6 +173,11 @@ packet OffloadingDecisionMessage extends BaseFrame1609_4 {
     uint64_t redirect_target_rsu_mac;    // MAC address of RSU to try next
     string redirect_target_rsu_id;       // ID of RSU to try next
     int next_candidate_index;            // Index in candidate list to try next
+
+    // Multi-agent baseline decisions (TV dispatches sub-tasks for each agent)
+    // Encoded as CSV: "agent:TYPE:target_id:target_mac,..."
+    // Example: "random:SERVICE_VEHICLE:42:318,greedy_comp:RSU:RSU_0:0,..."
+    string agentDecisions;
 }
 
 //

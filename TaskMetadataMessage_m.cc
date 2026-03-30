@@ -2179,6 +2179,7 @@ VehicleResourceStatusMessage& VehicleResourceStatusMessage::operator=(const Vehi
 
 void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& other)
 {
+    this->senderAddress = other.senderAddress;
     this->vehicle_id = other.vehicle_id;
     this->pos_x = other.pos_x;
     this->pos_y = other.pos_y;
@@ -2206,6 +2207,7 @@ void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& othe
 void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
 {
     ::veins::BaseFrame1609_4::parsimPack(b);
+    doParsimPacking(b,this->senderAddress);
     doParsimPacking(b,this->vehicle_id);
     doParsimPacking(b,this->pos_x);
     doParsimPacking(b,this->pos_y);
@@ -2233,6 +2235,7 @@ void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
 void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
 {
     ::veins::BaseFrame1609_4::parsimUnpack(b);
+    doParsimUnpacking(b,this->senderAddress);
     doParsimUnpacking(b,this->vehicle_id);
     doParsimUnpacking(b,this->pos_x);
     doParsimUnpacking(b,this->pos_y);
@@ -2475,6 +2478,16 @@ double VehicleResourceStatusMessage::getDeadline_miss_ratio() const
 void VehicleResourceStatusMessage::setDeadline_miss_ratio(double deadline_miss_ratio)
 {
     this->deadline_miss_ratio = deadline_miss_ratio;
+}
+
+const ::veins::LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void VehicleResourceStatusMessage::setSenderAddress(::veins::LAddress::L2Type senderAddress)
+{
+    this->senderAddress = senderAddress;
 }
 
 class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
@@ -3847,6 +3860,7 @@ void OffloadingDecisionMessage::copy(const OffloadingDecisionMessage& other)
     this->redirect_target_rsu_mac = other.redirect_target_rsu_mac;
     this->redirect_target_rsu_id = other.redirect_target_rsu_id;
     this->next_candidate_index = other.next_candidate_index;
+    this->agentDecisions = other.agentDecisions;
 }
 
 void OffloadingDecisionMessage::parsimPack(omnetpp::cCommBuffer *b) const
@@ -3865,6 +3879,7 @@ void OffloadingDecisionMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->redirect_target_rsu_mac);
     doParsimPacking(b,this->redirect_target_rsu_id);
     doParsimPacking(b,this->next_candidate_index);
+    doParsimPacking(b,this->agentDecisions);
 }
 
 void OffloadingDecisionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -3883,6 +3898,7 @@ void OffloadingDecisionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->redirect_target_rsu_mac);
     doParsimUnpacking(b,this->redirect_target_rsu_id);
     doParsimUnpacking(b,this->next_candidate_index);
+    doParsimUnpacking(b,this->agentDecisions);
 }
 
 const LAddress::L2Type& OffloadingDecisionMessage::getSenderAddress() const
@@ -4013,6 +4029,16 @@ int OffloadingDecisionMessage::getNext_candidate_index() const
 void OffloadingDecisionMessage::setNext_candidate_index(int next_candidate_index)
 {
     this->next_candidate_index = next_candidate_index;
+}
+
+const char * OffloadingDecisionMessage::getAgentDecisions() const
+{
+    return this->agentDecisions.c_str();
+}
+
+void OffloadingDecisionMessage::setAgentDecisions(const char * agentDecisions)
+{
+    this->agentDecisions = agentDecisions;
 }
 
 class OffloadingDecisionMessageDescriptor : public omnetpp::cClassDescriptor

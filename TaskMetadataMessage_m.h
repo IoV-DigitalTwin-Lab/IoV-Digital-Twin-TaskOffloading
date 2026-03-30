@@ -387,6 +387,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
 class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 {
   protected:
+    ::veins::LAddress::L2Type senderAddress = -1;
     ::omnetpp::opp_string vehicle_id;
     double pos_x = 0;
     double pos_y = 0;
@@ -490,6 +491,9 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 
     virtual double getDeadline_miss_ratio() const;
     virtual void setDeadline_miss_ratio(double deadline_miss_ratio);
+
+    virtual const ::veins::LAddress::L2Type& getSenderAddress() const;
+    virtual void setSenderAddress(::veins::LAddress::L2Type senderAddress);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatusMessage& obj) {obj.parsimPack(b);}
@@ -695,6 +699,7 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
     uint64_t redirect_target_rsu_mac = 0;
     ::omnetpp::opp_string redirect_target_rsu_id;
     int next_candidate_index = 0;
+    ::omnetpp::opp_string agentDecisions;
 
   private:
     void copy(const OffloadingDecisionMessage& other);
@@ -750,6 +755,9 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
 
     virtual int getNext_candidate_index() const;
     virtual void setNext_candidate_index(int next_candidate_index);
+
+    virtual const char * getAgentDecisions() const;
+    virtual void setAgentDecisions(const char * agentDecisions);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMessage& obj) {obj.parsimPack(b);}
