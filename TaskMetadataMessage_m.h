@@ -29,6 +29,7 @@ class OffloadingDecisionMessage;
 class TaskOffloadPacket;
 class TaskResultMessage;
 class TaskOffloadingEvent;
+class VehicleDetailInBroadcast;
 class RSUStatusBroadcastMessage;
 
 }  // namespace veins
@@ -386,6 +387,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
 class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 {
   protected:
+    ::veins::LAddress::L2Type senderAddress = -1;
     ::omnetpp::opp_string vehicle_id;
     double pos_x = 0;
     double pos_y = 0;
@@ -489,6 +491,9 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 
     virtual double getDeadline_miss_ratio() const;
     virtual void setDeadline_miss_ratio(double deadline_miss_ratio);
+
+    virtual const ::veins::LAddress::L2Type& getSenderAddress() const;
+    virtual void setSenderAddress(::veins::LAddress::L2Type senderAddress);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatusMessage& obj) {obj.parsimPack(b);}
@@ -694,6 +699,7 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
     uint64_t redirect_target_rsu_mac = 0;
     ::omnetpp::opp_string redirect_target_rsu_id;
     int next_candidate_index = 0;
+    ::omnetpp::opp_string agentDecisions;
 
   private:
     void copy(const OffloadingDecisionMessage& other);
@@ -749,6 +755,9 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
 
     virtual int getNext_candidate_index() const;
     virtual void setNext_candidate_index(int next_candidate_index);
+
+    virtual const char * getAgentDecisions() const;
+    virtual void setAgentDecisions(const char * agentDecisions);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMessage& obj) {obj.parsimPack(b);}
@@ -928,6 +937,10 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {
  *     double event_time;                   // When event occurred
  *     string event_details;                // JSON with additional details
  * }
+ * 
+ * //
+ * // RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)
+ * //
  * </pre>
  */
 class TaskOffloadingEvent : public ::veins::BaseFrame1609_4
@@ -978,11 +991,86 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:227</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:229</tt> by opp_msgtool.
  * <pre>
- * //
- * // RSU Status Broadcast Message - RSU → RSU neighbors (periodic state sharing)
- * //
+ * // Vehicle detail information included in RSU broadcasts
+ * class VehicleDetailInBroadcast
+ * {
+ *     string vehicle_id;                   // Vehicle identifier
+ *     double pos_x;                        // Vehicle position X coordinate (meters)
+ *     double pos_y;                        // Vehicle position Y coordinate (meters)
+ *     double speed;                        // Vehicle speed (m/s)
+ *     double heading;                      // Vehicle heading (degrees)
+ *     double cpu_available;                // Available CPU (MIPS)
+ *     double cpu_utilization;              // CPU utilization percentage (0-100)
+ *     double mem_available;                // Available memory (MB)
+ *     double mem_utilization;              // Memory utilization percentage (0-100)
+ *     int queue_length;                    // Number of tasks in vehicle's queue
+ * }
+ * </pre>
+ */
+class VehicleDetailInBroadcast
+{
+  protected:
+    ::omnetpp::opp_string vehicle_id;
+    double pos_x = 0;
+    double pos_y = 0;
+    double speed = 0;
+    double heading = 0;
+    double cpu_available = 0;
+    double cpu_utilization = 0;
+    double mem_available = 0;
+    double mem_utilization = 0;
+    int queue_length = 0;
+
+  private:
+    void copy(const VehicleDetailInBroadcast& other);
+
+  protected:
+    bool operator==(const VehicleDetailInBroadcast&) = delete;
+
+  public:
+    VehicleDetailInBroadcast();
+    VehicleDetailInBroadcast(const VehicleDetailInBroadcast& other);
+    virtual ~VehicleDetailInBroadcast();
+    VehicleDetailInBroadcast& operator=(const VehicleDetailInBroadcast& other);
+    virtual void parsimPack(omnetpp::cCommBuffer *b) const;
+    virtual void parsimUnpack(omnetpp::cCommBuffer *b);
+
+    virtual const char * getVehicle_id() const;
+    virtual void setVehicle_id(const char * vehicle_id);
+
+    virtual double getPos_x() const;
+    virtual void setPos_x(double pos_x);
+
+    virtual double getPos_y() const;
+    virtual void setPos_y(double pos_y);
+
+    virtual double getSpeed() const;
+    virtual void setSpeed(double speed);
+
+    virtual double getHeading() const;
+    virtual void setHeading(double heading);
+
+    virtual double getCpu_available() const;
+    virtual void setCpu_available(double cpu_available);
+
+    virtual double getCpu_utilization() const;
+    virtual void setCpu_utilization(double cpu_utilization);
+
+    virtual double getMem_available() const;
+    virtual void setMem_available(double mem_available);
+
+    virtual double getMem_utilization() const;
+    virtual void setMem_utilization(double mem_utilization);
+
+    virtual int getQueue_length() const;
+    virtual void setQueue_length(int queue_length);
+};
+
+/**
+ * Class generated from <tt>TaskMetadataMessage.msg:242</tt> by opp_msgtool.
+ * <pre>
  * packet RSUStatusBroadcastMessage extends BaseFrame1609_4
  * {
  *     string rsu_id;                       // RSU identifier (e.g., "RSU_0")
@@ -998,8 +1086,8 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj)
  *     double memory_available_gb;          // Available memory (GB)
  *     double memory_total_gb;              // Total memory (GB)
  * 
- *     // Coverage Information
- *     string vehicle_ids_in_coverage[];    // Vehicle IDs currently in this RSU's coverage
+ *     // Coverage Information with Vehicle Details
+ *     VehicleDetailInBroadcast vehicle_details_in_coverage[];  // Full vehicle state in coverage
  *     int vehicle_count;                   // Number of vehicles in coverage
  * 
  *     // Network Topology
@@ -1021,8 +1109,8 @@ class RSUStatusBroadcastMessage : public ::veins::BaseFrame1609_4
     double cpu_total_ghz = 0;
     double memory_available_gb = 0;
     double memory_total_gb = 0;
-    ::omnetpp::opp_string *vehicle_ids_in_coverage = nullptr;
-    size_t vehicle_ids_in_coverage_arraysize = 0;
+    VehicleDetailInBroadcast *vehicle_details_in_coverage = nullptr;
+    size_t vehicle_details_in_coverage_arraysize = 0;
     int vehicle_count = 0;
     double pos_x = 0;
     double pos_y = 0;
@@ -1073,14 +1161,15 @@ class RSUStatusBroadcastMessage : public ::veins::BaseFrame1609_4
     virtual double getMemory_total_gb() const;
     virtual void setMemory_total_gb(double memory_total_gb);
 
-    virtual void setVehicle_ids_in_coverageArraySize(size_t size);
-    virtual size_t getVehicle_ids_in_coverageArraySize() const;
-    virtual const char * getVehicle_ids_in_coverage(size_t k) const;
-    virtual void setVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage);
-    virtual void insertVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage);
-    [[deprecated]] void insertVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage) {appendVehicle_ids_in_coverage(vehicle_ids_in_coverage);}
-    virtual void appendVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage);
-    virtual void eraseVehicle_ids_in_coverage(size_t k);
+    virtual void setVehicle_details_in_coverageArraySize(size_t size);
+    virtual size_t getVehicle_details_in_coverageArraySize() const;
+    virtual const VehicleDetailInBroadcast& getVehicle_details_in_coverage(size_t k) const;
+    virtual VehicleDetailInBroadcast& getVehicle_details_in_coverageForUpdate(size_t k) { return const_cast<VehicleDetailInBroadcast&>(const_cast<RSUStatusBroadcastMessage*>(this)->getVehicle_details_in_coverage(k));}
+    virtual void setVehicle_details_in_coverage(size_t k, const VehicleDetailInBroadcast& vehicle_details_in_coverage);
+    virtual void insertVehicle_details_in_coverage(size_t k, const VehicleDetailInBroadcast& vehicle_details_in_coverage);
+    [[deprecated]] void insertVehicle_details_in_coverage(const VehicleDetailInBroadcast& vehicle_details_in_coverage) {appendVehicle_details_in_coverage(vehicle_details_in_coverage);}
+    virtual void appendVehicle_details_in_coverage(const VehicleDetailInBroadcast& vehicle_details_in_coverage);
+    virtual void eraseVehicle_details_in_coverage(size_t k);
 
     virtual int getVehicle_count() const;
     virtual void setVehicle_count(int vehicle_count);
@@ -1111,6 +1200,8 @@ template<> inline veins::OffloadingDecisionMessage *fromAnyPtr(any_ptr ptr) { re
 template<> inline veins::TaskOffloadPacket *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskOffloadPacket*>(ptr.get<cObject>()); }
 template<> inline veins::TaskResultMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskResultMessage*>(ptr.get<cObject>()); }
 template<> inline veins::TaskOffloadingEvent *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::TaskOffloadingEvent*>(ptr.get<cObject>()); }
+inline any_ptr toAnyPtr(const veins::VehicleDetailInBroadcast *p) {if (auto obj = as_cObject(p)) return any_ptr(obj); else return any_ptr(p);}
+template<> inline veins::VehicleDetailInBroadcast *fromAnyPtr(any_ptr ptr) { return ptr.get<veins::VehicleDetailInBroadcast>(); }
 template<> inline veins::RSUStatusBroadcastMessage *fromAnyPtr(any_ptr ptr) { return check_and_cast<veins::RSUStatusBroadcastMessage*>(ptr.get<cObject>()); }
 
 }  // namespace omnetpp

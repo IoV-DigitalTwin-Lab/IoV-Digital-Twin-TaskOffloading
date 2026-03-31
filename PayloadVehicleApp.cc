@@ -2058,16 +2058,14 @@ void PayloadVehicleApp::handleServiceTaskDeadline(Task* task) {
 
     cleanupTaskEvents(task);
     
-    // Send failure result to origin vehicle
+    // Send failure result back via normal relay path (SV → TV's RSU → TV).
+    // For agent sub-tasks ("::"), TV's RSU intercepts and writes FAILED to Redis.
+    // For regular tasks, TV receives the failure notification.
     auto it = serviceTaskOriginVehicles.find(task->task_id);
     if (it != serviceTaskOriginVehicles.end()) {
         std::string origin_vehicle_id = it->second;
-        // Could send failure notification here
-        EV_INFO << "Service task failed for origin vehicle: " << origin_vehicle_id << endl;
-        
-        // Clean up tracking
-        serviceTaskOriginVehicles.erase(task->task_id);
-        serviceTaskOriginMACs.erase(task->task_id);
+        // Reuse sendServiceTaskResult which handles relay routing and map cleanup
+        sendServiceTaskResult(task, origin_vehicle_id);
     }
     
     // Try to process next queued service task
@@ -2237,6 +2235,9 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
         statusMsg->setDeadline_miss_ratio(0.0);
     }
     
+    // Set sender MAC so RSU can register this vehicle's L2 address from heartbeats alone.
+    statusMsg->setSenderAddress(myId);
+
     // Broadcast to all RSUs so each RSU maintains its own synchronized DT copy.
     populateWSM(statusMsg);
     sendDown(statusMsg);
@@ -2871,10 +2872,156 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
     // Send lifecycle event
     sendTaskOffloadingEvent(taskId, "DECISION_RECEIVED", "RSU", task->vehicle_id);
     
-    // Execute the decision
+    // Execute the real DDQN decision
     executeOffloadingDecision(task, msg);
-    
+
+    // Dispatch baseline agent sub-tasks (non-DDQN agents)
+    std::string agentDec = msg->getAgentDecisions();
+    std::cout << "TV_BASELINE_DISPATCH: task=" << task->task_id
+              << " agentDec=[" << agentDec << "]" << std::endl;
+    if (!agentDec.empty()) {
+        dispatchBaselineSubTasks(task, agentDec, msg->getSenderAddress());
+    }
+
     delete msg;
+}
+
+// ---------------------------------------------------------------------------
+// dispatchBaselineSubTasks — fire-and-forget shadow evaluations for DRL
+// ---------------------------------------------------------------------------
+// The agentDecisions string is CSV: "agent:TYPE:target_id:target_mac,..."
+// For each NON-ddqn agent, we create a TaskOffloadPacket with sub-task ID
+// "{orig_task_id}::{agent_name}" and send it to the target.
+// Results flow back to TV's RSU via normal relay → RSU writes metrics to Redis.
+// ---------------------------------------------------------------------------
+void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
+                                                  const std::string& agentDecisions,
+                                                  veins::LAddress::L2Type dispatchRsuMac) {
+    // Parse CSV
+    std::vector<std::string> entries;
+    {
+        std::stringstream ss(agentDecisions);
+        std::string tok;
+        while (std::getline(ss, tok, ',')) {
+            if (!tok.empty()) entries.push_back(tok);
+        }
+    }
+
+    for (const auto& entry : entries) {
+        // Parse "agent:TYPE:target_id:target_mac"
+        std::vector<std::string> parts;
+        {
+            std::stringstream ss(entry);
+            std::string p;
+            while (std::getline(ss, p, ':')) parts.push_back(p);
+        }
+        if (parts.size() < 4) continue;
+        std::string agent_name = parts[0];
+        std::string target_type = parts[1];
+        std::string target_id = parts[2];
+        LAddress::L2Type target_mac = 0;
+        try { target_mac = static_cast<LAddress::L2Type>(std::stoull(parts[3])); }
+        catch (...) {}
+
+        // Skip DDQN — its metrics come from the real task execution
+        if (agent_name == "ddqn") continue;
+
+        std::string sub_id = task->task_id + "::" + agent_name;
+
+        if (target_type == "RSU") {
+            // Send to the dispatch RSU (TV's RSU) for local processing.
+            // If target_id != this RSU, the route hint will forward it.
+            veins::TaskOffloadPacket* pkt = new veins::TaskOffloadPacket();
+            pkt->setTask_id(sub_id.c_str());
+            pkt->setOrigin_vehicle_id(task->vehicle_id.c_str());
+            pkt->setOrigin_vehicle_mac(myId);
+            pkt->setOffload_time(simTime().dbl());
+            pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
+            pkt->setCpu_cycles(task->cpu_cycles);
+            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setQos_value(task->qos_value);
+            pkt->setTask_input_data("{}");  // no route hint — goes to TV's nearest RSU
+
+            LAddress::L2Type rsuMac = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
+            if (rsuMac != 0) {
+                populateWSM(pkt, rsuMac);
+                sendDown(pkt);
+                std::cout << "TV_AGENT_SUBTASK: " << sub_id << " → RSU" << std::endl;
+            } else {
+                delete pkt;
+                std::cout << "TV_AGENT_SUBTASK: " << sub_id << " DROPPED (no RSU)" << std::endl;
+            }
+
+        } else if (target_type == "SERVICE_VEHICLE") {
+            if (target_mac == 0) {
+                // SV MAC unknown — fall back to RSU processing for this sub-task
+                std::cout << "TV_AGENT_SUBTASK: " << sub_id
+                          << " SV " << target_id << " MAC=0 → RSU fallback" << std::endl;
+                veins::TaskOffloadPacket* pkt = new veins::TaskOffloadPacket();
+                pkt->setTask_id(sub_id.c_str());
+                pkt->setOrigin_vehicle_id(task->vehicle_id.c_str());
+                pkt->setOrigin_vehicle_mac(myId);
+                pkt->setOffload_time(simTime().dbl());
+                pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
+                pkt->setCpu_cycles(task->cpu_cycles);
+                pkt->setDeadline_seconds(task->relative_deadline);
+                pkt->setQos_value(task->qos_value);
+                pkt->setTask_input_data("{}");
+                LAddress::L2Type rsuMac = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
+                if (rsuMac != 0) {
+                    populateWSM(pkt, rsuMac);
+                    sendDown(pkt);
+                } else {
+                    delete pkt;
+                }
+                continue;
+            }
+
+            veins::TaskOffloadPacket* pkt = new veins::TaskOffloadPacket();
+            pkt->setTask_id(sub_id.c_str());
+            pkt->setOrigin_vehicle_id(task->vehicle_id.c_str());
+            pkt->setOrigin_vehicle_mac(myId);
+            pkt->setOffload_time(simTime().dbl());
+            pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
+            pkt->setCpu_cycles(task->cpu_cycles);
+            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setQos_value(task->qos_value);
+
+            // Try direct V2V first; fall back to infrastructure relay via TV's RSU
+            Coord myPos = mobility ? mobility->getPositionAt(simTime()) : Coord(0,0,0);
+            Coord svPos;
+            bool svPosKnown = lookupVehiclePositionById(target_id, svPos);
+            bool directOk = false;
+            if (svPosKnown) {
+                double rssi = estimateV2vRssiDbm(myPos, svPos);
+                directOk = (rssi >= serviceDirectRssiThresholdDbm);
+            }
+
+            if (directOk) {
+                pkt->setTask_input_data("{}");
+                populateWSM(pkt, target_mac);
+                sendDown(pkt);
+                std::cout << "TV_AGENT_SUBTASK: " << sub_id
+                          << " → SV " << target_id << " (direct)" << std::endl;
+            } else {
+                // Route via RSU infrastructure: TV → TV's RSU → (anchor) → SV
+                LAddress::L2Type anchorRsu = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
+                std::string hint = buildServiceRouteHint(target_mac, anchorRsu, myId);
+                pkt->setTask_input_data(hint.c_str());
+                LAddress::L2Type firstHop = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
+                if (firstHop != 0) {
+                    populateWSM(pkt, firstHop);
+                    sendDown(pkt);
+                    std::cout << "TV_AGENT_SUBTASK: " << sub_id
+                              << " → SV " << target_id << " (via RSU)" << std::endl;
+                } else {
+                    delete pkt;
+                    std::cout << "TV_AGENT_SUBTASK: " << sub_id
+                              << " DROPPED (no RSU for relay)" << std::endl;
+                }
+            }
+        }
+    }
 }
 
 void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingDecisionMessage* decision) {
@@ -3487,34 +3634,77 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
     std::cout << "SERVICE_REQUEST: Vehicle " << getParentModule()->getIndex() 
               << " received task " << task_id << " from vehicle " << origin_vehicle_id << std::endl;
     
+    // Helper: send a FAILED result back to the dispatch RSU for agent sub-tasks so
+    // the RSU can write the Redis result instead of leaving the DRL waiting forever.
+    // For agent sub-tasks (task_id contains "::"), send a FAILED result via
+    // the normal SV→RSU relay path so TV's RSU can write metrics to Redis.
+    auto sendAgentRejection = [&](const std::string& reason) {
+        if (task_id.find("::") != std::string::npos) {
+            veins::TaskResultMessage* rej = new veins::TaskResultMessage();
+            rej->setTask_id(task_id.c_str());
+            rej->setOrigin_vehicle_id(origin_vehicle_id.c_str());
+            rej->setProcessor_id(std::to_string(getParentModule()->getIndex()).c_str());
+            rej->setSuccess(false);
+            rej->setCompletion_time(simTime().dbl());
+            rej->setProcessing_time(0.0);
+            rej->setFailure_reason(reason.c_str());
+
+            // Route via SV's nearest RSU → TV's RSU (using relay hint)
+            Coord myPos = mobility ? mobility->getPositionAt(simTime()) : Coord(0,0,0);
+            int svRsuIdx = -1;
+            LAddress::L2Type svRsuMac = selectBestRSUForPosition(myPos, &svRsuIdx);
+
+            // Estimate TV's best RSU from origin_vehicle_id position
+            Coord tvPos;
+            bool tvPosKnown = lookupVehiclePositionById(origin_vehicle_id, tvPos);
+            LAddress::L2Type tvRsuMac = tvPosKnown ? selectBestRSUForPosition(tvPos, nullptr) : 0;
+
+            if (svRsuMac != 0) {
+                std::string relayPayload = buildServiceResultRelayHint(tvRsuMac, "{\"status\":\"rejected\"}");
+                rej->setTask_output_data(relayPayload.c_str());
+                populateWSM(rej, svRsuMac);
+                sendDown(rej);
+            } else if (origin_mac != 0) {
+                rej->setTask_output_data("{\"status\":\"rejected\"}");
+                populateWSM(rej, origin_mac);
+                sendDown(rej);
+            } else {
+                delete rej;
+                return;
+            }
+            std::cout << "SERVICE_REJECT_NOTIFY: agent subtask " << task_id
+                      << " rejection sent via relay (reason=" << reason << ")" << std::endl;
+        }
+    };
+
     // Check service vehicle capacity
     int total_service_tasks = serviceTasks.size() + processingServiceTasks.size();
     if (total_service_tasks >= maxConcurrentServiceTasks) {
-        EV_WARN << "Service vehicle at capacity (" << total_service_tasks << "/" 
+        EV_WARN << "Service vehicle at capacity (" << total_service_tasks << "/"
                 << maxConcurrentServiceTasks << "), rejecting task" << endl;
         std::cout << "SERVICE_REJECT: Task " << task_id << " rejected - capacity full" << std::endl;
-        
-        // TODO: Send rejection message back to origin vehicle
         sendTaskOffloadingEvent(task_id, "SV_TASK_REJECTED",
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             origin_vehicle_id, "{\"reason\":\"capacity_full\"}");
+        sendAgentRejection("RSU_QUEUE_FULL");
         delete msg;
         return;
     }
-    
+
     // Calculate reserved resources for service processing
     double service_cpu_hz = cpu_total * serviceCpuReservation;
     double service_mem_bytes = serviceMemoryReservation * 1e6;  // MB to bytes
-    
+
     // Check if we have sufficient reserved resources
     if (memory_available < msg->getMem_footprint_bytes()) {
-        EV_WARN << "Insufficient memory for service task (need " 
-                << (msg->getMem_footprint_bytes()/1e6) << "MB, have " 
+        EV_WARN << "Insufficient memory for service task (need "
+                << (msg->getMem_footprint_bytes()/1e6) << "MB, have "
                 << (memory_available/1e6) << "MB)" << endl;
         std::cout << "SERVICE_REJECT: Task " << task_id << " rejected - insufficient memory" << std::endl;
         sendTaskOffloadingEvent(task_id, "SV_TASK_REJECTED",
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             origin_vehicle_id, "{\"reason\":\"insufficient_memory\"}");
+        sendAgentRejection("RSU_QUEUE_FULL");
         delete msg;
         return;
     }
@@ -3720,12 +3910,16 @@ void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& ori
             directV2v = (tvSvRssi >= serviceDirectRssiThresholdDbm);
         }
 
+        // Agent sub-tasks ("::" in task_id) follow the same relay path as regular tasks.
+        // origin_mac is the task vehicle's MAC — the relay routes via RSUs to TV's RSU,
+        // which intercepts sub-task results and writes metrics to Redis.
         if (directV2v) {
-            EV_INFO << "  Sending result directly to origin vehicle MAC: " << origin_mac << endl;
+            // Direct V2V — within range of origin vehicle
+            EV_INFO << "  Sending result directly to origin MAC: " << origin_mac << endl;
             populateWSM(result, origin_mac);
             sendDown(result);
         } else {
-            // Infrastructure relay path:
+            // Infrastructure relay path for regular tasks:
             // SV -> best RSU near SV -> best RSSI RSU near TV -> TV
             int svRsuIdx = -1;
             LAddress::L2Type svRsuMac = selectBestRSUForPosition(myPos, &svRsuIdx);

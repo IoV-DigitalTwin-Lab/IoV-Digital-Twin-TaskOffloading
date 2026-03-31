@@ -97,13 +97,30 @@ struct TaskRecord {
 };
 
 /**
+ * Vehicle Detail Information in RSU Broadcasts
+ * Contains full vehicle state for multi-RSU DDQN candidate selection
+ */
+struct VehicleDetail {
+    std::string vehicle_id;
+    double pos_x = 0.0;                  // Vehicle position X (meters)
+    double pos_y = 0.0;                  // Vehicle position Y (meters)
+    double speed = 0.0;                  // Vehicle speed (m/s)
+    double heading = 0.0;                // Vehicle heading (degrees)
+    double cpu_available = 0.0;          // Available CPU (MIPS)
+    double cpu_utilization = 0.0;        // CPU utilization (0-100%)
+    double mem_available = 0.0;          // Available memory (MB)
+    double mem_utilization = 0.0;        // Memory utilization (0-100%)
+    int queue_length = 0;                // Tasks in queue
+};
+
+/**
  * RSU Neighbor State (for RSU-to-RSU communication)
  */
 struct RSUNeighborState {
     std::string rsu_id;
     LAddress::L2Type rsu_mac;
     double last_update_time;
-    
+
     // Resource state
     int queue_length;
     int processing_count;
@@ -112,15 +129,15 @@ struct RSUNeighborState {
     double cpu_total_ghz;
     double memory_available_gb;
     double memory_total_gb;
-    
-    // Coverage information
-    std::vector<std::string> vehicle_ids_in_coverage;
+
+    // Coverage information with full vehicle details
+    std::vector<VehicleDetail> vehicle_details_in_coverage;
     int vehicle_count;
-    
+
     // Position
     double pos_x;
     double pos_y;
-    
+
     // Computed metrics
     double load_factor = 0.0;        // CPU utilization factor (0-1)
     bool is_overloaded = false;      // Overload flag
@@ -254,6 +271,13 @@ private:
     std::map<std::string, VehicleDigitalTwin> vehicle_twins;  // vehicle_id -> twin
     std::map<std::string, TaskRecord> task_records;           // task_id -> record
     std::map<std::string, VehicleCoverageRecord> vehicle_coverage_records; // vehicle_id -> coverage owner
+
+    // Pending SV agent subtasks: sub_id (orig::agent) → simtime of dispatch.
+    // Written when an agent subtask is sent to a service vehicle; erased when the result
+    // arrives.  The checkDecisionMsg timer writes FAILED to Redis for any subtask that
+    // has been pending longer than sv_subtask_timeout_s (SV unreachable / message dropped).
+    std::map<std::string, simtime_t> sv_subtask_pending_;
+    static constexpr double sv_subtask_timeout_s = 5.0;
     
     // Digital Twin Management Methods
     void handleTaskMetadata(TaskMetadataMessage* msg);
@@ -347,6 +371,26 @@ private:
     std::map<std::string, PendingRSUTask> rsuPendingTasks;  // task_id -> in-flight task
     std::deque<QueuedRSUTask> rsuWaitingQueue;              // bounded wait buffer
     int rsu_waiting_queue_capacity = 5;                     // small buffer to avoid hard drops
+
+    // Agent sub-task tracking: sub_task_id ("{orig_task_id}::{agent_name}") → metadata
+    // Sub-tasks are dispatched by the RSU for each DRL baseline agent so all agents
+    // experience true execution rather than analytical estimates.
+    struct AgentSubTaskInfo {
+        std::string original_task_id;
+        std::string agent_name;
+        double arrival_time_s;
+    };
+    std::map<std::string, AgentSubTaskInfo> agent_sub_tasks;
+
+    // Dispatch a sub-task for one DRL baseline agent so it truly executes on its
+    // chosen target (this RSU, a neighbor RSU, or a service vehicle).
+    // Sub-task IDs are encoded as "{original_task_id}::{agent_name}".
+    // On completion the RSU writes per-agent results to task:{id}:results in Redis
+    // instead of forwarding a result to the vehicle.
+    void dispatchAgentSubTask(const TaskRecord& record,
+                              const std::string& agent_name,
+                              const std::string& target_type,
+                              const std::string& target_id);
 
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac);
     void tryStartQueuedRSUTasks();

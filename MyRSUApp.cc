@@ -280,40 +280,82 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 std::string target_id;
                 double confidence = 0.8;  // Default confidence
                 bool found_decision = false;
-                
-                // Try Redis first (fast)
+                std::string agentDecisionsPayload;  // will be set if multi-agent
+
+                // Try multi-agent decisions first (written by DRL for all baseline agents)
                 if (redis_twin && use_redis) {
-                    auto decision_data = redis_twin->getDecision(record.task_id);
-                    
-                    // Check if decision exists in Redis
-                    if (!decision_data.empty() && decision_data.count("decision_type")) {
-                        decision_type = decision_data["decision_type"];
-                        target_id = decision_data.count("target_id") ? decision_data["target_id"] : "";
-                        found_decision = true;
-                        
-                        EV_INFO << "✓ Found ML decision in Redis for task " << record.task_id 
-                                << ": " << decision_type << endl;
-                        std::cout << "ML_DECISION_REDIS: Task " << record.task_id << " -> " 
-                                  << decision_type << std::endl;
+                    auto multi_dec = redis_twin->getMultiAgentDecisions(record.task_id);
+
+                    if (!multi_dec.empty() && multi_dec.count("agents")) {
+                        // Parse comma-separated agent list
+                        std::string agents_str = multi_dec["agents"];
+                        std::vector<std::string> agent_names;
+                        {
+                            std::stringstream ss(agents_str);
+                            std::string tok;
+                            while (std::getline(ss, tok, ',')) {
+                                if (!tok.empty()) agent_names.push_back(tok);
+                            }
+                        }
+
+                        // Build agentDecisions string for the vehicle to dispatch sub-tasks.
+                        // Format: "agent:TYPE:target_id:target_mac,..."
+                        // The RSU resolves MACs here so the vehicle can send directly.
+                        std::ostringstream agentDecStr;
+                        bool firstAgent = true;
+                        for (const auto& aname : agent_names) {
+                            std::string atype   = multi_dec.count(aname + "_type")   ? multi_dec.at(aname + "_type")   : "RSU";
+                            std::string atarget = multi_dec.count(aname + "_target") ? multi_dec.at(aname + "_target") : "";
+                            LAddress::L2Type amac = 0;
+                            if (atype == "SERVICE_VEHICLE" && !atarget.empty()) {
+                                auto mit = vehicle_macs.find(atarget);
+                                if (mit != vehicle_macs.end()) amac = mit->second;
+                            }
+                            if (!firstAgent) agentDecStr << ",";
+                            agentDecStr << aname << ":" << atype << ":" << atarget << ":" << amac;
+                            firstAgent = false;
+                        }
+                        agentDecisionsPayload = agentDecStr.str();
+
+                        // DDQN's decision drives the OffloadingDecisionMessage sent to the vehicle
+                        if (multi_dec.count("ddqn_type")) {
+                            decision_type = multi_dec.at("ddqn_type");
+                            target_id     = multi_dec.count("ddqn_target") ? multi_dec.at("ddqn_target") : "";
+                            found_decision = true;
+
+                            EV_INFO << "✓ Multi-agent decisions received for task " << record.task_id
+                                    << " (" << agent_names.size() << " agents). "
+                                    << "DDQN -> " << decision_type << endl;
+                            std::cout << "ML_DECISION_MULTI: Task " << record.task_id
+                                      << " DDQN->" << decision_type
+                                      << " agents=" << agents_str << std::endl;
+                        }
                     }
+
+                    // When Redis/DRL is active, only use multi-agent decisions.
+                    // Don't fall back to legacy or PostgreSQL — wait for DRL to respond.
+                    // Legacy and PostgreSQL paths only used when Redis is NOT active.
                 }
-                
-                // Fallback to PostgreSQL if not in Redis
-                if (!found_decision) {
+
+                // Fallback to PostgreSQL/legacy only when Redis is NOT active
+                if (!found_decision && !(redis_twin && use_redis)) {
                     PGconn* conn = getDBConnection();
                     if (conn) {
                         std::string query = "SELECT decision_type, target_service_vehicle_id, confidence_score "
                                           "FROM offloading_decisions WHERE task_id = '" + record.task_id + "' LIMIT 1";
                         PGresult* res = PQexec(conn, query.c_str());
-                        
+
                         if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
                             decision_type = PQgetvalue(res, 0, 0);
                             target_id = PQgetvalue(res, 0, 1);
                             confidence = std::stod(PQgetvalue(res, 0, 2));
                             found_decision = true;
-                            
-                            EV_INFO << "✓ Found ML decision in PostgreSQL for task " << record.task_id 
+
+                            EV_INFO << "✓ Found ML decision in PostgreSQL for task " << record.task_id
                                     << ": " << decision_type << endl;
+                            std::cout << "ML_DECISION_PG: Task " << record.task_id
+                                      << " -> " << decision_type
+                                      << " target=" << target_id << std::endl;
                         }
                         PQclear(res);
                     }
@@ -332,7 +374,8 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     dMsg->setConfidence_score(confidence);
                     dMsg->setDecision_time(simTime().dbl());
                     dMsg->setSenderAddress(myId);  // RSU MAC address
-                    
+                    dMsg->setAgentDecisions(agentDecisionsPayload.c_str());  // baseline decisions
+
                     // Set target service vehicle MAC if applicable
                     if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
                         if (vehicle_macs.count(target_id)) {
@@ -345,7 +388,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     
                     // Send decision to requesting vehicle
                     if (vehicle_macs.count(record.vehicle_id)) {
-                        dMsg->setRecipientAddress(vehicle_macs[record.vehicle_id]);
+                        populateWSM(dMsg, vehicle_macs[record.vehicle_id]);
                         sendDown(dMsg);
                         
                         record.decision_sent = true;
@@ -386,8 +429,57 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
             EV_INFO << "✅ RSU task complete: " << task_id
                     << " (exec=" << pending.exec_time_s << "s)" << endl;
+
+            // Check if this is an agent sub-task (task_id encoded as "{orig}::{agent}")
+            size_t sep = task_id.find("::");
+            if (sep != std::string::npos && redis_twin && use_redis) {
+                std::string orig_id    = task_id.substr(0, sep);
+                std::string agent_name = task_id.substr(sep + 2);
+
+                // Energy: CMOS model — κ_rsu * f² * cycles (κ_rsu=2e-27, f in Hz)
+                double f_hz    = pending.cpu_allocated_hz;
+                double energy_j = 2e-27 * f_hz * f_hz * static_cast<double>(pending.cpu_cycles);
+
+                double total_latency = pending.exec_time_s;
+                std::string status = "COMPLETED_ON_TIME";
+                if (task_records.count(orig_id)) {
+                    double deadline = task_records.at(orig_id).deadline_seconds;
+                    status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
+                }
+                std::string fail_reason = (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
+
+                redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason);
+                std::cout << "AGENT_RESULT: orig=" << orig_id << " agent=" << agent_name
+                          << " status=" << status << " reason=" << fail_reason
+                          << " latency=" << total_latency << "s" << std::endl;
+
+                rsuPendingTasks.erase(it);
+                if (rsu_processing_count > 0) {
+                    reallocateRSUTasks();
+                }
+                return;
+            }
+
             std::cout << "RSU_DONE: Task " << task_id
                       << " completed in " << pending.exec_time_s << "s" << std::endl;
+
+            // Write DDQN metrics for real task completed on RSU
+            if (redis_twin && use_redis) {
+                double total_latency = pending.exec_time_s;
+                std::string ddqn_status = "COMPLETED_ON_TIME";
+                if (task_records.count(task_id)) {
+                    double deadline = task_records.at(task_id).deadline_seconds;
+                    ddqn_status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
+                }
+                std::string ddqn_reason = (ddqn_status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
+                double f_hz = pending.cpu_allocated_hz;
+                double energy_j = 2e-27 * f_hz * f_hz * static_cast<double>(pending.cpu_cycles);
+                redis_twin->writeTaskResults(task_id, "ddqn", ddqn_status,
+                                             total_latency, energy_j, ddqn_reason);
+                std::cout << "AGENT_RESULT: orig=" << task_id << " agent=ddqn"
+                          << " status=" << ddqn_status << " reason=" << ddqn_reason
+                          << " latency=" << total_latency << "s" << std::endl;
+            }
 
             sendTaskResultToVehicle(task_id, pending.vehicle_id, pending.vehicle_mac,
                                     pending.ingress_rsu_mac, true, pending.exec_time_s);
@@ -471,6 +563,16 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // Handle TaskResultMessage with completion timing data
     TaskResultMessage* taskResult = dynamic_cast<TaskResultMessage*>(wsm);
     if (taskResult) {
+        // Agent subtask results (task_id contains "::") arrive directly from the SV without a
+        // relay-hint prefix, so parseServiceResultRelayHint() would return false and the message
+        // would fall through to handleTaskResultWithCompletion (wrong).  Intercept them here.
+        {
+            std::string _tid = taskResult->getTask_id();
+            if (_tid.find("::") != std::string::npos) {
+                handleServiceVehicleResultRelay(taskResult, 0);
+                return;
+            }
+        }
         LAddress::L2Type svTargetRsuMac = 0;
         std::string cleanPayload;
         if (parseServiceResultRelayHint(taskResult->getTask_output_data(), svTargetRsuMac, cleanPayload)) {
@@ -938,8 +1040,16 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::string vehicle_id = msg->getVehicle_id();
     VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
-    // VehicleResourceStatusMessage in this build does not carry senderAddress,
-    // so MAC mapping remains sourced from offloading request/decision traffic.
+
+    // Register vehicle MAC from heartbeat — populateWSM() on vehicle side sets senderAddress.
+    // This ensures service-vehicle MACs are known before any offloading request arrives,
+    // preventing SV_MAC_UNKNOWN failures when DDQN/baselines target service vehicles.
+    LAddress::L2Type hb_mac = msg->getSenderAddress();
+    if (hb_mac != 0 && vehicle_macs.find(vehicle_id) == vehicle_macs.end()) {
+        vehicle_macs[vehicle_id] = hb_mac;
+        EV_INFO << "  → Registered MAC for vehicle " << vehicle_id
+                << " from heartbeat: " << hb_mac << endl;
+    }
     
     // Update vehicle state
     twin.pos_x = msg->getPos_x();
@@ -2249,29 +2359,36 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     EV_INFO << "  Vehicle CPU Utilization: " << (request.vehicle_cpu_utilization * 100) << "%" << endl;
     EV_INFO << "  Vehicle Queue Length: " << request.vehicle_queue_length << endl;
     
-    // Make ML-based offloading decision
-    veins::OffloadingDecisionMessage* decision = makeOffloadingDecision(request);
-    
-    if (decision) {
-        // Store decision in Digital Twin database
-        insertOffloadingDecision(task_id, decision);
-        insertLifecycleEvent(task_id, "OFFLOADING_DECISION_IN_PROCESS",
-            "RSU_" + std::to_string(rsu_id), vehicle_id,
-            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\","
-            "\"confidence\":" + std::to_string(decision->getConfidence_score()) + "}");
-
-        // Send decision back to vehicle
-        populateWSM(decision, request.vehicle_mac);
-        sendDown(decision);
-        insertLifecycleEvent(task_id, "OFFLOADING_DECISION_SENDING",
-            "RSU_" + std::to_string(rsu_id), vehicle_id,
-            std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
-
-        EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
-        std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id 
-                  << ": " << decision->getDecision_type() << std::endl;
+    // When using Redis/DRL, decisions come from the checkDecisionMsg timer
+    // (which reads multi-agent decisions from Redis with agentDecisions payload).
+    // The legacy heuristic path is only used when Redis is not available.
+    if (redis_twin && use_redis) {
+        EV_INFO << "Redis/DRL active — decision will be provided via checkDecisionMsg timer" << endl;
+        std::cout << "RSU_OFFLOAD: Task " << task_id
+                  << " — awaiting DRL decision via Redis (heuristic skipped)" << std::endl;
     } else {
-        EV_ERROR << "Failed to create offloading decision" << endl;
+        // Legacy heuristic path (no DRL)
+        veins::OffloadingDecisionMessage* decision = makeOffloadingDecision(request);
+
+        if (decision) {
+            insertOffloadingDecision(task_id, decision);
+            insertLifecycleEvent(task_id, "OFFLOADING_DECISION_IN_PROCESS",
+                "RSU_" + std::to_string(rsu_id), vehicle_id,
+                std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\","
+                "\"confidence\":" + std::to_string(decision->getConfidence_score()) + "}");
+
+            populateWSM(decision, request.vehicle_mac);
+            sendDown(decision);
+            insertLifecycleEvent(task_id, "OFFLOADING_DECISION_SENDING",
+                "RSU_" + std::to_string(rsu_id), vehicle_id,
+                std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
+
+            EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
+            std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id
+                      << ": " << decision->getDecision_type() << std::endl;
+        } else {
+            EV_ERROR << "Failed to create offloading decision" << endl;
+        }
     }
     
     // Clean up request message
@@ -2899,6 +3016,40 @@ void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
     const std::string task_id = msg->getTask_id();
     const std::string vehicle_id = msg->getOrigin_vehicle_id();
 
+    // Check if this is an agent sub-task result from a neighbor RSU
+    size_t sep = task_id.find("::");
+    if (sep != std::string::npos && redis_twin && use_redis) {
+        std::string orig_id    = task_id.substr(0, sep);
+        std::string agent_name = task_id.substr(sep + 2);
+
+        bool success          = msg->getSuccess();
+        double proc_time      = msg->getProcessing_time();
+        // Approximate one-hop V2I transmission time (10ms)
+        double total_latency  = proc_time + 0.01;
+
+        // Approximate RSU energy (κ_rsu=2e-27, f=4GHz nominal for neighbor)
+        constexpr double kRsuNominalHz = 4e9;
+        double energy_j = 2e-27 * kRsuNominalHz * kRsuNominalHz;  // placeholder per-cycle, scale later
+
+        std::string status = "FAILED";
+        if (success) {
+            status = "COMPLETED_ON_TIME";
+            if (task_records.count(orig_id)) {
+                double deadline = task_records.at(orig_id).deadline_seconds;
+                status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
+            }
+        }
+        std::string fail_reason_relay = !success ? "EXECUTION_FAILED"
+                                       : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
+
+        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason_relay);
+        std::cout << "AGENT_RELAY_RESULT: orig=" << orig_id << " agent=" << agent_name
+                  << " status=" << status << " reason=" << fail_reason_relay
+                  << " latency=" << total_latency << "s" << std::endl;
+        delete msg;
+        return;
+    }
+
     auto macIt = vehicle_macs.find(vehicle_id);
     if (macIt == vehicle_macs.end()) {
         EV_WARN << "RSU relay received task result but vehicle MAC is unknown for " << vehicle_id << endl;
@@ -2926,6 +3077,45 @@ void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress:
         if (targetRsuMac == 0) {
             targetRsuMac = parsedTarget;
         }
+    }
+
+    // ── Agent sub-task intercept ───────────────────────────────────────────
+    // If the task_id contains "::" it's a DRL baseline agent sub-task dispatched
+    // by the task vehicle.  Write the metrics to Redis for DRL training — do NOT
+    // forward to the vehicle (it doesn't track sub-tasks).
+    size_t sep = task_id.find("::");
+    if (sep != std::string::npos && redis_twin && use_redis) {
+        // Only handle here if we are the anchor RSU (targetRsuMac == myId or 0).
+        // If targetRsuMac points to a DIFFERENT RSU, forward first.
+        if (targetRsuMac != 0 && targetRsuMac != myId) {
+            populateWSM(msg, targetRsuMac);
+            sendDown(msg);
+            return;
+        }
+        std::string orig_id    = task_id.substr(0, sep);
+        std::string agent_name = task_id.substr(sep + 2);
+        bool success           = msg->getSuccess();
+        double proc_time       = msg->getProcessing_time();
+        double total_latency   = proc_time + 0.01; // +10ms V2V/V2I tx estimate
+
+        std::string status = "FAILED";
+        if (success) {
+            status = "COMPLETED_ON_TIME";
+            if (task_records.count(orig_id)) {
+                double deadline = task_records.at(orig_id).deadline_seconds;
+                status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
+            }
+        }
+        double energy_j = success ? 5e-27 * 1e9 * 1e9 : 0.0;
+        std::string fail_reason = !success ? "EXECUTION_FAILED"
+                                : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
+
+        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason);
+        std::cout << "AGENT_RESULT: orig=" << orig_id << " agent=" << agent_name
+                  << " status=" << status << " reason=" << fail_reason
+                  << " latency=" << total_latency << "s" << std::endl;
+        delete msg;
+        return;
     }
 
     if (targetRsuMac != 0 && targetRsuMac != myId) {
@@ -3009,7 +3199,38 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
 void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
     std::string task_id = msg->getTask_id();
     EV_INFO << "📊 RSU received task completion data for " << task_id << endl;
-    
+
+    // Check if this is an agent sub-task result (service vehicle or remote execution)
+    size_t sep = task_id.find("::");
+    if (sep != std::string::npos && redis_twin && use_redis) {
+        std::string orig_id    = task_id.substr(0, sep);
+        std::string agent_name = task_id.substr(sep + 2);
+
+        bool success         = msg->getSuccess();
+        double proc_time     = msg->getProcessing_time();
+        double total_latency = proc_time + 0.01; // +10ms V2V/V2I tx estimate
+
+        std::string status = "FAILED";
+        if (success) {
+            status = "COMPLETED_ON_TIME";
+            if (task_records.count(orig_id)) {
+                double deadline = task_records.at(orig_id).deadline_seconds;
+                status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
+            }
+        }
+        // Approximate energy for service vehicle execution (vehicle CPU ~1GHz, κ_v=5e-27)
+        double energy_j = success ? 5e-27 * 1e9 * 1e9 : 0.0; // placeholder
+        std::string fail_reason_sv = !success ? "EXECUTION_FAILED"
+                                    : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
+
+        redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason_sv);
+        std::cout << "AGENT_SV_RESULT: orig=" << orig_id << " agent=" << agent_name
+                  << " status=" << status << " reason=" << fail_reason_sv
+                  << " latency=" << total_latency << "s" << std::endl;
+        delete msg;
+        return;
+    }
+
     // Parse timing JSON from task_output_data field
     std::string result_data = msg->getTask_output_data();
     
@@ -3135,6 +3356,28 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                       << " decision_type=" << decision_type
                       << " processor=" << processor_id
                       << " latency=" << total_latency << "s" << std::endl;
+
+            // Write DDQN agent metrics for DRL training.
+            // The real task IS the DDQN decision's execution, so its metrics
+            // are the ground truth for the "ddqn" agent in the results hash.
+            {
+                std::string ddqn_status = on_time ? "COMPLETED_ON_TIME" : "FAILED";
+                std::string ddqn_reason = on_time ? "NONE" : "DEADLINE_MISSED";
+                // Energy estimate: κ * f² * cycles
+                double energy_j = 0.0;
+                if (decision_type == "RSU") {
+                    // RSU: κ_rsu=2e-27, f ≈ 4 GHz
+                    energy_j = 2e-27 * 4e9 * 4e9;
+                } else {
+                    // SV: κ_v=5e-27, f ≈ 1 GHz
+                    energy_j = 5e-27 * 1e9 * 1e9;
+                }
+                redis_twin->writeTaskResults(task_id, "ddqn", ddqn_status,
+                                             total_latency, energy_j, ddqn_reason);
+                std::cout << "AGENT_RESULT: orig=" << task_id << " agent=ddqn"
+                          << " status=" << ddqn_status << " reason=" << ddqn_reason
+                          << " latency=" << total_latency << "s" << std::endl;
+            }
         }
 
     } catch (const std::exception& e) {
@@ -3192,7 +3435,8 @@ void MyRSUApp::sendRSUStatusUpdate() {
             rsu_processing_count,
             simTime().dbl(),
             pos_x,
-            pos_y
+            pos_y,
+            cpu_util   // written directly so DRL reads it without needing cpu_total
         );
     }
     
@@ -3400,23 +3644,37 @@ void MyRSUApp::broadcastRSUStatus() {
     msg->setMemory_available_gb(rsu_memory_available);
     msg->setMemory_total_gb(rsu_memory_total);
     
-    // Coverage information - include only vehicles currently owned by self range
-    // and limit list size to avoid huge packets.
-    std::vector<std::string> vehicle_list;
+    // Coverage information with full vehicle details
+    // Include only vehicles currently owned by self range, limit list size to avoid huge packets
+    std::vector<VehicleDetailInBroadcast> vehicle_details_list;
     int count = 0;
     for (const auto& pair : vehicle_twins) {
         if (count >= max_vehicles_in_broadcast) break;
         refreshVehicleCoverageRecord(pair.first);
         auto covIt = vehicle_coverage_records.find(pair.first);
         if (covIt != vehicle_coverage_records.end() && covIt->second.in_self_range) {
-            vehicle_list.push_back(pair.first);
+            // Extract full vehicle detail from VehicleDigitalTwin
+            const VehicleDigitalTwin& vdt = pair.second;
+            VehicleDetailInBroadcast detail;
+            detail.setVehicle_id(vdt.vehicle_id.c_str());
+            detail.setPos_x(vdt.pos_x);
+            detail.setPos_y(vdt.pos_y);
+            detail.setSpeed(vdt.speed);
+            detail.setHeading(vdt.heading);
+            detail.setCpu_available(vdt.cpu_available);
+            detail.setCpu_utilization(vdt.cpu_utilization);
+            detail.setMem_available(vdt.mem_available);
+            detail.setMem_utilization(vdt.mem_utilization);
+            detail.setQueue_length(vdt.current_queue_length);
+
+            vehicle_details_list.push_back(detail);
             count++;
         }
     }
-    
-    msg->setVehicle_ids_in_coverageArraySize(vehicle_list.size());
-    for (size_t i = 0; i < vehicle_list.size(); i++) {
-        msg->setVehicle_ids_in_coverage(i, vehicle_list[i].c_str());
+
+    msg->setVehicle_details_in_coverageArraySize(vehicle_details_list.size());
+    for (size_t i = 0; i < vehicle_details_list.size(); i++) {
+        msg->setVehicle_details_in_coverage(i, vehicle_details_list[i]);
     }
     msg->setVehicle_count(vehicle_twins.size());
     
@@ -3470,9 +3728,21 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     state.memory_total_gb = msg->getMemory_total_gb();
     
     state.vehicle_count = msg->getVehicle_count();
-    state.vehicle_ids_in_coverage.clear();
-    for (size_t i = 0; i < msg->getVehicle_ids_in_coverageArraySize(); i++) {
-        state.vehicle_ids_in_coverage.push_back(msg->getVehicle_ids_in_coverage(i));
+    state.vehicle_details_in_coverage.clear();
+    for (size_t i = 0; i < msg->getVehicle_details_in_coverageArraySize(); i++) {
+        const VehicleDetailInBroadcast& detail = msg->getVehicle_details_in_coverage(i);
+        VehicleDetail vd;
+        vd.vehicle_id = detail.getVehicle_id();
+        vd.pos_x = detail.getPos_x();
+        vd.pos_y = detail.getPos_y();
+        vd.speed = detail.getSpeed();
+        vd.heading = detail.getHeading();
+        vd.cpu_available = detail.getCpu_available();
+        vd.cpu_utilization = detail.getCpu_utilization();
+        vd.mem_available = detail.getMem_available();
+        vd.mem_utilization = detail.getMem_utilization();
+        vd.queue_length = detail.getQueue_length();
+        state.vehicle_details_in_coverage.push_back(vd);
     }
     
     state.pos_x = msg->getPos_x();
@@ -3491,11 +3761,27 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     // Update or insert neighbor state
     updateNeighborState(state);
 
-    // Refresh ownership records now that neighbor position/coverage set has changed.
-    for (const auto& v : state.vehicle_ids_in_coverage) {
-        refreshVehicleCoverageRecord(v);
+    // Persist neighbor RSU state to OUR Redis DB so DRL can read all RSU states
+    // from its single DB without needing cross-DB queries.
+    if (redis_twin && use_redis) {
+        redis_twin->updateRSUResources(
+            neighbor_rsu_id,
+            state.cpu_available_ghz,    // same unit as local (GHz)
+            state.memory_available_gb,  // same unit as local (GB)
+            state.queue_length,
+            state.processing_count,
+            simTime().dbl(),
+            state.pos_x,
+            state.pos_y,
+            state.load_factor           // cpu_utilization (0-1)
+        );
     }
-    
+
+    // Refresh ownership records now that neighbor position/coverage set has changed.
+    for (const auto& v : state.vehicle_details_in_coverage) {
+        refreshVehicleCoverageRecord(v.vehicle_id);
+    }
+
     EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
              << "Q=" << state.queue_length << "/" << state.max_concurrent_tasks
              << ", CPU=" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << " GHz"
@@ -3541,6 +3827,142 @@ void MyRSUApp::cleanupStaleNeighborStates() {
     }
 }
 
+// ============================================================================
+// AGENT SUB-TASK DISPATCH
+// For each DRL baseline agent, the RSU creates a sub-task with ID
+// "{original_task_id}::{agent_name}" and routes it to the agent's chosen
+// target. When the sub-task completes the RSU writes per-agent results to
+// Redis (task:{orig_id}:results) instead of forwarding to the vehicle.
+// ============================================================================
+void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
+                                     const std::string& agent_name,
+                                     const std::string& target_type,
+                                     const std::string& target_id)
+{
+    if (!redis_twin || !use_redis) return;
+
+    std::string sub_id     = record.task_id + "::" + agent_name;
+    std::string this_rsu   = "RSU_" + std::to_string(rsu_id);
+
+    if (target_type == "RSU") {
+        if (target_id == this_rsu || target_id.empty()) {
+            // ── Target is THIS RSU: truly execute in the local queue ──────
+            if (rsu_processing_count >= rsu_max_concurrent) {
+                redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
+                                             record.deadline_seconds, 0.0, "RSU_QUEUE_FULL");
+                std::cout << "AGENT_SUBTASK: " << sub_id << " REJECTED (RSU full)" << std::endl;
+                return;
+            }
+
+            rsu_processing_count++;
+            rsu_tasks_admitted++;
+
+            // Create pending task structure
+            PendingRSUTask p;
+            p.vehicle_id            = record.vehicle_id;
+            p.vehicle_mac           = 0;          // sub-task: no vehicle notification
+            p.ingress_rsu_mac       = myId;
+            p.cpu_cycles            = record.cpu_cycles;
+            p.cycles_remaining      = static_cast<double>(record.cpu_cycles);
+            p.qos_value             = record.qos_value;
+            p.scheduled_at          = simTime().dbl();
+            p.last_reschedule_time  = simTime().dbl();
+
+            // Create completion event for this task
+            cMessage* doneMsg = new cMessage("rsuTaskComplete");
+            doneMsg->setContextPointer(new std::string(sub_id));
+            p.completion_event      = doneMsg;
+
+            // Add to pending tasks
+            rsuPendingTasks[sub_id] = p;
+
+            // Recompute CPU allocation for all tasks (including this new one)
+            // This function internally schedules completion events
+            reallocateRSUTasks();
+
+            // Extract computed exec_time for logging/debug
+            double exec_time = rsuPendingTasks[sub_id].exec_time_s;
+
+            std::cout << "AGENT_SUBTASK: " << sub_id
+                      << " queued on " << this_rsu
+                      << " exec=" << exec_time << "s" << std::endl;
+
+        } else {
+            // ── Target is a NEIGHBOR RSU: forward via TaskOffloadPacket ───
+            auto it = neighbor_rsus.find(target_id);
+            if (it == neighbor_rsus.end()) {
+                redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
+                                             record.deadline_seconds, 0.0, "NEIGHBOR_RSU_UNKNOWN");
+                std::cout << "AGENT_SUBTASK: " << sub_id
+                          << " FAILED (neighbor " << target_id << " unknown)" << std::endl;
+                return;
+            }
+
+            LAddress::L2Type neighbor_mac = it->second.rsu_mac;
+            // Route hint: ingress=this RSU, processor=neighbor RSU
+            // Result will be relayed back to myId (ingress) → handleRSUTaskResultRelay()
+            std::string route = std::string("ROUTE|ingress=") + std::to_string(myId)
+                              + "|processor=" + std::to_string(neighbor_mac) + "|";
+
+            veins::TaskOffloadPacket* pkt = new veins::TaskOffloadPacket();
+            pkt->setTask_id(sub_id.c_str());
+            pkt->setOrigin_vehicle_id(record.vehicle_id.c_str());
+            pkt->setOrigin_vehicle_mac(myId); // result routes back to this RSU
+            pkt->setOffload_time(simTime().dbl());
+            pkt->setMem_footprint_bytes(record.mem_footprint_bytes);
+            pkt->setCpu_cycles(record.cpu_cycles);
+            pkt->setDeadline_seconds(record.deadline_seconds);
+            pkt->setQos_value(record.qos_value);
+            pkt->setTask_input_data(route.c_str());
+            populateWSM(pkt, neighbor_mac);
+            sendDown(pkt);
+
+            std::cout << "AGENT_SUBTASK: " << sub_id
+                      << " forwarded to " << target_id << std::endl;
+        }
+
+    } else if (target_type == "SERVICE_VEHICLE") {
+        // ── Target is a service vehicle: relay via TaskOffloadPacket ──────
+        auto macIt = vehicle_macs.find(target_id);
+        if (macIt == vehicle_macs.end()) {
+            redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
+                                         record.deadline_seconds, 0.0, "SV_MAC_UNKNOWN");
+            std::cout << "AGENT_SUBTASK: " << sub_id
+                      << " FAILED (SV " << target_id << " MAC unknown)" << std::endl;
+            return;
+        }
+
+        LAddress::L2Type sv_mac = macIt->second;
+        // Service vehicle route hint: sv=<sv_mac>|anchor=<this_rsu>
+        // Result will relay back through this RSU → handleServiceVehicleResultRelay()
+        std::string svRoute = std::string("SVROUTE|sv=") + std::to_string(sv_mac)
+                            + "|anchor=" + std::to_string(myId) + "|";
+
+        veins::TaskOffloadPacket* pkt = new veins::TaskOffloadPacket();
+        pkt->setTask_id(sub_id.c_str());
+        pkt->setOrigin_vehicle_id(record.vehicle_id.c_str());
+        pkt->setOrigin_vehicle_mac(myId);
+        pkt->setOffload_time(simTime().dbl());
+        pkt->setMem_footprint_bytes(record.mem_footprint_bytes);
+        pkt->setCpu_cycles(record.cpu_cycles);
+        pkt->setDeadline_seconds(record.deadline_seconds);
+        pkt->setQos_value(record.qos_value);
+        pkt->setTask_input_data(svRoute.c_str());
+        populateWSM(pkt, sv_mac);
+        sendDown(pkt);
+
+        std::cout << "AGENT_SUBTASK: " << sub_id
+                  << " relayed to SV " << target_id << std::endl;
+        sv_subtask_pending_[sub_id] = simTime();
+
+    } else {
+        // Unknown target type → write FAILED immediately
+        redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
+                                     record.deadline_seconds, 0.0, "UNKNOWN_TARGET");
+        std::cout << "AGENT_SUBTASK: " << sub_id
+                  << " FAILED (unknown target_type=" << target_type << ")" << std::endl;
+    }
+}
 
 
 }  // namespace complex_network

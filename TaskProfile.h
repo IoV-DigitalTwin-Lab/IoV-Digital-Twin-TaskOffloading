@@ -146,9 +146,9 @@ private:
 // Chosen for practical IoV load: 51 vehicles × rates below ≈ RSU near-saturation.
 namespace TaskPeriods {
     constexpr double LOCAL_OBJECT_DETECTION = 0.100;      // 100ms (10 Hz) — on-board sensing, NOT offloaded
-    constexpr double COOPERATIVE_PERCEPTION = 2.000;      // 2s (0.5 Hz)  — V2V fusion, offloaded
-    constexpr double ROUTE_OPTIMIZATION     = 5.000;      // 5s (0.2 Hz)  — path planning, offloaded
-    constexpr double SENSOR_HEALTH_CHECK    = 10.0;       // 10s          — background, offloaded
+    constexpr double COOPERATIVE_PERCEPTION = 5.000;      // 5s (0.2 Hz)  — V2V fusion, offloaded (reduced from 2s to ease RSU load)
+    constexpr double ROUTE_OPTIMIZATION     = 12.000;     // 12s (~0.08 Hz) — path planning, offloaded (reduced from 5s)
+    constexpr double SENSOR_HEALTH_CHECK    = 25.0;       // 25s          — background, offloaded (reduced from 10s)
     constexpr double FLEET_TRAFFIC_BATCH    = 60.0;       // 60s          — batch ML, offloaded
 }
 

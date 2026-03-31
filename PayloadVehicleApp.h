@@ -225,7 +225,8 @@ private:
     void sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision, const GateBDecisionResult& gateResult);
     void handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg);
     void executeOffloadingDecision(Task* task, veins::OffloadingDecisionMessage* decision);
-    
+    void dispatchBaselineSubTasks(Task* task, const std::string& agentDecisions, veins::LAddress::L2Type dispatchRsuMac);
+
     // Task execution methods
     void sendTaskToRSU(Task* task);
     void sendTaskToRSU(Task* task, veins::LAddress::L2Type targetRsuMac);
