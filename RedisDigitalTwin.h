@@ -131,6 +131,15 @@ public:
     int getActiveVehicleCount();
     int getActiveTaskCount();
 
+    // Task Lifecycle Events Stream (for dashboard real-time visualization)
+    void appendTaskLifecycleEvent(
+        const std::string& task_id,
+        const std::string& event_type,
+        double event_time,
+        const std::string& source_entity = "",
+        const std::string& target_entity = "",
+        const std::string& details = "");
+
     // Secondary DT exports (motion + channel context, no SINR math)
     void updateSecondaryProgress(const std::string& run_id,
                                  double sim_time,

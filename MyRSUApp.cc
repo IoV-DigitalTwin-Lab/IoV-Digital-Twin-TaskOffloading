@@ -588,7 +588,38 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         handleTaskResultWithCompletion(taskResult);
         return;
     }
-    
+
+    // ========================================================================
+    // NEW: Intercept and Log Task Lifecycle Events to Redis Stream
+    // ========================================================================
+    // This catches lifecycle event messages from vehicles and writes them to
+    // the Redis stream for dashboard visualization (non-destructive addition)
+    veins::TaskOffloadingEvent* lifecycleEvent =
+        dynamic_cast<veins::TaskOffloadingEvent*>(wsm);
+    if (lifecycleEvent) {
+        EV_INFO << "📊 Intercepted lifecycle event: " << lifecycleEvent->getEvent_type()
+                << " for task " << lifecycleEvent->getTask_id() << endl;
+
+        if (redis_twin && use_redis) {
+            // Write to Redis stream for dashboard
+            redis_twin->appendTaskLifecycleEvent(
+                lifecycleEvent->getTask_id(),
+                lifecycleEvent->getEvent_type(),
+                lifecycleEvent->getEvent_time(),
+                lifecycleEvent->getSource_entity_id(),
+                lifecycleEvent->getTarget_entity_id(),
+                lifecycleEvent->getEvent_details()
+            );
+
+            std::cout << "LIFECYCLE_LOGGED: task=" << lifecycleEvent->getTask_id()
+                      << " event=" << lifecycleEvent->getEvent_type()
+                      << " time=" << lifecycleEvent->getEvent_time() << std::endl;
+        }
+
+        delete lifecycleEvent;
+        return;
+    }
+
     // Original DemoSafetyMessage handling
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if(!dsm) {

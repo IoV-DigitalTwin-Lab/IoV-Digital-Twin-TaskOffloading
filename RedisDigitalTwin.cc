@@ -752,4 +752,44 @@ void RedisDigitalTwin::pushSecondaryV2vLinkSample(const std::string& run_id,
     }
 }
 
+// ============================================================================
+// Task Lifecycle Event Stream Writer
+// ============================================================================
+// This writes to a Redis stream for dashboard real-time visualization
+// Stream key: task_lifecycle_events
+// Each entry: {task_id, event_type, event_time, source, target, details}
+
+void RedisDigitalTwin::appendTaskLifecycleEvent(
+    const std::string& task_id,
+    const std::string& event_type,
+    double event_time,
+    const std::string& source_entity,
+    const std::string& target_entity,
+    const std::string& details)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    // Use XADD to append to stream
+    // Format: XADD key * field1 value1 field2 value2 ...
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "XADD task_lifecycle_events * "
+        "task_id %s event_type %s event_time %f source_entity %s target_entity %s details %s",
+        task_id.c_str(),
+        event_type.c_str(),
+        event_time,
+        source_entity.c_str(),
+        target_entity.c_str(),
+        details.c_str()
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis appendTaskLifecycleEvent error: " << reply->str << std::endl;
+        } else {
+            EV_INFO << "✓ Lifecycle event written: " << task_id << " " << event_type << endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
 } // namespace
