@@ -1456,6 +1456,26 @@ void MyRSUApp::initDatabase() {
             EV_WARN << "⚠ Could not add acceleration column: " << PQerrorMessage(db_conn) << endl;
         }
         PQclear(altRes);
+
+        // Ensure task_metadata has all required columns (idempotent)
+        const char* task_meta_alters[] = {
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_name TEXT DEFAULT ''",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_id INTEGER DEFAULT 0",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS input_size_bytes BIGINT DEFAULT 0",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS output_size_bytes BIGINT DEFAULT 0",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_offloadable BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_safety_critical BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS priority_level INTEGER DEFAULT 0",
+            nullptr
+        };
+        for (int i = 0; task_meta_alters[i] != nullptr; ++i) {
+            PGresult* r = PQexec(db_conn, task_meta_alters[i]);
+            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
+                EV_WARN << "⚠ task_metadata schema update failed: " << PQerrorMessage(db_conn) << endl;
+            }
+            PQclear(r);
+        }
     }
 }
 
