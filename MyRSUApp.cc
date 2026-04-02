@@ -210,32 +210,14 @@ void MyRSUApp::initialize(int stage) {
         // Initialize decision checker
         checkDecisionMsg = new cMessage("checkDecision");
         
-        std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
-                  << " initialized with edge resources:" << std::endl;
-        std::cout << "  - RSU ID: " << rsu_id << std::endl;
-        std::cout << "  - CPU: " << edgeCPU_GHz << " GHz" << std::endl;
-        std::cout << "  - Memory: " << edgeMemory_GB << " GB" << std::endl;
-        std::cout << "  - Max Vehicles: " << maxVehicles << std::endl;
-        std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
-        
         double interval = par("beaconInterval").doubleValue();
-        
-    // create and store the beacon self-message so we can cancel/delete it safely later
-    beaconMsg = new cMessage("sendMessage");
-    scheduleAt(simTime() + 2.0, beaconMsg);
 
-        std::cout << "=== CONSOLE: MyRSUApp INITIALIZED ===" << std::endl;
-        std::cout << "CONSOLE: MyRSUApp - Beacon interval: " << interval << "s" << std::endl;
-        std::cout << "CONSOLE: MyRSUApp - Starting RSUHttpPoster..." << std::endl;
-        
+        // create and store the beacon self-message so we can cancel/delete it safely later
+        beaconMsg = new cMessage("sendMessage");
+        scheduleAt(simTime() + 2.0, beaconMsg);
+
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
-        
-        // RSUHttpPoster disabled - using direct PostgreSQL insertion
-        // poster.start();
-        
-        std::cout << "CONSOLE: MyRSUApp - Direct PostgreSQL insertion enabled (HTTP poster disabled)" << std::endl;
-        std::cout << "=== MyRSUApp READY ===" << std::endl;
-        EV << "MyRSUApp: RSUHttpPoster started\n";
+        EV << "MyRSUApp: Direct PostgreSQL insertion enabled\n";
     }
 }
 
@@ -411,7 +393,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         }
         
         // Reschedule next check
-        scheduleAt(simTime() + 0.1, checkDecisionMsg);
+        scheduleAt(simTime() + 0.01, checkDecisionMsg);
     }
     else if (strcmp(msg->getName(), "rsuTaskComplete") == 0) {
         // Physics-based RSU task completion — fire when exec_time elapses
@@ -499,28 +481,11 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 }
 
 void MyRSUApp::handleLowerMsg(cMessage* msg) {
-    std::cout << "\n*** CONSOLE: MyRSUApp - handleLowerMsg() CALLED at " 
-              << simTime() << " ***" << std::endl;
-    
-    BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
-    if (wsm) {
-        std::cout << "CONSOLE: MyRSUApp - Message IS BaseFrame1609_4, calling parent handler" 
-                  << std::endl;
-    } else {
-        std::cout << "CONSOLE: MyRSUApp - Message is NOT BaseFrame1609_4" << std::endl;
-    }
-    
     EV << "MyRSUApp: handleLowerMsg() called" << endl;
-    
-    // This will trigger onWSM if the message is appropriate
     DemoBaseApplLayer::handleLowerMsg(msg);
-    
-    std::cout << "CONSOLE: MyRSUApp - handleLowerMsg() completed\n" << std::endl;
 }
 
 void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
-    std::cout << "\n🔴 RSU SHADOW ANALYSIS - Message Reception at " << simTime() << std::endl;
-    
     // Check for task-related messages first
     TaskMetadataMessage* taskMetadata = dynamic_cast<TaskMetadataMessage*>(wsm);
     if (taskMetadata) {
@@ -546,8 +511,6 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     VehicleResourceStatusMessage* resourceStatus = dynamic_cast<VehicleResourceStatusMessage*>(wsm);
     if (resourceStatus) {
         EV_INFO << "📥 RSU received VehicleResourceStatusMessage" << endl;
-        std::cout << "RSU_MSG: Received VehicleResourceStatusMessage from vehicle " 
-                  << resourceStatus->getVehicle_id() << std::endl;
         handleVehicleResourceStatus(resourceStatus);
         return;
     }
@@ -610,111 +573,31 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
                 lifecycleEvent->getTarget_entity_id(),
                 lifecycleEvent->getEvent_details()
             );
-
-            std::cout << "LIFECYCLE_LOGGED: task=" << lifecycleEvent->getTask_id()
-                      << " event=" << lifecycleEvent->getEvent_type()
-                      << " time=" << lifecycleEvent->getEvent_time() << std::endl;
         }
 
         delete lifecycleEvent;
         return;
     }
 
-    // Original DemoSafetyMessage handling
+    // Original DemoSafetyMessage handling (regular vehicle beacons)
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
-    if(!dsm) {
-        std::cout << "CONSOLE: MyRSUApp - ERROR: Message is NOT DemoSafetyMessage!" 
-                  << std::endl;
+    if (!dsm) {
         return;
     }
-    
-    std::cout << "CONSOLE: MyRSUApp - ✓ Message IS DemoSafetyMessage" << std::endl;
-    
-    // Access REAL signal reception data from the simulation
-    Coord senderPos = dsm->getSenderPos();
-    Coord rsuPos = curPosition;
-    double distance = senderPos.distance(rsuPos);
-    
-    std::cout << "SHADOW: 📡 RSU RECEIVED signal from Vehicle:" << std::endl;
-    std::cout << "SHADOW: Sender position: (" << senderPos.x << "," << senderPos.y << ")" << std::endl;
-    std::cout << "SHADOW: RSU position: (" << rsuPos.x << "," << rsuPos.y << ")" << std::endl;
-    std::cout << "SHADOW: Distance: " << distance << " m" << std::endl;
-    
-    // Analyze if signal passed through obstacles
-    bool senderNearOfficeT = (senderPos.x >= 240 && senderPos.x <= 320 && senderPos.y >= 10 && senderPos.y <= 90);
-    bool senderNearOfficeC = (senderPos.x >= 110 && senderPos.x <= 190 && senderPos.y >= 10 && senderPos.y <= 90);
-    
-    if (senderNearOfficeT || senderNearOfficeC) {
-        std::string obstacleType = senderNearOfficeT ? "Office Tower" : "Office Complex";
-        std::cout << "SHADOW: 🏢 SIGNAL TRAVELED THROUGH " << obstacleType << "!" << std::endl;
-        std::cout << "SHADOW: Expected path loss: " << (20 * log10(distance) + 40) << " dB (free space)" << std::endl;
-        std::cout << "SHADOW: Plus obstacle loss: 18dB + shadowing up to 8dB" << std::endl;
-        std::cout << "SHADOW: ✅ Signal STRONG ENOUGH despite " << obstacleType << " attenuation!" << std::endl;
-    } else {
-        std::cout << "SHADOW: 🌐 CLEAR PATH from vehicle to RSU" << std::endl;
-        std::cout << "SHADOW: Expected path loss: " << (20 * log10(distance) + 40) << " dB (free space only)" << std::endl;
-        std::cout << "SHADOW: ✅ Optimal reception conditions" << std::endl;
-    }
-    
-    // Try to access actual signal measurements from the frame
-    if (dsm->getControlInfo()) {
-        cObject* controlInfo = dsm->getControlInfo();
-        std::cout << "SHADOW: Control info available: " << controlInfo->getClassName() << std::endl;
-        
-        // The real signal strength data should be in the control info
-        // This varies by Veins version but typically contains RSSI/SNR data
-        std::cout << "SHADOW: Real signal reception recorded by PHY layer" << std::endl;
-    }
-    
-    // Access the radio module to get actual reception parameters
-    cModule* nicModule = getSubmodule("nic");
-    if (nicModule) {
-        cModule* phyModule = nicModule->getSubmodule("phy80211p");
-        if (phyModule) {
-            std::cout << "SHADOW: PHY layer processed signal with real propagation models" << std::endl;
-            
-            // Get actual configured parameters from simulation
-            double sensitivity = -85.0;
-            double txPower = 20.0;
-            
-            if (phyModule->hasPar("sensitivity")) {
-                sensitivity = phyModule->par("sensitivity").doubleValue();
-                std::cout << "SHADOW: Actual sensitivity threshold: " << sensitivity << " dBm" << std::endl;
-            }
-            
-            // Since we received the message, it passed the sensitivity test
-            std::cout << "SHADOW: ✓ Signal PASSED sensitivity test (real simulation result)" << std::endl;
-            std::cout << "SHADOW: Real propagation models (TwoRay+LogNormal+Obstacles) applied" << std::endl;
-        }
-    }
-    
-    // Get payload from message name
-    const char* nm = dsm->getName();
-    std::string payload = nm ? std::string(nm) : std::string();
-    
-    std::cout << "CONSOLE: MyRSUApp - Raw payload length: " << payload.length() << std::endl;
-    std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
-    
-    EV << "RSU: Received message from vehicle at time " << simTime() << endl;
-    
-    // Note: Vehicle telemetry (position, speed) now comes with VehicleResourceStatusMessage
-    // This onWSM() handler primarily receives regular beacons
-    
-    std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
+
+    // Vehicle telemetry comes via VehicleResourceStatusMessage; this is just a beacon.
+    EV << "RSU: Received beacon from vehicle at time " << simTime() << endl;
 }
 
 void MyRSUApp::finish() {
-    std::cout << "\n=== CONSOLE: MyRSUApp - finish() called ===" << std::endl;
-    
     // Log final Digital Twin statistics
     logDigitalTwinState();
-    
+
     // Close Redis connection
     if (redis_twin) {
         EV_INFO << "Closing Redis Digital Twin connection..." << endl;
         delete redis_twin;
         redis_twin = nullptr;
-        std::cout << "✓ RSU[" << rsu_id << "] Redis connection closed" << std::endl;
     }
     
     // Close PostgreSQL connection
@@ -780,20 +663,11 @@ void MyRSUApp::finish() {
     vehicle_coverage_records.clear();
     secondary_last_export_time.clear();
 
-    // RSUHttpPoster disabled - using direct PostgreSQL insertion
-    // poster.stop();
-
-    std::cout << "CONSOLE: MyRSUApp - Finished successfully" << std::endl;
-    std::cout << "=== MyRSUApp FINISHED ===" << std::endl;
-    EV << "MyRSUApp: RSUHttpPoster stopped\n";
-
+    EV << "MyRSUApp: finished\n";
     DemoBaseApplLayer::finish();
 }
 
 void MyRSUApp::handleMessage(cMessage* msg) {
-    std::cout << "CONSOLE: MyRSUApp handleMessage() called with message: " << msg->getName()
-              << " at time " << simTime() << std::endl;
-
     // ========================================================================
     // HANDLE OFFLOADING REQUEST MESSAGES
     // ========================================================================
@@ -834,7 +708,6 @@ void MyRSUApp::handleMessage(cMessage* msg) {
 
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
-        std::cout << "CONSOLE: MyRSUApp handleMessage received BaseFrame1609_4! forwarding to onWSM()" << std::endl;
         onWSM(wsm);
         return;
     }
@@ -949,7 +822,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     // Better to have a periodic checker or one per task. 
     // For simplicity, let's just ensure the checker is running.
     if (!checkDecisionMsg->isScheduled()) {
-        scheduleAt(simTime() + 0.1, checkDecisionMsg);
+        scheduleAt(simTime() + 0.01, checkDecisionMsg);
     }
 }
 
@@ -1123,7 +996,8 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
             twin.cpu_available, twin.cpu_utilization,
             twin.mem_available, twin.mem_utilization,
             twin.current_queue_length, twin.current_processing_count,
-            simTime().dbl()
+            simTime().dbl(),
+            msg->getAcceleration()
         );
     }
     
@@ -3217,6 +3091,23 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
     EV_DEBUG << "  Event: " << event_type << endl;
     EV_DEBUG << "  Source: " << source << " → Target: " << target << endl;
     EV_DEBUG << "  Time: " << event_time << "s" << endl;
+
+    // Persist lifecycle events to Redis stream for real-time dashboard consumers.
+    // This handler is the common path for TaskOffloadingEvent in handleMessage(),
+    // so writing here prevents missing stream entries when onWSM() is bypassed.
+    if (redis_twin && use_redis) {
+        redis_twin->appendTaskLifecycleEvent(
+            task_id,
+            event_type,
+            event_time,
+            source,
+            target,
+            msg->getEvent_details()
+        );
+    } else {
+        EV_WARN << "Lifecycle event not written to Redis (disabled or disconnected): "
+                << event_type << " task=" << task_id << endl;
+    }
     
     // Store event in Digital Twin database
     insertTaskOffloadingEvent(msg);

@@ -208,6 +208,7 @@ private:
     // Offloaded tasks (awaiting results)
     std::map<std::string, Task*> offloadedTasks;  // task_id -> Task*
     std::map<std::string, std::string> offloadedTaskTargets;  // task_id -> target ("RSU" or vehicle_id)
+    std::map<std::string, cMessage*> offloadedTaskTimeouts;  // task_id -> timeout msg (cancel on result)
     
     // Timeout parameters
     simtime_t rsuDecisionTimeout = 1.0;            // Timeout for RSU decision response
