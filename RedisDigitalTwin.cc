@@ -66,24 +66,25 @@ void RedisDigitalTwin::updateVehicleState(
     double cpu_available, double cpu_utilization,
     double mem_available, double mem_utilization,
     int queue_length, int processing_count,
-    double sim_time)
+    double sim_time,
+    double acceleration)
 {
     if (!redis_ctx || !is_connected) return;
-    
+
     std::string key = "vehicle:" + vehicle_id + ":state";
-    
+
     // Use HSET to store as hash
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s pos_x %f pos_y %f speed %f heading %f "
         "cpu_available %f cpu_utilization %f "
         "mem_available %f mem_utilization %f "
         "queue_length %d processing_count %d "
-        "last_update %f",
+        "last_update %f acceleration %f",
         key.c_str(), pos_x, pos_y, speed, heading,
         cpu_available, cpu_utilization,
         mem_available, mem_utilization,
         queue_length, processing_count,
-        sim_time
+        sim_time, acceleration
     );
     
     if (reply) {

@@ -30,12 +30,13 @@ public:
     bool isConnected() const { return is_connected; }
     
     // Vehicle State Management
-    void updateVehicleState(const std::string& vehicle_id, 
+    void updateVehicleState(const std::string& vehicle_id,
                            double pos_x, double pos_y, double speed, double heading,
                            double cpu_available, double cpu_utilization,
                            double mem_available, double mem_utilization,
                            int queue_length, int processing_count,
-                           double sim_time);
+                           double sim_time,
+                           double acceleration = 0.0);
     
     std::map<std::string, std::string> getVehicleState(const std::string& vehicle_id);
     
@@ -116,6 +117,7 @@ public:
         double mem_available, mem_utilization;
         int queue_length, processing_count;
         double last_update;
+        double acceleration;
     };
     
     std::vector<VehicleSnapshot> getNearbyVehicles(double center_x, double center_y, 
