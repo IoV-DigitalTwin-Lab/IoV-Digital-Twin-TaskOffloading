@@ -408,6 +408,10 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
 {
     if (!redis_ctx || !is_connected) return;
 
+    // Ensure fail_reason is never blank for failures — default to UNKNOWN
+    const std::string& effective_reason = (!fail_reason.empty()) ? fail_reason
+        : (status != "COMPLETED_ON_TIME" ? "UNKNOWN" : "NONE");
+
     std::string key = "task:" + task_id + ":results";
 
     // Write four per-agent fields atomically: status, latency, energy, fail_reason
@@ -422,7 +426,7 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
         status_field.c_str(),  status.c_str(),
         latency_field.c_str(), total_latency,
         energy_field.c_str(),  energy_joules,
-        reason_field.c_str(),  fail_reason.c_str()
+        reason_field.c_str(),  effective_reason.c_str()
     );
 
     if (reply) {
@@ -437,7 +441,7 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
     if (reply) freeReplyObject(reply);
 
     EV_INFO << "✓ writeTaskResults: task=" << task_id << " agent=" << agent_name
-            << " status=" << status << " reason=" << fail_reason
+            << " status=" << status << " reason=" << effective_reason
             << " latency=" << total_latency << "s energy=" << energy_joules << "J" << std::endl;
 }
 

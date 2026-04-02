@@ -335,9 +335,6 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
                             EV_INFO << "✓ Found ML decision in PostgreSQL for task " << record.task_id
                                     << ": " << decision_type << endl;
-                            std::cout << "ML_DECISION_PG: Task " << record.task_id
-                                      << " -> " << decision_type
-                                      << " target=" << target_id << std::endl;
                         }
                         PQclear(res);
                     }
@@ -1450,6 +1447,15 @@ void MyRSUApp::initDatabase() {
     } else {
         EV_INFO << "✓ PostgreSQL connection established successfully" << endl;
         std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connected" << std::endl;
+
+        // Ensure acceleration column exists (idempotent — safe to run every startup)
+        PGresult* altRes = PQexec(db_conn,
+            "ALTER TABLE vehicle_status ADD COLUMN IF NOT EXISTS "
+            "acceleration DOUBLE PRECISION DEFAULT 0");
+        if (PQresultStatus(altRes) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ Could not add acceleration column: " << PQerrorMessage(db_conn) << endl;
+        }
+        PQclear(altRes);
     }
 }
 

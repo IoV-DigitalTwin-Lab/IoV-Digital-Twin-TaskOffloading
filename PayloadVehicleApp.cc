@@ -230,7 +230,12 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                 MetricsManager::getInstance().recordTaskFailed(task->type, latency);
             }
 
-            sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
+            // Distinguish timeout reason: SV left range vs RSU handover failure
+            auto targetIt = offloadedTaskTargets.find(task->task_id);
+            std::string target = (targetIt != offloadedTaskTargets.end()) ? targetIt->second : "";
+            std::string failReason = (target == "RSU") ? "HANDOVER_FAIL" : "SV_OUT_OF_RANGE";
+
+            sendTaskFailureToRSU(task, failReason);
             cleanupTaskEvents(task);
             delete task;
         }
