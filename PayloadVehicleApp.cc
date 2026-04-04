@@ -2877,6 +2877,12 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
 
         std::string sub_id = task->task_id + "::" + agent_name;
 
+        // Pass remaining deadline so the target node uses accurate timing.
+        // Using original relative_deadline would give the SV/RSU a full 0.5s
+        // even though 0.1-0.3s has already elapsed — corrupting deadline checks.
+        double elapsed_s = (simTime() - task->created_time).dbl();
+        double remaining_deadline_s = std::max(0.001, task->relative_deadline - elapsed_s);
+
         if (target_type == "RSU") {
             // Send to the dispatch RSU (TV's RSU) for local processing.
             // If target_id != this RSU, the route hint will forward it.
@@ -2887,7 +2893,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
             pkt->setOffload_time(simTime().dbl());
             pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
             pkt->setCpu_cycles(task->cpu_cycles);
-            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setDeadline_seconds(remaining_deadline_s);
             pkt->setQos_value(task->qos_value);
             pkt->setTask_input_data("{}");  // no route hint — goes to TV's nearest RSU
 
@@ -2913,7 +2919,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
                 pkt->setOffload_time(simTime().dbl());
                 pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
                 pkt->setCpu_cycles(task->cpu_cycles);
-                pkt->setDeadline_seconds(task->relative_deadline);
+                pkt->setDeadline_seconds(remaining_deadline_s);
                 pkt->setQos_value(task->qos_value);
                 pkt->setTask_input_data("{}");
                 LAddress::L2Type rsuMac = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
@@ -2933,7 +2939,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
             pkt->setOffload_time(simTime().dbl());
             pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
             pkt->setCpu_cycles(task->cpu_cycles);
-            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setDeadline_seconds(remaining_deadline_s);
             pkt->setQos_value(task->qos_value);
 
             // Try direct V2V first; fall back to infrastructure relay via TV's RSU
@@ -3332,7 +3338,7 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     std::string routeHint = buildRouteHint(ingressRsuMac, processorRsuMac);
     packet->setTask_input_data(routeHint.c_str());
@@ -3375,7 +3381,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
     
@@ -3406,7 +3412,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     std::string hint = buildServiceRouteHint(serviceMac, anchorRsuMac, myId);
     packet->setTask_input_data(hint.c_str());

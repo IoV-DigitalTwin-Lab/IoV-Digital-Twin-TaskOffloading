@@ -216,6 +216,10 @@ void MyRSUApp::initialize(int stage) {
         beaconMsg = new cMessage("sendMessage");
         scheduleAt(simTime() + 2.0, beaconMsg);
 
+        // Schedule periodic terminal progress printer
+        progressMsg_ = new cMessage("simProgress");
+        scheduleAt(simTime() + kProgressIntervalS, progressMsg_);
+
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
         EV << "MyRSUApp: Direct PostgreSQL insertion enabled\n";
     }
@@ -246,6 +250,27 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         // Reschedule next broadcast
         scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
     } 
+    else if (strcmp(msg->getName(), "simProgress") == 0) {
+        // Print per-agent results summary to stdout
+        static const std::vector<std::string> kAgents =
+            {"ddqn", "random", "greedy_comp", "min_latency", "least_queue"};
+        std::cout << "\n=== SIM PROGRESS t=" << simTime().dbl()
+                  << "s | RSU_" << rsu_id
+                  << " | rsu_tasks_processed=" << rsu_tasks_processed
+                  << " pending=" << rsu_processing_count << " ===\n";
+        for (const auto& a : kAgents) {
+            int ok   = agent_ok_.count(a)   ? agent_ok_.at(a)   : 0;
+            int fail = agent_fail_.count(a) ? agent_fail_.at(a) : 0;
+            int tot  = ok + fail;
+            double sr = tot ? 100.0 * ok / tot : 0.0;
+            std::cout << "  " << std::left << std::setw(12) << a
+                      << " OK=" << std::setw(5) << ok
+                      << " FAIL=" << std::setw(5) << fail
+                      << " (" << std::fixed << std::setprecision(1) << sr << "%)\n";
+        }
+        std::cout << "===\n";
+        scheduleAt(simTime() + kProgressIntervalS, progressMsg_);
+    }
     else if (msg == checkDecisionMsg) {
         // Poll Redis first (fast), fallback to PostgreSQL if needed
         int decisions_found = 0;
@@ -428,6 +453,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 std::string fail_reason = (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
                 redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason);
+                trackAgentResult(agent_name, status);
                 std::cout << "AGENT_RESULT: orig=" << orig_id << " agent=" << agent_name
                           << " status=" << status << " reason=" << fail_reason
                           << " latency=" << total_latency << "s" << std::endl;
@@ -455,6 +481,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 double energy_j = 2e-27 * f_hz * f_hz * static_cast<double>(pending.cpu_cycles);
                 redis_twin->writeTaskResults(task_id, "ddqn", ddqn_status,
                                              total_latency, energy_j, ddqn_reason);
+                trackAgentResult("ddqn", ddqn_status);
                 std::cout << "AGENT_RESULT: orig=" << task_id << " agent=ddqn"
                           << " status=" << ddqn_status << " reason=" << ddqn_reason
                           << " latency=" << total_latency << "s" << std::endl;
@@ -913,6 +940,13 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
                 "",
                 reason
             );
+            // Also write to task:{id}:results hash so DRL's check_results_nonblocking()
+            // detects this failure immediately (it polls :results, not :status).
+            // Without this, the DRL waits 15+ real-seconds then marks it TIMEOUT,
+            // polluting all fail-reason TensorBoard curves with wrong reason codes.
+            double wasted = msg->getWasted_time();
+            redis_twin->writeTaskResults(task_id, "ddqn", "FAILED", wasted, 0.0, reason);
+            trackAgentResult("ddqn", "FAILED");
         }
         
         // Insert into PostgreSQL database
@@ -2974,6 +3008,7 @@ void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
                                        : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
         redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason_relay);
+        trackAgentResult(agent_name, status);
         std::cout << "AGENT_RELAY_RESULT: orig=" << orig_id << " agent=" << agent_name
                   << " status=" << status << " reason=" << fail_reason_relay
                   << " latency=" << total_latency << "s" << std::endl;
@@ -3042,6 +3077,7 @@ void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress:
                                 : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
         redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason);
+        trackAgentResult(agent_name, status);
         std::cout << "AGENT_RESULT: orig=" << orig_id << " agent=" << agent_name
                   << " status=" << status << " reason=" << fail_reason
                   << " latency=" << total_latency << "s" << std::endl;
@@ -3172,6 +3208,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                                     : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
         redis_twin->writeTaskResults(orig_id, agent_name, status, total_latency, energy_j, fail_reason_sv);
+        trackAgentResult(agent_name, status);
         std::cout << "AGENT_SV_RESULT: orig=" << orig_id << " agent=" << agent_name
                   << " status=" << status << " reason=" << fail_reason_sv
                   << " latency=" << total_latency << "s" << std::endl;
@@ -3322,6 +3359,7 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                 }
                 redis_twin->writeTaskResults(task_id, "ddqn", ddqn_status,
                                              total_latency, energy_j, ddqn_reason);
+                trackAgentResult("ddqn", ddqn_status);
                 std::cout << "AGENT_RESULT: orig=" << task_id << " agent=ddqn"
                           << " status=" << ddqn_status << " reason=" << ddqn_reason
                           << " latency=" << total_latency << "s" << std::endl;
@@ -3798,6 +3836,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
             if (rsu_processing_count >= rsu_max_concurrent) {
                 redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
                                              record.deadline_seconds, 0.0, "RSU_QUEUE_FULL");
+                trackAgentResult(agent_name, "FAILED");
                 std::cout << "AGENT_SUBTASK: " << sub_id << " REJECTED (RSU full)" << std::endl;
                 return;
             }
@@ -3841,6 +3880,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
             if (it == neighbor_rsus.end()) {
                 redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
                                              record.deadline_seconds, 0.0, "NEIGHBOR_RSU_UNKNOWN");
+                trackAgentResult(agent_name, "FAILED");
                 std::cout << "AGENT_SUBTASK: " << sub_id
                           << " FAILED (neighbor " << target_id << " unknown)" << std::endl;
                 return;
@@ -3875,6 +3915,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
         if (macIt == vehicle_macs.end()) {
             redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
                                          record.deadline_seconds, 0.0, "SV_MAC_UNKNOWN");
+            trackAgentResult(agent_name, "FAILED");
             std::cout << "AGENT_SUBTASK: " << sub_id
                       << " FAILED (SV " << target_id << " MAC unknown)" << std::endl;
             return;
@@ -3907,6 +3948,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
         // Unknown target type → write FAILED immediately
         redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
                                      record.deadline_seconds, 0.0, "UNKNOWN_TARGET");
+        trackAgentResult(agent_name, "FAILED");
         std::cout << "AGENT_SUBTASK: " << sub_id
                   << " FAILED (unknown target_type=" << target_type << ")" << std::endl;
     }

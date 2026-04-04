@@ -203,6 +203,12 @@ private:
     
     // Decision polling timer (for reading ML decisions from database)
     cMessage* checkDecisionMsg = nullptr;
+
+    // Periodic terminal progress printer
+    cMessage* progressMsg_ = nullptr;
+    static constexpr double kProgressIntervalS = 30.0;
+    std::map<std::string, int> agent_ok_;    // agent_name → success count
+    std::map<std::string, int> agent_fail_;  // agent_name → fail count
     
     // RSU status broadcast timer (for RSU-to-RSU communication)
     cMessage* rsu_broadcast_timer = nullptr;
@@ -501,6 +507,12 @@ private:
     double calculateProcessingTime(const RSUActiveTask& task);
     void deallocateTaskResources(const RSUActiveTask& task);
     void checkDeadlineAndNotify(const RSUActiveTask& task);
+
+    // Track agent result for progress printer
+    void trackAgentResult(const std::string& agent_name, const std::string& status) {
+        if (status == "COMPLETED_ON_TIME") agent_ok_[agent_name]++;
+        else agent_fail_[agent_name]++;
+    }
 };
 
 } // namespace complex_network
