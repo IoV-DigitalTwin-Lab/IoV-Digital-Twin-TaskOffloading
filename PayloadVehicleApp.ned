@@ -63,7 +63,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         int maxConcurrentServiceTasks = default(3);           // Max tasks to process for others
         double serviceCpuReservation = default(0.3);          // CPU reserved for service (30%)
         double serviceMemoryReservation = default(512e6);     // Memory reserved for service (512 MB)
-        double serviceDirectRssiThresholdDbm = default(-72);  // Direct V2V threshold for TV<->SV and SV<->TV
+        double serviceDirectRssiThresholdDbm = default(-85);  // Direct V2V threshold for TV<->SV and SV<->TV (IEEE 802.11p typical: -85 to -90 dBm)
         
         // ============================================================================
         // MULTI-RSU CANDIDATE SELECTION & REDIRECT PARAMETERS

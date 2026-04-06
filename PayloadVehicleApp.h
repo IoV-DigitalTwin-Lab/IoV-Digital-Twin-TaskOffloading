@@ -274,7 +274,7 @@ private:
     std::set<Task*> processingServiceTasks;  // Currently processing service tasks
     std::map<std::string, std::string> serviceTaskOriginVehicles;  // task_id -> origin_vehicle_id
     std::map<std::string, veins::LAddress::L2Type> serviceTaskOriginMACs;  // task_id -> origin_mac
-    double serviceDirectRssiThresholdDbm = -72.0;   // direct TV<->SV/SV<->TV threshold
+    double serviceDirectRssiThresholdDbm = -85.0;   // direct TV<->SV/SV<->TV threshold (IEEE 802.11p: -85 to -90 dBm for ~300m range)
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);

@@ -821,7 +821,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
         try {
             serviceDirectRssiThresholdDbm = par("serviceDirectRssiThresholdDbm").doubleValue();
         } catch (...) {
-            serviceDirectRssiThresholdDbm = -72.0;
+            serviceDirectRssiThresholdDbm = -85.0;  // IEEE 802.11p typical: -85 to -90 dBm
         }
         EV_INFO << "✓ Service vehicle mode ENABLED (can process tasks for others)" << endl;
         std::cout << "SERVICE_VEHICLE: Vehicle " << getParentModule()->getIndex() 
