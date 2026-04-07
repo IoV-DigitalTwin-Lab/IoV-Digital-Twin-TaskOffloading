@@ -1283,6 +1283,11 @@ void TaskCompletionMessage::copy(const TaskCompletionMessage& other)
     this->processing_time = other.processing_time;
     this->completed_on_time = other.completed_on_time;
     this->cpu_allocated = other.cpu_allocated;
+    this->is_local_execution = other.is_local_execution;
+    this->task_type_name = other.task_type_name;
+    this->qos_value = other.qos_value;
+    this->deadline_seconds = other.deadline_seconds;
+    this->failure_reason = other.failure_reason;
 }
 
 void TaskCompletionMessage::parsimPack(omnetpp::cCommBuffer *b) const
@@ -1294,6 +1299,11 @@ void TaskCompletionMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->processing_time);
     doParsimPacking(b,this->completed_on_time);
     doParsimPacking(b,this->cpu_allocated);
+    doParsimPacking(b,this->is_local_execution);
+    doParsimPacking(b,this->task_type_name);
+    doParsimPacking(b,this->qos_value);
+    doParsimPacking(b,this->deadline_seconds);
+    doParsimPacking(b,this->failure_reason);
 }
 
 void TaskCompletionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -1305,6 +1315,11 @@ void TaskCompletionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->processing_time);
     doParsimUnpacking(b,this->completed_on_time);
     doParsimUnpacking(b,this->cpu_allocated);
+    doParsimUnpacking(b,this->is_local_execution);
+    doParsimUnpacking(b,this->task_type_name);
+    doParsimUnpacking(b,this->qos_value);
+    doParsimUnpacking(b,this->deadline_seconds);
+    doParsimUnpacking(b,this->failure_reason);
 }
 
 const char * TaskCompletionMessage::getTask_id() const
@@ -1367,6 +1382,56 @@ void TaskCompletionMessage::setCpu_allocated(double cpu_allocated)
     this->cpu_allocated = cpu_allocated;
 }
 
+bool TaskCompletionMessage::getIs_local_execution() const
+{
+    return this->is_local_execution;
+}
+
+void TaskCompletionMessage::setIs_local_execution(bool is_local_execution)
+{
+    this->is_local_execution = is_local_execution;
+}
+
+const char * TaskCompletionMessage::getTask_type_name() const
+{
+    return this->task_type_name.c_str();
+}
+
+void TaskCompletionMessage::setTask_type_name(const char * task_type_name)
+{
+    this->task_type_name = task_type_name;
+}
+
+double TaskCompletionMessage::getQos_value() const
+{
+    return this->qos_value;
+}
+
+void TaskCompletionMessage::setQos_value(double qos_value)
+{
+    this->qos_value = qos_value;
+}
+
+double TaskCompletionMessage::getDeadline_seconds() const
+{
+    return this->deadline_seconds;
+}
+
+void TaskCompletionMessage::setDeadline_seconds(double deadline_seconds)
+{
+    this->deadline_seconds = deadline_seconds;
+}
+
+const char * TaskCompletionMessage::getFailure_reason() const
+{
+    return this->failure_reason.c_str();
+}
+
+void TaskCompletionMessage::setFailure_reason(const char * failure_reason)
+{
+    this->failure_reason = failure_reason;
+}
+
 class TaskCompletionMessageDescriptor : public omnetpp::cClassDescriptor
 {
   private:
@@ -1378,6 +1443,11 @@ class TaskCompletionMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_processing_time,
         FIELD_completed_on_time,
         FIELD_cpu_allocated,
+        FIELD_is_local_execution,
+        FIELD_task_type_name,
+        FIELD_qos_value,
+        FIELD_deadline_seconds,
+        FIELD_failure_reason,
     };
   public:
     TaskCompletionMessageDescriptor();
@@ -1444,7 +1514,7 @@ const char *TaskCompletionMessageDescriptor::getProperty(const char *propertyNam
 int TaskCompletionMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 6+base->getFieldCount() : 6;
+    return base ? 11+base->getFieldCount() : 11;
 }
 
 unsigned int TaskCompletionMessageDescriptor::getFieldTypeFlags(int field) const
@@ -1462,8 +1532,13 @@ unsigned int TaskCompletionMessageDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_processing_time
         FD_ISEDITABLE,    // FIELD_completed_on_time
         FD_ISEDITABLE,    // FIELD_cpu_allocated
+        FD_ISEDITABLE,    // FIELD_is_local_execution
+        FD_ISEDITABLE,    // FIELD_task_type_name
+        FD_ISEDITABLE,    // FIELD_qos_value
+        FD_ISEDITABLE,    // FIELD_deadline_seconds
+        FD_ISEDITABLE,    // FIELD_failure_reason
     };
-    return (field >= 0 && field < 6) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 11) ? fieldTypeFlags[field] : 0;
 }
 
 const char *TaskCompletionMessageDescriptor::getFieldName(int field) const
@@ -1481,8 +1556,13 @@ const char *TaskCompletionMessageDescriptor::getFieldName(int field) const
         "processing_time",
         "completed_on_time",
         "cpu_allocated",
+        "is_local_execution",
+        "task_type_name",
+        "qos_value",
+        "deadline_seconds",
+        "failure_reason",
     };
-    return (field >= 0 && field < 6) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 11) ? fieldNames[field] : nullptr;
 }
 
 int TaskCompletionMessageDescriptor::findField(const char *fieldName) const
@@ -1495,6 +1575,11 @@ int TaskCompletionMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "processing_time") == 0) return baseIndex + 3;
     if (strcmp(fieldName, "completed_on_time") == 0) return baseIndex + 4;
     if (strcmp(fieldName, "cpu_allocated") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "is_local_execution") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "task_type_name") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "qos_value") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "failure_reason") == 0) return baseIndex + 10;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -1513,8 +1598,13 @@ const char *TaskCompletionMessageDescriptor::getFieldTypeString(int field) const
         "double",    // FIELD_processing_time
         "bool",    // FIELD_completed_on_time
         "double",    // FIELD_cpu_allocated
+        "bool",    // FIELD_is_local_execution
+        "string",    // FIELD_task_type_name
+        "double",    // FIELD_qos_value
+        "double",    // FIELD_deadline_seconds
+        "string",    // FIELD_failure_reason
     };
-    return (field >= 0 && field < 6) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 11) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **TaskCompletionMessageDescriptor::getFieldPropertyNames(int field) const
@@ -1603,6 +1693,11 @@ std::string TaskCompletionMessageDescriptor::getFieldValueAsString(omnetpp::any_
         case FIELD_processing_time: return double2string(pp->getProcessing_time());
         case FIELD_completed_on_time: return bool2string(pp->getCompleted_on_time());
         case FIELD_cpu_allocated: return double2string(pp->getCpu_allocated());
+        case FIELD_is_local_execution: return bool2string(pp->getIs_local_execution());
+        case FIELD_task_type_name: return oppstring2string(pp->getTask_type_name());
+        case FIELD_qos_value: return double2string(pp->getQos_value());
+        case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
+        case FIELD_failure_reason: return oppstring2string(pp->getFailure_reason());
         default: return "";
     }
 }
@@ -1625,6 +1720,11 @@ void TaskCompletionMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr obj
         case FIELD_processing_time: pp->setProcessing_time(string2double(value)); break;
         case FIELD_completed_on_time: pp->setCompleted_on_time(string2bool(value)); break;
         case FIELD_cpu_allocated: pp->setCpu_allocated(string2double(value)); break;
+        case FIELD_is_local_execution: pp->setIs_local_execution(string2bool(value)); break;
+        case FIELD_task_type_name: pp->setTask_type_name((value)); break;
+        case FIELD_qos_value: pp->setQos_value(string2double(value)); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
+        case FIELD_failure_reason: pp->setFailure_reason((value)); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskCompletionMessage'", field);
     }
 }
@@ -1645,6 +1745,11 @@ omnetpp::cValue TaskCompletionMessageDescriptor::getFieldValue(omnetpp::any_ptr 
         case FIELD_processing_time: return pp->getProcessing_time();
         case FIELD_completed_on_time: return pp->getCompleted_on_time();
         case FIELD_cpu_allocated: return pp->getCpu_allocated();
+        case FIELD_is_local_execution: return pp->getIs_local_execution();
+        case FIELD_task_type_name: return pp->getTask_type_name();
+        case FIELD_qos_value: return pp->getQos_value();
+        case FIELD_deadline_seconds: return pp->getDeadline_seconds();
+        case FIELD_failure_reason: return pp->getFailure_reason();
         default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'TaskCompletionMessage' as cValue -- field index out of range?", field);
     }
 }
@@ -1667,6 +1772,11 @@ void TaskCompletionMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int
         case FIELD_processing_time: pp->setProcessing_time(value.doubleValue()); break;
         case FIELD_completed_on_time: pp->setCompleted_on_time(value.boolValue()); break;
         case FIELD_cpu_allocated: pp->setCpu_allocated(value.doubleValue()); break;
+        case FIELD_is_local_execution: pp->setIs_local_execution(value.boolValue()); break;
+        case FIELD_task_type_name: pp->setTask_type_name(value.stringValue()); break;
+        case FIELD_qos_value: pp->setQos_value(value.doubleValue()); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
+        case FIELD_failure_reason: pp->setFailure_reason(value.stringValue()); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskCompletionMessage'", field);
     }
 }
@@ -2260,6 +2370,16 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->deadline_miss_ratio);
 }
 
+const LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void VehicleResourceStatusMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
+{
+    this->senderAddress = senderAddress;
+}
+
 const char * VehicleResourceStatusMessage::getVehicle_id() const
 {
     return this->vehicle_id.c_str();
@@ -2480,21 +2600,12 @@ void VehicleResourceStatusMessage::setDeadline_miss_ratio(double deadline_miss_r
     this->deadline_miss_ratio = deadline_miss_ratio;
 }
 
-const ::veins::LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
-{
-    return this->senderAddress;
-}
-
-void VehicleResourceStatusMessage::setSenderAddress(::veins::LAddress::L2Type senderAddress)
-{
-    this->senderAddress = senderAddress;
-}
-
 class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
 {
   private:
     mutable const char **propertyNames;
     enum FieldConstants {
+        FIELD_senderAddress,
         FIELD_vehicle_id,
         FIELD_pos_x,
         FIELD_pos_y,
@@ -2583,7 +2694,7 @@ const char *VehicleResourceStatusMessageDescriptor::getProperty(const char *prop
 int VehicleResourceStatusMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 22+base->getFieldCount() : 22;
+    return base ? 23+base->getFieldCount() : 23;
 }
 
 unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field) const
@@ -2595,6 +2706,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         field -= base->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
+        0,    // FIELD_senderAddress
         FD_ISEDITABLE,    // FIELD_vehicle_id
         FD_ISEDITABLE,    // FIELD_pos_x
         FD_ISEDITABLE,    // FIELD_pos_y
@@ -2618,7 +2730,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_avg_completion_time
         FD_ISEDITABLE,    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 22) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 23) ? fieldTypeFlags[field] : 0;
 }
 
 const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) const
@@ -2630,6 +2742,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         field -= base->getFieldCount();
     }
     static const char *fieldNames[] = {
+        "senderAddress",
         "vehicle_id",
         "pos_x",
         "pos_y",
@@ -2653,35 +2766,36 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "avg_completion_time",
         "deadline_miss_ratio",
     };
-    return (field >= 0 && field < 22) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 23) ? fieldNames[field] : nullptr;
 }
 
 int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
     int baseIndex = base ? base->getFieldCount() : 0;
-    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 0;
-    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 1;
-    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 2;
-    if (strcmp(fieldName, "speed") == 0) return baseIndex + 3;
-    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 4;
-    if (strcmp(fieldName, "heading") == 0) return baseIndex + 5;
-    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 6;
-    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 7;
-    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 8;
-    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 9;
-    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 10;
-    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 11;
-    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 12;
-    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 13;
-    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 14;
-    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 15;
-    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 16;
-    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 17;
-    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 18;
-    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 19;
-    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 20;
-    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "senderAddress") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "speed") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "heading") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 13;
+    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 14;
+    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 15;
+    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 16;
+    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 17;
+    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 18;
+    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 22;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -2694,6 +2808,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         field -= base->getFieldCount();
     }
     static const char *fieldTypeStrings[] = {
+        "veins::LAddress::L2Type",    // FIELD_senderAddress
         "string",    // FIELD_vehicle_id
         "double",    // FIELD_pos_x
         "double",    // FIELD_pos_y
@@ -2717,7 +2832,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_avg_completion_time
         "double",    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 22) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 23) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **VehicleResourceStatusMessageDescriptor::getFieldPropertyNames(int field) const
@@ -2800,6 +2915,7 @@ std::string VehicleResourceStatusMessageDescriptor::getFieldValueAsString(omnetp
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return "";
         case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
         case FIELD_pos_x: return double2string(pp->getPos_x());
         case FIELD_pos_y: return double2string(pp->getPos_y());
@@ -2874,6 +2990,7 @@ omnetpp::cValue VehicleResourceStatusMessageDescriptor::getFieldValue(omnetpp::a
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
         case FIELD_vehicle_id: return pp->getVehicle_id();
         case FIELD_pos_x: return pp->getPos_x();
         case FIELD_pos_y: return pp->getPos_y();
@@ -2961,6 +3078,7 @@ omnetpp::any_ptr VehicleResourceStatusMessageDescriptor::getFieldStructValuePoin
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
         default: return omnetpp::any_ptr(nullptr);
     }
 }
@@ -4059,6 +4177,7 @@ class OffloadingDecisionMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_redirect_target_rsu_mac,
         FIELD_redirect_target_rsu_id,
         FIELD_next_candidate_index,
+        FIELD_agentDecisions,
     };
   public:
     OffloadingDecisionMessageDescriptor();
@@ -4125,7 +4244,7 @@ const char *OffloadingDecisionMessageDescriptor::getProperty(const char *propert
 int OffloadingDecisionMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 13+base->getFieldCount() : 13;
+    return base ? 14+base->getFieldCount() : 14;
 }
 
 unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) const
@@ -4150,8 +4269,9 @@ unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) c
         FD_ISEDITABLE,    // FIELD_redirect_target_rsu_mac
         FD_ISEDITABLE,    // FIELD_redirect_target_rsu_id
         FD_ISEDITABLE,    // FIELD_next_candidate_index
+        FD_ISEDITABLE,    // FIELD_agentDecisions
     };
-    return (field >= 0 && field < 13) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 14) ? fieldTypeFlags[field] : 0;
 }
 
 const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
@@ -4176,8 +4296,9 @@ const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
         "redirect_target_rsu_mac",
         "redirect_target_rsu_id",
         "next_candidate_index",
+        "agentDecisions",
     };
-    return (field >= 0 && field < 13) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 14) ? fieldNames[field] : nullptr;
 }
 
 int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
@@ -4197,6 +4318,7 @@ int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "redirect_target_rsu_mac") == 0) return baseIndex + 10;
     if (strcmp(fieldName, "redirect_target_rsu_id") == 0) return baseIndex + 11;
     if (strcmp(fieldName, "next_candidate_index") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "agentDecisions") == 0) return baseIndex + 13;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -4222,8 +4344,9 @@ const char *OffloadingDecisionMessageDescriptor::getFieldTypeString(int field) c
         "uint64_t",    // FIELD_redirect_target_rsu_mac
         "string",    // FIELD_redirect_target_rsu_id
         "int",    // FIELD_next_candidate_index
+        "string",    // FIELD_agentDecisions
     };
-    return (field >= 0 && field < 13) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 14) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **OffloadingDecisionMessageDescriptor::getFieldPropertyNames(int field) const
@@ -4319,6 +4442,7 @@ std::string OffloadingDecisionMessageDescriptor::getFieldValueAsString(omnetpp::
         case FIELD_redirect_target_rsu_mac: return uint642string(pp->getRedirect_target_rsu_mac());
         case FIELD_redirect_target_rsu_id: return oppstring2string(pp->getRedirect_target_rsu_id());
         case FIELD_next_candidate_index: return long2string(pp->getNext_candidate_index());
+        case FIELD_agentDecisions: return oppstring2string(pp->getAgentDecisions());
         default: return "";
     }
 }
@@ -4347,6 +4471,7 @@ void OffloadingDecisionMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr
         case FIELD_redirect_target_rsu_mac: pp->setRedirect_target_rsu_mac(string2uint64(value)); break;
         case FIELD_redirect_target_rsu_id: pp->setRedirect_target_rsu_id((value)); break;
         case FIELD_next_candidate_index: pp->setNext_candidate_index(string2long(value)); break;
+        case FIELD_agentDecisions: pp->setAgentDecisions((value)); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
     }
 }
@@ -4374,6 +4499,7 @@ omnetpp::cValue OffloadingDecisionMessageDescriptor::getFieldValue(omnetpp::any_
         case FIELD_redirect_target_rsu_mac: return (omnetpp::intval_t)(pp->getRedirect_target_rsu_mac());
         case FIELD_redirect_target_rsu_id: return pp->getRedirect_target_rsu_id();
         case FIELD_next_candidate_index: return pp->getNext_candidate_index();
+        case FIELD_agentDecisions: return pp->getAgentDecisions();
         default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'OffloadingDecisionMessage' as cValue -- field index out of range?", field);
     }
 }
@@ -4402,6 +4528,7 @@ void OffloadingDecisionMessageDescriptor::setFieldValue(omnetpp::any_ptr object,
         case FIELD_redirect_target_rsu_mac: pp->setRedirect_target_rsu_mac(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_redirect_target_rsu_id: pp->setRedirect_target_rsu_id(value.stringValue()); break;
         case FIELD_next_candidate_index: pp->setNext_candidate_index(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_agentDecisions: pp->setAgentDecisions(value.stringValue()); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
     }
 }

@@ -780,12 +780,10 @@ void PayloadVehicleApp::initializeTaskSystem() {
     
     // Check if offloading is enabled
     offloadingEnabled = par("offloadingEnabled").boolValue();
-    forceOffload = par("force_offload").boolValue();
-    if (forceOffload) {
-        EV_INFO << "⚡ Force-offload mode ENABLED - all tasks will be sent to RSU/SV" << endl;
-        std::cout << "OFFLOADING: Force-offload mode ON for vehicle "
-                  << getParentModule()->getIndex() << std::endl;
-    }
+    offloadMode = par("offloadMode").stringValue();
+    EV_INFO << "⚡ Offload mode: " << offloadMode << endl;
+    std::cout << "OFFLOADING: mode=" << offloadMode << " for vehicle "
+              << getParentModule()->getIndex() << std::endl;
     
     if (offloadingEnabled) {
         // Initialize decision maker
@@ -963,6 +961,34 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     // OFFLOADING DECISION INTEGRATION
     // ============================================================================
     
+    // ── allLocal mode: all tasks execute locally, bypass RSU entirely ──────────
+    if (offloadMode == "allLocal") {
+        sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"reason\":\"ALL_LOCAL_MODE\"}");
+        if (!canAcceptTask(task)) {
+            EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "REJECTED");
+            cleanupTaskEvents(task);
+            delete task;
+            logTaskStatistics();
+            return;
+        }
+        if (canStartProcessing(task)) {
+            EV_INFO << "✓ allLocal: starting immediately" << endl;
+            allocateResourcesAndStart(task);
+        } else {
+            EV_INFO << "⏸ allLocal: resources busy, queuing" << endl;
+            task->state = QUEUED;
+            task->queue_entry_time = simTime();
+            pending_tasks.push(task);
+        }
+        logResourceState("After task generation (allLocal)");
+        return;
+    }
+
     if (!task->is_offloadable) {
         // Task is marked as local-only (e.g. LOCAL_OBJECT_DETECTION).
         // Do NOT send metadata over the air — saves wireless bandwidth.
@@ -973,7 +999,28 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
             "{\"reason\":\"NON_OFFLOADABLE\"}");
     }
-    
+
+    // ── allOffload mode: offloadable tasks skip Gate-A/B, always go to RSU ──
+    if (offloadMode == "allOffload" && task->is_offloadable) {
+        sendTaskMetadataToRSU(task);
+        task->state = METADATA_SENT;
+        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+            "{\"reason\":\"ALL_OFFLOAD_MODE\"}");
+        GateBDecisionResult gateResult;
+        gateResult.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        gateResult.classification = GateBClassification::MUST_OFFLOAD;
+        gateResult.reason = "ALL_OFFLOAD_MODE";
+        gateResult.t_local_seconds = 0.0;
+        sendOffloadingRequestToRSU(task, OffloadingDecision::OFFLOAD_TO_RSU, gateResult);
+        cMessage* toMsg = new cMessage("rsuDecisionTimeout");
+        toMsg->setContextPointer(task);
+        scheduleAt(simTime() + rsuDecisionTimeout.dbl(), toMsg);
+        pendingDecisionTimeouts[task->task_id] = toMsg;
+        logResourceState("After task generation (allOffload)");
+        return;
+    }
+
     if (offloadingEnabled && decisionMaker && task->is_offloadable) {
         // Step 6: metadata transmission is deferred until offload is actually committed.
         EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
@@ -1729,12 +1776,9 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     }
     task->logTaskInfo("Task completed");
 
-    // Send completion notification to RSU with timing data
-    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
-                            true, on_time, 
-                            task->mem_footprint_bytes, task->cpu_cycles, 
-                            task->qos_value, "completed");
-    
+    // Send local completion notification to RSU (writes local_result to Redis)
+    sendTaskCompletionToRSU(task);
+
     // Reallocate CPU to remaining tasks
     reallocateCPUResources();
     
@@ -1806,12 +1850,9 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     
     task->logTaskInfo("Task failed - deadline expired");
     
-    // Send completion report for failed task (for completion rate calculation)
-    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
-                            false, false, 
-                            task->mem_footprint_bytes, task->cpu_cycles, 
-                            task->qos_value, "deadline_missed");
-    
+    // Send local completion report for failed task (writes local_result to Redis)
+    sendTaskCompletionToRSU(task);
+
     // Send failure notification to RSU
     sendTaskFailureToRSU(task, "DEADLINE_MISSED");
     
@@ -1869,16 +1910,30 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
 }
 
 void PayloadVehicleApp::sendTaskCompletionToRSU(Task* task) {
-    EV_INFO << "📤 Sending task completion notification to RSU" << endl;
-    
+    EV_INFO << "📤 Sending local task completion to RSU: " << task->task_id << endl;
+
+    bool on_time = (task->state == COMPLETED_ON_TIME);
+    bool success = (task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
+    std::string fail_reason = success ? "NONE" : "DEADLINE_MISSED";
+
     TaskCompletionMessage* msg = new TaskCompletionMessage();
     msg->setTask_id(task->task_id.c_str());
     msg->setVehicle_id(task->vehicle_id.c_str());
     msg->setCompletion_time(task->completion_time.dbl());
     msg->setProcessing_time((task->completion_time - task->processing_start_time).dbl());
-    msg->setCompleted_on_time(task->state == COMPLETED_ON_TIME);
+    msg->setCompleted_on_time(on_time);
     msg->setCpu_allocated(task->cpu_allocated);
-    
+
+    // Local-execution metadata so RSU can write task:{id}:local_result to Redis
+    msg->setIs_local_execution(true);
+    msg->setTask_type_name(TaskProfileDatabase::getTaskTypeName(task->type).c_str());
+    msg->setQos_value(task->qos_value);
+    msg->setDeadline_seconds(task->relative_deadline);
+    msg->setFailure_reason(fail_reason.c_str());
+
+    // Clean up any timing entry that was created for this task
+    taskTimings.erase(task->task_id);
+
     LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);

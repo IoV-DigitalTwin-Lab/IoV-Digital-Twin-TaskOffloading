@@ -58,6 +58,7 @@ simple MyRSUApp like IBaseApplLayer
         // Offloading Decision Parameters
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
+        string offloadMode = default("heuristic");                    // "heuristic" | "allOffload" | "allLocal"
 
         // Secondary DT context export (motion + channel context only)
         bool secondaryLinkContextExport = default(false);
