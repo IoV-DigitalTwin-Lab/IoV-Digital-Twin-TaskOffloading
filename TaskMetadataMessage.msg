@@ -97,6 +97,13 @@ packet VehicleResourceStatusMessage extends BaseFrame1609_4 {
     double mem_total;            // Total memory (bytes)
     double mem_available;        // Available memory (bytes)
     double mem_utilization;      // Memory utilization ratio (0.0-1.0)
+
+    // Energy Information
+    double battery_level_pct;    // Remaining battery percentage (0-100)
+    double battery_current_mAh;  // Current battery charge (mAh)
+    double battery_capacity_mAh; // Battery capacity (mAh)
+    double energy_task_j_total;  // Cumulative task-related energy (J)
+    double energy_task_j_last;   // Last task-related energy charge (J)
     
     // Task Queue Status
     uint32_t tasks_generated;    // Total tasks generated

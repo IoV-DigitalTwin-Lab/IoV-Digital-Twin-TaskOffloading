@@ -1097,6 +1097,12 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.mem_total = msg->getMem_total();
     twin.mem_available = msg->getMem_available();
     twin.mem_utilization = msg->getMem_utilization();
+
+    twin.battery_level_pct = msg->getBattery_level_pct();
+    twin.battery_current_mAh = msg->getBattery_current_mAh();
+    twin.battery_capacity_mAh = msg->getBattery_capacity_mAh();
+    twin.energy_task_j_total = msg->getEnergy_task_j_total();
+    twin.energy_task_j_last = msg->getEnergy_task_j_last();
     
     // Update task statistics
     twin.tasks_generated = msg->getTasks_generated();
@@ -1122,6 +1128,9 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
             twin.pos_x, twin.pos_y, twin.speed, twin.heading,
             twin.cpu_available, twin.cpu_utilization,
             twin.mem_available, twin.mem_utilization,
+            twin.battery_level_pct, twin.battery_current_mAh,
+            twin.battery_capacity_mAh,
+            twin.energy_task_j_total, twin.energy_task_j_last,
             twin.current_queue_length, twin.current_processing_count,
             simTime().dbl()
         );
@@ -3217,6 +3226,18 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
     EV_DEBUG << "  Event: " << event_type << endl;
     EV_DEBUG << "  Source: " << source << " → Target: " << target << endl;
     EV_DEBUG << "  Time: " << event_time << "s" << endl;
+
+    // Persist lifecycle events to Redis stream for real-time dashboard consumers.
+    if (redis_twin && use_redis) {
+        redis_twin->appendTaskLifecycleEvent(
+            task_id,
+            event_type,
+            event_time,
+            source,
+            target,
+            msg->getEvent_details()
+        );
+    }
     
     // Store event in Digital Twin database
     insertTaskOffloadingEvent(msg);
@@ -3467,7 +3488,8 @@ void MyRSUApp::sendRSUStatusUpdate() {
             simTime().dbl(),
             pos_x,
             pos_y,
-            cpu_util   // written directly so DRL reads it without needing cpu_total
+            cpu_util,  // written directly so DRL reads it without needing cpu_total
+            100.0      // RSU energy level fixed at 100% (grid-powered infrastructure)
         );
     }
     
@@ -3804,7 +3826,8 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
             simTime().dbl(),
             state.pos_x,
             state.pos_y,
-            state.load_factor           // cpu_utilization (0-1)
+            state.load_factor,          // cpu_utilization (0-1)
+            100.0                       // RSU energy level fixed at 100%
         );
     }
 

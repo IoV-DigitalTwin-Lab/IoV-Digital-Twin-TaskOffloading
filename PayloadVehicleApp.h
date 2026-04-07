@@ -52,6 +52,8 @@ private:
     double battery_mAh_current = 0.0;    // Current battery level (mAh)
     double battery_voltage = 12.0;       // Battery voltage (V)
     double lastBatteryUpdateTime = 0.0;  // Last battery update time
+    double task_energy_j_total = 0.0;    // Cumulative task-related energy drain (J)
+    double task_energy_j_last = 0.0;     // Last task-related energy drain (J)
     
     // Memory parameters
     double memory_MB_max = 0.0;          // Maximum memory capacity (MB)
@@ -142,6 +144,7 @@ private:
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
+    void applyTaskEnergyDrain(double energy_joules, const std::string& source);
     
     // ============================================================================
     // MODERN RSU SELECTION SYSTEM

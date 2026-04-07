@@ -2193,6 +2193,11 @@ void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& othe
     this->mem_total = other.mem_total;
     this->mem_available = other.mem_available;
     this->mem_utilization = other.mem_utilization;
+    this->battery_level_pct = other.battery_level_pct;
+    this->battery_current_mAh = other.battery_current_mAh;
+    this->battery_capacity_mAh = other.battery_capacity_mAh;
+    this->energy_task_j_total = other.energy_task_j_total;
+    this->energy_task_j_last = other.energy_task_j_last;
     this->tasks_generated = other.tasks_generated;
     this->tasks_completed_on_time = other.tasks_completed_on_time;
     this->tasks_completed_late = other.tasks_completed_late;
@@ -2221,6 +2226,11 @@ void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->mem_total);
     doParsimPacking(b,this->mem_available);
     doParsimPacking(b,this->mem_utilization);
+    doParsimPacking(b,this->battery_level_pct);
+    doParsimPacking(b,this->battery_current_mAh);
+    doParsimPacking(b,this->battery_capacity_mAh);
+    doParsimPacking(b,this->energy_task_j_total);
+    doParsimPacking(b,this->energy_task_j_last);
     doParsimPacking(b,this->tasks_generated);
     doParsimPacking(b,this->tasks_completed_on_time);
     doParsimPacking(b,this->tasks_completed_late);
@@ -2249,6 +2259,11 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->mem_total);
     doParsimUnpacking(b,this->mem_available);
     doParsimUnpacking(b,this->mem_utilization);
+    doParsimUnpacking(b,this->battery_level_pct);
+    doParsimUnpacking(b,this->battery_current_mAh);
+    doParsimUnpacking(b,this->battery_capacity_mAh);
+    doParsimUnpacking(b,this->energy_task_j_total);
+    doParsimUnpacking(b,this->energy_task_j_last);
     doParsimUnpacking(b,this->tasks_generated);
     doParsimUnpacking(b,this->tasks_completed_on_time);
     doParsimUnpacking(b,this->tasks_completed_late);
@@ -2258,6 +2273,16 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->current_processing_count);
     doParsimUnpacking(b,this->avg_completion_time);
     doParsimUnpacking(b,this->deadline_miss_ratio);
+}
+
+const LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void VehicleResourceStatusMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
+{
+    this->senderAddress = senderAddress;
 }
 
 const char * VehicleResourceStatusMessage::getVehicle_id() const
@@ -2390,6 +2415,56 @@ void VehicleResourceStatusMessage::setMem_utilization(double mem_utilization)
     this->mem_utilization = mem_utilization;
 }
 
+double VehicleResourceStatusMessage::getBattery_level_pct() const
+{
+    return this->battery_level_pct;
+}
+
+void VehicleResourceStatusMessage::setBattery_level_pct(double battery_level_pct)
+{
+    this->battery_level_pct = battery_level_pct;
+}
+
+double VehicleResourceStatusMessage::getBattery_current_mAh() const
+{
+    return this->battery_current_mAh;
+}
+
+void VehicleResourceStatusMessage::setBattery_current_mAh(double battery_current_mAh)
+{
+    this->battery_current_mAh = battery_current_mAh;
+}
+
+double VehicleResourceStatusMessage::getBattery_capacity_mAh() const
+{
+    return this->battery_capacity_mAh;
+}
+
+void VehicleResourceStatusMessage::setBattery_capacity_mAh(double battery_capacity_mAh)
+{
+    this->battery_capacity_mAh = battery_capacity_mAh;
+}
+
+double VehicleResourceStatusMessage::getEnergy_task_j_total() const
+{
+    return this->energy_task_j_total;
+}
+
+void VehicleResourceStatusMessage::setEnergy_task_j_total(double energy_task_j_total)
+{
+    this->energy_task_j_total = energy_task_j_total;
+}
+
+double VehicleResourceStatusMessage::getEnergy_task_j_last() const
+{
+    return this->energy_task_j_last;
+}
+
+void VehicleResourceStatusMessage::setEnergy_task_j_last(double energy_task_j_last)
+{
+    this->energy_task_j_last = energy_task_j_last;
+}
+
 uint32_t VehicleResourceStatusMessage::getTasks_generated() const
 {
     return this->tasks_generated;
@@ -2480,21 +2555,12 @@ void VehicleResourceStatusMessage::setDeadline_miss_ratio(double deadline_miss_r
     this->deadline_miss_ratio = deadline_miss_ratio;
 }
 
-const ::veins::LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
-{
-    return this->senderAddress;
-}
-
-void VehicleResourceStatusMessage::setSenderAddress(::veins::LAddress::L2Type senderAddress)
-{
-    this->senderAddress = senderAddress;
-}
-
 class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
 {
   private:
     mutable const char **propertyNames;
     enum FieldConstants {
+        FIELD_senderAddress,
         FIELD_vehicle_id,
         FIELD_pos_x,
         FIELD_pos_y,
@@ -2508,6 +2574,11 @@ class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_mem_total,
         FIELD_mem_available,
         FIELD_mem_utilization,
+        FIELD_battery_level_pct,
+        FIELD_battery_current_mAh,
+        FIELD_battery_capacity_mAh,
+        FIELD_energy_task_j_total,
+        FIELD_energy_task_j_last,
         FIELD_tasks_generated,
         FIELD_tasks_completed_on_time,
         FIELD_tasks_completed_late,
@@ -2583,7 +2654,7 @@ const char *VehicleResourceStatusMessageDescriptor::getProperty(const char *prop
 int VehicleResourceStatusMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 22+base->getFieldCount() : 22;
+    return base ? 28+base->getFieldCount() : 28;
 }
 
 unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field) const
@@ -2595,6 +2666,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         field -= base->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
+        0,    // FIELD_senderAddress
         FD_ISEDITABLE,    // FIELD_vehicle_id
         FD_ISEDITABLE,    // FIELD_pos_x
         FD_ISEDITABLE,    // FIELD_pos_y
@@ -2608,6 +2680,11 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_mem_total
         FD_ISEDITABLE,    // FIELD_mem_available
         FD_ISEDITABLE,    // FIELD_mem_utilization
+        FD_ISEDITABLE,    // FIELD_battery_level_pct
+        FD_ISEDITABLE,    // FIELD_battery_current_mAh
+        FD_ISEDITABLE,    // FIELD_battery_capacity_mAh
+        FD_ISEDITABLE,    // FIELD_energy_task_j_total
+        FD_ISEDITABLE,    // FIELD_energy_task_j_last
         FD_ISEDITABLE,    // FIELD_tasks_generated
         FD_ISEDITABLE,    // FIELD_tasks_completed_on_time
         FD_ISEDITABLE,    // FIELD_tasks_completed_late
@@ -2618,7 +2695,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_avg_completion_time
         FD_ISEDITABLE,    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 22) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 28) ? fieldTypeFlags[field] : 0;
 }
 
 const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) const
@@ -2630,6 +2707,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         field -= base->getFieldCount();
     }
     static const char *fieldNames[] = {
+        "senderAddress",
         "vehicle_id",
         "pos_x",
         "pos_y",
@@ -2643,6 +2721,11 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "mem_total",
         "mem_available",
         "mem_utilization",
+        "battery_level_pct",
+        "battery_current_mAh",
+        "battery_capacity_mAh",
+        "energy_task_j_total",
+        "energy_task_j_last",
         "tasks_generated",
         "tasks_completed_on_time",
         "tasks_completed_late",
@@ -2653,35 +2736,41 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "avg_completion_time",
         "deadline_miss_ratio",
     };
-    return (field >= 0 && field < 22) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 28) ? fieldNames[field] : nullptr;
 }
 
 int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
     int baseIndex = base ? base->getFieldCount() : 0;
-    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 0;
-    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 1;
-    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 2;
-    if (strcmp(fieldName, "speed") == 0) return baseIndex + 3;
-    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 4;
-    if (strcmp(fieldName, "heading") == 0) return baseIndex + 5;
-    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 6;
-    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 7;
-    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 8;
-    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 9;
-    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 10;
-    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 11;
-    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 12;
-    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 13;
-    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 14;
-    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 15;
-    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 16;
-    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 17;
-    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 18;
-    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 19;
-    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 20;
-    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "senderAddress") == 0) return baseIndex + 0;
+    if (strcmp(fieldName, "vehicle_id") == 0) return baseIndex + 1;
+    if (strcmp(fieldName, "pos_x") == 0) return baseIndex + 2;
+    if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 3;
+    if (strcmp(fieldName, "speed") == 0) return baseIndex + 4;
+    if (strcmp(fieldName, "acceleration") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "heading") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "cpu_total") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "cpu_allocable") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "cpu_available") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "cpu_utilization") == 0) return baseIndex + 10;
+    if (strcmp(fieldName, "mem_total") == 0) return baseIndex + 11;
+    if (strcmp(fieldName, "mem_available") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "mem_utilization") == 0) return baseIndex + 13;
+    if (strcmp(fieldName, "battery_level_pct") == 0) return baseIndex + 14;
+    if (strcmp(fieldName, "battery_current_mAh") == 0) return baseIndex + 15;
+    if (strcmp(fieldName, "battery_capacity_mAh") == 0) return baseIndex + 16;
+    if (strcmp(fieldName, "energy_task_j_total") == 0) return baseIndex + 17;
+    if (strcmp(fieldName, "energy_task_j_last") == 0) return baseIndex + 18;
+    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 22;
+    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 23;
+    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 24;
+    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 25;
+    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 26;
+    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 27;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -2694,6 +2783,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         field -= base->getFieldCount();
     }
     static const char *fieldTypeStrings[] = {
+        "veins::LAddress::L2Type",    // FIELD_senderAddress
         "string",    // FIELD_vehicle_id
         "double",    // FIELD_pos_x
         "double",    // FIELD_pos_y
@@ -2707,6 +2797,11 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_mem_total
         "double",    // FIELD_mem_available
         "double",    // FIELD_mem_utilization
+        "double",    // FIELD_battery_level_pct
+        "double",    // FIELD_battery_current_mAh
+        "double",    // FIELD_battery_capacity_mAh
+        "double",    // FIELD_energy_task_j_total
+        "double",    // FIELD_energy_task_j_last
         "uint32_t",    // FIELD_tasks_generated
         "uint32_t",    // FIELD_tasks_completed_on_time
         "uint32_t",    // FIELD_tasks_completed_late
@@ -2717,7 +2812,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_avg_completion_time
         "double",    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 22) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 28) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **VehicleResourceStatusMessageDescriptor::getFieldPropertyNames(int field) const
@@ -2800,6 +2895,7 @@ std::string VehicleResourceStatusMessageDescriptor::getFieldValueAsString(omnetp
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return "";
         case FIELD_vehicle_id: return oppstring2string(pp->getVehicle_id());
         case FIELD_pos_x: return double2string(pp->getPos_x());
         case FIELD_pos_y: return double2string(pp->getPos_y());
@@ -2813,6 +2909,11 @@ std::string VehicleResourceStatusMessageDescriptor::getFieldValueAsString(omnetp
         case FIELD_mem_total: return double2string(pp->getMem_total());
         case FIELD_mem_available: return double2string(pp->getMem_available());
         case FIELD_mem_utilization: return double2string(pp->getMem_utilization());
+        case FIELD_battery_level_pct: return double2string(pp->getBattery_level_pct());
+        case FIELD_battery_current_mAh: return double2string(pp->getBattery_current_mAh());
+        case FIELD_battery_capacity_mAh: return double2string(pp->getBattery_capacity_mAh());
+        case FIELD_energy_task_j_total: return double2string(pp->getEnergy_task_j_total());
+        case FIELD_energy_task_j_last: return double2string(pp->getEnergy_task_j_last());
         case FIELD_tasks_generated: return ulong2string(pp->getTasks_generated());
         case FIELD_tasks_completed_on_time: return ulong2string(pp->getTasks_completed_on_time());
         case FIELD_tasks_completed_late: return ulong2string(pp->getTasks_completed_late());
@@ -2851,6 +2952,11 @@ void VehicleResourceStatusMessageDescriptor::setFieldValueAsString(omnetpp::any_
         case FIELD_mem_total: pp->setMem_total(string2double(value)); break;
         case FIELD_mem_available: pp->setMem_available(string2double(value)); break;
         case FIELD_mem_utilization: pp->setMem_utilization(string2double(value)); break;
+        case FIELD_battery_level_pct: pp->setBattery_level_pct(string2double(value)); break;
+        case FIELD_battery_current_mAh: pp->setBattery_current_mAh(string2double(value)); break;
+        case FIELD_battery_capacity_mAh: pp->setBattery_capacity_mAh(string2double(value)); break;
+        case FIELD_energy_task_j_total: pp->setEnergy_task_j_total(string2double(value)); break;
+        case FIELD_energy_task_j_last: pp->setEnergy_task_j_last(string2double(value)); break;
         case FIELD_tasks_generated: pp->setTasks_generated(string2ulong(value)); break;
         case FIELD_tasks_completed_on_time: pp->setTasks_completed_on_time(string2ulong(value)); break;
         case FIELD_tasks_completed_late: pp->setTasks_completed_late(string2ulong(value)); break;
@@ -2874,6 +2980,7 @@ omnetpp::cValue VehicleResourceStatusMessageDescriptor::getFieldValue(omnetpp::a
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
         case FIELD_vehicle_id: return pp->getVehicle_id();
         case FIELD_pos_x: return pp->getPos_x();
         case FIELD_pos_y: return pp->getPos_y();
@@ -2887,6 +2994,11 @@ omnetpp::cValue VehicleResourceStatusMessageDescriptor::getFieldValue(omnetpp::a
         case FIELD_mem_total: return pp->getMem_total();
         case FIELD_mem_available: return pp->getMem_available();
         case FIELD_mem_utilization: return pp->getMem_utilization();
+        case FIELD_battery_level_pct: return pp->getBattery_level_pct();
+        case FIELD_battery_current_mAh: return pp->getBattery_current_mAh();
+        case FIELD_battery_capacity_mAh: return pp->getBattery_capacity_mAh();
+        case FIELD_energy_task_j_total: return pp->getEnergy_task_j_total();
+        case FIELD_energy_task_j_last: return pp->getEnergy_task_j_last();
         case FIELD_tasks_generated: return (omnetpp::intval_t)(pp->getTasks_generated());
         case FIELD_tasks_completed_on_time: return (omnetpp::intval_t)(pp->getTasks_completed_on_time());
         case FIELD_tasks_completed_late: return (omnetpp::intval_t)(pp->getTasks_completed_late());
@@ -2925,6 +3037,11 @@ void VehicleResourceStatusMessageDescriptor::setFieldValue(omnetpp::any_ptr obje
         case FIELD_mem_total: pp->setMem_total(value.doubleValue()); break;
         case FIELD_mem_available: pp->setMem_available(value.doubleValue()); break;
         case FIELD_mem_utilization: pp->setMem_utilization(value.doubleValue()); break;
+        case FIELD_battery_level_pct: pp->setBattery_level_pct(value.doubleValue()); break;
+        case FIELD_battery_current_mAh: pp->setBattery_current_mAh(value.doubleValue()); break;
+        case FIELD_battery_capacity_mAh: pp->setBattery_capacity_mAh(value.doubleValue()); break;
+        case FIELD_energy_task_j_total: pp->setEnergy_task_j_total(value.doubleValue()); break;
+        case FIELD_energy_task_j_last: pp->setEnergy_task_j_last(value.doubleValue()); break;
         case FIELD_tasks_generated: pp->setTasks_generated(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
         case FIELD_tasks_completed_on_time: pp->setTasks_completed_on_time(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
         case FIELD_tasks_completed_late: pp->setTasks_completed_late(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
@@ -2961,6 +3078,7 @@ omnetpp::any_ptr VehicleResourceStatusMessageDescriptor::getFieldStructValuePoin
     }
     VehicleResourceStatusMessage *pp = omnetpp::fromAnyPtr<VehicleResourceStatusMessage>(object); (void)pp;
     switch (field) {
+        case FIELD_senderAddress: return omnetpp::toAnyPtr(&pp->getSenderAddress()); break;
         default: return omnetpp::any_ptr(nullptr);
     }
 }
@@ -4059,6 +4177,7 @@ class OffloadingDecisionMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_redirect_target_rsu_mac,
         FIELD_redirect_target_rsu_id,
         FIELD_next_candidate_index,
+        FIELD_agentDecisions,
     };
   public:
     OffloadingDecisionMessageDescriptor();
@@ -4125,7 +4244,7 @@ const char *OffloadingDecisionMessageDescriptor::getProperty(const char *propert
 int OffloadingDecisionMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 13+base->getFieldCount() : 13;
+    return base ? 14+base->getFieldCount() : 14;
 }
 
 unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) const
@@ -4150,8 +4269,9 @@ unsigned int OffloadingDecisionMessageDescriptor::getFieldTypeFlags(int field) c
         FD_ISEDITABLE,    // FIELD_redirect_target_rsu_mac
         FD_ISEDITABLE,    // FIELD_redirect_target_rsu_id
         FD_ISEDITABLE,    // FIELD_next_candidate_index
+        FD_ISEDITABLE,    // FIELD_agentDecisions
     };
-    return (field >= 0 && field < 13) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 14) ? fieldTypeFlags[field] : 0;
 }
 
 const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
@@ -4176,8 +4296,9 @@ const char *OffloadingDecisionMessageDescriptor::getFieldName(int field) const
         "redirect_target_rsu_mac",
         "redirect_target_rsu_id",
         "next_candidate_index",
+        "agentDecisions",
     };
-    return (field >= 0 && field < 13) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 14) ? fieldNames[field] : nullptr;
 }
 
 int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
@@ -4197,6 +4318,7 @@ int OffloadingDecisionMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "redirect_target_rsu_mac") == 0) return baseIndex + 10;
     if (strcmp(fieldName, "redirect_target_rsu_id") == 0) return baseIndex + 11;
     if (strcmp(fieldName, "next_candidate_index") == 0) return baseIndex + 12;
+    if (strcmp(fieldName, "agentDecisions") == 0) return baseIndex + 13;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -4222,8 +4344,9 @@ const char *OffloadingDecisionMessageDescriptor::getFieldTypeString(int field) c
         "uint64_t",    // FIELD_redirect_target_rsu_mac
         "string",    // FIELD_redirect_target_rsu_id
         "int",    // FIELD_next_candidate_index
+        "string",    // FIELD_agentDecisions
     };
-    return (field >= 0 && field < 13) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 14) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **OffloadingDecisionMessageDescriptor::getFieldPropertyNames(int field) const
@@ -4319,6 +4442,7 @@ std::string OffloadingDecisionMessageDescriptor::getFieldValueAsString(omnetpp::
         case FIELD_redirect_target_rsu_mac: return uint642string(pp->getRedirect_target_rsu_mac());
         case FIELD_redirect_target_rsu_id: return oppstring2string(pp->getRedirect_target_rsu_id());
         case FIELD_next_candidate_index: return long2string(pp->getNext_candidate_index());
+        case FIELD_agentDecisions: return oppstring2string(pp->getAgentDecisions());
         default: return "";
     }
 }
@@ -4347,6 +4471,7 @@ void OffloadingDecisionMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr
         case FIELD_redirect_target_rsu_mac: pp->setRedirect_target_rsu_mac(string2uint64(value)); break;
         case FIELD_redirect_target_rsu_id: pp->setRedirect_target_rsu_id((value)); break;
         case FIELD_next_candidate_index: pp->setNext_candidate_index(string2long(value)); break;
+        case FIELD_agentDecisions: pp->setAgentDecisions((value)); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
     }
 }
@@ -4374,6 +4499,7 @@ omnetpp::cValue OffloadingDecisionMessageDescriptor::getFieldValue(omnetpp::any_
         case FIELD_redirect_target_rsu_mac: return (omnetpp::intval_t)(pp->getRedirect_target_rsu_mac());
         case FIELD_redirect_target_rsu_id: return pp->getRedirect_target_rsu_id();
         case FIELD_next_candidate_index: return pp->getNext_candidate_index();
+        case FIELD_agentDecisions: return pp->getAgentDecisions();
         default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'OffloadingDecisionMessage' as cValue -- field index out of range?", field);
     }
 }
@@ -4402,6 +4528,7 @@ void OffloadingDecisionMessageDescriptor::setFieldValue(omnetpp::any_ptr object,
         case FIELD_redirect_target_rsu_mac: pp->setRedirect_target_rsu_mac(omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_redirect_target_rsu_id: pp->setRedirect_target_rsu_id(value.stringValue()); break;
         case FIELD_next_candidate_index: pp->setNext_candidate_index(omnetpp::checked_int_cast<int>(value.intValue())); break;
+        case FIELD_agentDecisions: pp->setAgentDecisions(value.stringValue()); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'OffloadingDecisionMessage'", field);
     }
 }

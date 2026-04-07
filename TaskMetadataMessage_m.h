@@ -350,6 +350,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
  * //
  * packet VehicleResourceStatusMessage extends BaseFrame1609_4
  * {
+ *     LAddress::L2Type senderAddress = -1; // Sender's MAC address (set by vehicle via populateWSM)
  *     string vehicle_id;           // Vehicle identifier
  * 
  *     // Vehicle State
@@ -369,6 +370,13 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
  *     double mem_available;        // Available memory (bytes)
  *     double mem_utilization;      // Memory utilization ratio (0.0-1.0)
  * 
+ *     // Energy Information
+ *     double battery_level_pct;    // Remaining battery percentage (0-100)
+ *     double battery_current_mAh;  // Current battery charge (mAh)
+ *     double battery_capacity_mAh; // Battery capacity (mAh)
+ *     double energy_task_j_total;  // Cumulative task-related energy (J)
+ *     double energy_task_j_last;   // Last task-related energy charge (J)
+ * 
  *     // Task Queue Status
  *     uint32_t tasks_generated;    // Total tasks generated
  *     uint32_t tasks_completed_on_time;  // Tasks completed before deadline
@@ -387,7 +395,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
 class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 {
   protected:
-    ::veins::LAddress::L2Type senderAddress = -1;
+    LAddress::L2Type senderAddress = -1;
     ::omnetpp::opp_string vehicle_id;
     double pos_x = 0;
     double pos_y = 0;
@@ -401,6 +409,11 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
     double mem_total = 0;
     double mem_available = 0;
     double mem_utilization = 0;
+    double battery_level_pct = 0;
+    double battery_current_mAh = 0;
+    double battery_capacity_mAh = 0;
+    double energy_task_j_total = 0;
+    double energy_task_j_last = 0;
     uint32_t tasks_generated = 0;
     uint32_t tasks_completed_on_time = 0;
     uint32_t tasks_completed_late = 0;
@@ -425,6 +438,10 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
     virtual VehicleResourceStatusMessage *dup() const override {return new VehicleResourceStatusMessage(*this);}
     virtual void parsimPack(omnetpp::cCommBuffer *b) const override;
     virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
+
+    virtual const LAddress::L2Type& getSenderAddress() const;
+    virtual LAddress::L2Type& getSenderAddressForUpdate() { return const_cast<LAddress::L2Type&>(const_cast<VehicleResourceStatusMessage*>(this)->getSenderAddress());}
+    virtual void setSenderAddress(const LAddress::L2Type& senderAddress);
 
     virtual const char * getVehicle_id() const;
     virtual void setVehicle_id(const char * vehicle_id);
@@ -465,6 +482,21 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
     virtual double getMem_utilization() const;
     virtual void setMem_utilization(double mem_utilization);
 
+    virtual double getBattery_level_pct() const;
+    virtual void setBattery_level_pct(double battery_level_pct);
+
+    virtual double getBattery_current_mAh() const;
+    virtual void setBattery_current_mAh(double battery_current_mAh);
+
+    virtual double getBattery_capacity_mAh() const;
+    virtual void setBattery_capacity_mAh(double battery_capacity_mAh);
+
+    virtual double getEnergy_task_j_total() const;
+    virtual void setEnergy_task_j_total(double energy_task_j_total);
+
+    virtual double getEnergy_task_j_last() const;
+    virtual void setEnergy_task_j_last(double energy_task_j_last);
+
     virtual uint32_t getTasks_generated() const;
     virtual void setTasks_generated(uint32_t tasks_generated);
 
@@ -491,16 +523,13 @@ class VehicleResourceStatusMessage : public ::veins::BaseFrame1609_4
 
     virtual double getDeadline_miss_ratio() const;
     virtual void setDeadline_miss_ratio(double deadline_miss_ratio);
-
-    virtual const ::veins::LAddress::L2Type& getSenderAddress() const;
-    virtual void setSenderAddress(::veins::LAddress::L2Type senderAddress);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatusMessage& obj) {obj.parsimPack(b);}
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:117</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:125</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
@@ -652,7 +681,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:153</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:161</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -680,6 +709,11 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage&
  *     uint64_t redirect_target_rsu_mac;    // MAC address of RSU to try next
  *     string redirect_target_rsu_id;       // ID of RSU to try next
  *     int next_candidate_index;            // Index in candidate list to try next
+ * 
+ *     // Multi-agent baseline decisions (TV dispatches sub-tasks for each agent)
+ *     // Encoded as CSV: "agent:TYPE:target_id:target_mac,..."
+ *     // Example: "random:SERVICE_VEHICLE:42:318,greedy_comp:RSU:RSU_0:0,..."
+ *     string agentDecisions;
  * }
  * </pre>
  */
@@ -764,7 +798,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:180</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:193</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -847,7 +881,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:199</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:212</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -923,7 +957,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:215</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:228</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
@@ -991,7 +1025,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:229</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:242</tt> by opp_msgtool.
  * <pre>
  * // Vehicle detail information included in RSU broadcasts
  * class VehicleDetailInBroadcast
@@ -1069,7 +1103,7 @@ class VehicleDetailInBroadcast
 };
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:242</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:255</tt> by opp_msgtool.
  * <pre>
  * packet RSUStatusBroadcastMessage extends BaseFrame1609_4
  * {

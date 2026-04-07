@@ -37,6 +37,13 @@ struct VehicleDigitalTwin {
     double mem_total = 0.0;
     double mem_available = 0.0;
     double mem_utilization = 0.0;
+
+    // Energy state
+    double battery_level_pct = 0.0;
+    double battery_current_mAh = 0.0;
+    double battery_capacity_mAh = 0.0;
+    double energy_task_j_total = 0.0;
+    double energy_task_j_last = 0.0;
     
     double tx_power = 0.0;
     double reservation_ratio = 0.0;
