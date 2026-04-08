@@ -1914,7 +1914,9 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(Task* task) {
 
     bool on_time = (task->state == COMPLETED_ON_TIME);
     bool success = (task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
-    std::string fail_reason = success ? "NONE" : "DEADLINE_MISSED";
+    // Use on_time (not success) so COMPLETED_LATE correctly reports "DEADLINE_MISSED"
+    // instead of "NONE". The RSU uses this to set the Redis reason field.
+    std::string fail_reason = on_time ? "NONE" : "DEADLINE_MISSED";
 
     TaskCompletionMessage* msg = new TaskCompletionMessage();
     msg->setTask_id(task->task_id.c_str());

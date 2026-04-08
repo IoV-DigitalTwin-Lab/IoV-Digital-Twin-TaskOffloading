@@ -853,7 +853,10 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
             if (msg->getIs_local_execution()) {
                 double latency = (msg->getCompletion_time() > 0.0) ? msg->getProcessing_time() : 0.0;
                 std::string fail_reason = msg->getFailure_reason();
-                if (fail_reason.empty()) fail_reason = record.completed_on_time ? "NONE" : "DEADLINE_MISSED";
+                // Also override "NONE" for tasks that didn't complete on time (COMPLETED_LATE).
+                if (fail_reason.empty() || fail_reason == "NONE") {
+                    fail_reason = record.completed_on_time ? "NONE" : "DEADLINE_MISSED";
+                }
                 redis_twin->writeLocalResult(
                     task_id,
                     msg->getTask_type_name(),
@@ -885,10 +888,36 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
         }
         twin.last_update_time = simTime().dbl();
     } else {
-        EV_INFO << "⚠ Task record not found for task " << task_id << endl;
-        std::cout << "DT_WARNING: RSU received completion for unknown task " << task_id << std::endl;
+        // task_records only contains offloaded tasks (populated via handleTaskMetadata).
+        // Locally-executed tasks are never registered there — they arrive here directly.
+        // We must write the local result to Redis so Python can collect per-type metrics.
+        if (msg->getIs_local_execution() && redis_twin && use_redis) {
+            double latency = msg->getProcessing_time();
+            std::string fail_reason = msg->getFailure_reason();
+            if (fail_reason.empty() || fail_reason == "NONE") {
+                fail_reason = msg->getCompleted_on_time() ? "NONE" : "DEADLINE_MISSED";
+            }
+            redis_twin->writeLocalResult(
+                task_id,
+                msg->getTask_type_name(),
+                msg->getQos_value(),
+                msg->getDeadline_seconds(),
+                msg->getCompleted_on_time() ? "COMPLETED_ON_TIME" : "FAILED",
+                latency,
+                0.0,
+                fail_reason
+            );
+            std::cout << "LOCAL_RESULT: task=" << task_id
+                      << " type=" << msg->getTask_type_name()
+                      << " status=" << (msg->getCompleted_on_time() ? "COMPLETED_ON_TIME" : "FAILED")
+                      << " latency=" << latency << "s"
+                      << std::endl;
+        } else {
+            EV_INFO << "⚠ Task record not found for task " << task_id << endl;
+            std::cout << "DT_WARNING: RSU received completion for unknown task " << task_id << std::endl;
+        }
     }
-    
+
     updateDigitalTwinStatistics();
 }
 
@@ -948,10 +977,13 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
         }
         twin.last_update_time = simTime().dbl();
     } else {
-        EV_INFO << "⚠ Task record not found for task " << task_id << endl;
-        std::cout << "DT_WARNING: RSU received failure for unknown task " << task_id << std::endl;
+        // Expected for locally-executed tasks: the vehicle sends TaskFailureMessage for
+        // DEADLINE_MISSED and REJECTED tasks even when task_records has no entry
+        // (local tasks are never registered there).  The local result has already been
+        // written to Redis via the paired TaskCompletionMessage; this path is redundant.
+        EV_INFO << "⚠ Task failure for unregistered task (likely local): " << task_id << endl;
     }
-    
+
     updateDigitalTwinStatistics();
 }
 
@@ -1492,6 +1524,32 @@ void MyRSUApp::initDatabase() {
             PGresult* r = PQexec(db_conn, task_meta_alters[i]);
             if (PQresultStatus(r) != PGRES_COMMAND_OK) {
                 EV_WARN << "⚠ task_metadata schema update failed: " << PQerrorMessage(db_conn) << endl;
+            }
+            PQclear(r);
+        }
+
+        // Ensure offloading_requests has all required columns (idempotent)
+        const char* offload_req_alters[] = {
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS cpu_cycles BIGINT DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS deadline_seconds DOUBLE PRECISION DEFAULT 1.0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS qos_value DOUBLE PRECISION DEFAULT 1.0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_available DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_utilization DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_mem_available DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_queue_length INTEGER DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_processing_count INTEGER DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS speed DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS local_decision TEXT DEFAULT ''",
+            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS payload JSONB",
+            nullptr
+        };
+        for (int i = 0; offload_req_alters[i] != nullptr; ++i) {
+            PGresult* r = PQexec(db_conn, offload_req_alters[i]);
+            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
+                EV_WARN << "⚠ offloading_requests schema update failed: " << PQerrorMessage(db_conn) << endl;
             }
             PQclear(r);
         }
