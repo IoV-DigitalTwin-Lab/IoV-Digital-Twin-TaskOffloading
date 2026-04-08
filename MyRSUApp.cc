@@ -105,13 +105,6 @@ bool parseServiceResultRelayHint(const std::string& payload, LAddress::L2Type& t
     }
     return true;
 }
-
-double estimateRssiFromDistance(double distanceMeters) {
-    // Lightweight monotonic RSSI proxy for ranking RSUs by radio proximity.
-    // Absolute calibration is not required here; ordering by distance is the goal.
-    double d = std::max(1.0, distanceMeters);
-    return -40.0 - 20.0 * std::log10(d);
-}
 }
 
 Define_Module(MyRSUApp);
@@ -128,6 +121,10 @@ void MyRSUApp::initialize(int stage) {
         edgeMemory_GB = par("edgeMemory_GB").doubleValue();
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
+        directLinkTxPower_mW = par("directLinkTxPower_mW").doubleValue();
+        directLinkCarrierFrequency_Hz = par("directLinkCarrierFrequency_Hz").doubleValue();
+        directLinkAntennaHeight_m = par("directLinkAntennaHeight_m").doubleValue();
+        directLinkRssiThreshold_dBm = par("directLinkRssiThreshold_dBm").doubleValue();
 
         secondary_link_context_export = par("secondaryLinkContextExport").boolValue();
         secondary_run_id = par("secondaryRunId").stdstringValue();
@@ -225,6 +222,27 @@ void MyRSUApp::initialize(int stage) {
 
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
         EV << "MyRSUApp: Direct PostgreSQL insertion enabled\n";
+    }
+
+    double MyRSUApp::estimateDirectLinkRssiDbm(double distanceMeters) const {
+        const double c = 3.0e8;
+        const double d = std::max(1.0, distanceMeters);
+        const double frequencyHz = std::max(1.0, directLinkCarrierFrequency_Hz);
+        const double lambda = c / frequencyHz;
+        const double antennaHeightM = std::max(0.1, directLinkAntennaHeight_m);
+        const double txPowerDbm = 10.0 * std::log10(std::max(1e-12, directLinkTxPower_mW));
+        const double breakpointDistance = (4.0 * M_PI * antennaHeightM * antennaHeightM) / lambda;
+
+        double pathLossDb = 0.0;
+        if (d <= breakpointDistance) {
+            pathLossDb = 20.0 * std::log10((4.0 * M_PI * d) / lambda);
+        } else {
+            pathLossDb = 40.0 * std::log10(d)
+                       - 20.0 * std::log10(antennaHeightM)
+                       - 20.0 * std::log10(antennaHeightM);
+        }
+
+        return txPowerDbm - pathLossDb;
     }
 }
 
@@ -1207,7 +1225,7 @@ void MyRSUApp::refreshVehicleCoverageRecord(const std::string& vehicle_id) {
     Coord vehiclePos(vt.pos_x, vt.pos_y);
 
     double selfDistance = vehiclePos.distance(curPosition);
-    double selfRssi = estimateRssiFromDistance(selfDistance);
+    double selfRssi = estimateDirectLinkRssiDbm(selfDistance);
 
     LAddress::L2Type bestMac = myId;
     std::string bestId = "RSU_" + std::to_string(rsu_id);
@@ -1219,7 +1237,7 @@ void MyRSUApp::refreshVehicleCoverageRecord(const std::string& vehicle_id) {
             continue;
         }
         Coord npos(neighbor.pos_x, neighbor.pos_y);
-        double rssi = estimateRssiFromDistance(vehiclePos.distance(npos));
+        double rssi = estimateDirectLinkRssiDbm(vehiclePos.distance(npos));
         if (rssi > bestRssi) {
             bestRssi = rssi;
             bestMac = neighbor.rsu_mac;
@@ -2290,8 +2308,8 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     vehicle_macs[vehicle_id] = request.vehicle_mac;
     EV_DEBUG << "  → Stored MAC address for vehicle " << vehicle_id << endl;
 
-    // Update Digital Twin with current resource state so selectBestServiceVehicle()
-    // has fresh CPU/queue data for this vehicle
+    // Update Digital Twin with current resource state so the RSU decision path
+    // has fresh CPU/queue data for this vehicle.
     VehicleDigitalTwin& req_twin = getOrCreateVehicleTwin(vehicle_id);
     req_twin.cpu_available             = msg->getLocal_cpu_available_ghz();
     req_twin.cpu_utilization           = msg->getLocal_cpu_utilization();
@@ -2390,58 +2408,22 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     LAddress::L2Type remote_processor_rsu_mac = 0;
     
     if (!mlModelEnabled) {
-        // ----------------------------------------------------------------
-        // PLACEHOLDER: Round-robin rule-based decision
-        // (Will be replaced by the DRL algorithm)
-        //
-        // Routing: every 3rd offloadable request → SERVICE_VEHICLE (V2V),
-        //          others → RSU or LOCAL. Exercises all 3 execution paths
-        //          so each can be independently verified before DRL lands.
-        // ----------------------------------------------------------------
-        EV_INFO << "  Using placeholder round-robin decision (DRL not yet integrated)" << endl;
-
-        static int sv_dispatch_counter = 0;
-        bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
-
-        if (try_sv) {
-            std::string sv_id = selectBestServiceVehicle(request);
-            if (!sv_id.empty() && vehicle_macs.count(sv_id)) {
-                decisionType = "SERVICE_VEHICLE";
-                target_service_vehicle_id  = sv_id;
-                target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
-                reason = "Round-robin placeholder: delegating to service vehicle " + sv_id
-                         + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
-                             vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
-                confidence = 0.75;
-                estimated_completion_time = request.deadline_seconds * 0.7;
-                std::cout << "SV_DECISION: Task " << request.task_id
-                          << " routed to service vehicle " << sv_id
-                          << " MAC=" << target_service_vehicle_mac << std::endl;
-            } else {
-                try_sv = false;  // no suitable SV → fall through to RSU/LOCAL
-            }
-        }
-
-        if (!try_sv) {
-            // Use CPU utilization ratio (0-1) not raw GHz — vehicles have 3-7 GHz
-            // so a raw 0.5 GHz threshold is always satisfied and everything became LOCAL.
-            // Now: utilization < 0.3 (under 30% load) AND vehicle didn't request RSU → LOCAL.
-            // Otherwise → RSU processes the task.
-            if (request.vehicle_cpu_utilization < 0.3 &&
-                request.local_decision != "OFFLOAD_TO_RSU" &&
-                request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
-                decisionType = "LOCAL";
-                reason = "Vehicle has low utilization ("
-                         + std::to_string((int)(request.vehicle_cpu_utilization * 100))
-                         + "%), execute locally";
-                confidence = 0.85;
-                estimated_completion_time = request.deadline_seconds * 0.5;
-            } else {
-                decisionType = "RSU";
-                reason = "RSU offloading (round-robin placeholder)";
-                confidence = 0.8;
-                estimated_completion_time = request.deadline_seconds * 0.6;
-            }
+        // Redis/DRL is expected to provide the offloading target. The legacy
+        // heuristic service-vehicle selector is disabled.
+        if (request.vehicle_cpu_utilization < 0.3 &&
+            request.local_decision != "OFFLOAD_TO_RSU" &&
+            request.local_decision != "OFFLOAD_TO_SERVICE_VEHICLE") {
+            decisionType = "LOCAL";
+            reason = "Vehicle has low utilization ("
+                     + std::to_string((int)(request.vehicle_cpu_utilization * 100))
+                     + "%), execute locally";
+            confidence = 0.85;
+            estimated_completion_time = request.deadline_seconds * 0.5;
+        } else {
+            decisionType = "RSU";
+            reason = "RSU offloading fallback";
+            confidence = 0.8;
+            estimated_completion_time = request.deadline_seconds * 0.6;
         }
     } else {
         // TODO: ML MODEL INFERENCE HERE
@@ -2481,13 +2463,12 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         if (svIt != vehicle_twins.end()) {
             Coord tvPos(request.pos_x, request.pos_y);
             Coord svPos(svIt->second.pos_x, svIt->second.pos_y);
-            double tvSvRssi = estimateRssiFromDistance(tvPos.distance(svPos));
-            const double DIRECT_SV_RSSI_THRESHOLD = -72.0;
+            double tvSvRssi = estimateDirectLinkRssiDbm(tvPos.distance(svPos));
 
-            if (tvSvRssi < DIRECT_SV_RSSI_THRESHOLD) {
+            if (tvSvRssi < directLinkRssiThreshold_dBm) {
                 LAddress::L2Type bestAnchorMac = myId;
                 std::string bestAnchorId = "RSU_" + std::to_string(rsu_id);
-                double bestRssiToSv = estimateRssiFromDistance(svPos.distance(curPosition));
+                double bestRssiToSv = estimateDirectLinkRssiDbm(svPos.distance(curPosition));
 
                 for (const auto& kv : neighbor_rsus) {
                     const RSUNeighborState& neighbor = kv.second;
@@ -2495,7 +2476,7 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                         continue;
                     }
                     Coord npos(neighbor.pos_x, neighbor.pos_y);
-                    double rssiToSv = estimateRssiFromDistance(svPos.distance(npos));
+                    double rssiToSv = estimateDirectLinkRssiDbm(svPos.distance(npos));
                     if (rssiToSv > bestRssiToSv) {
                         bestRssiToSv = rssiToSv;
                         bestAnchorMac = neighbor.rsu_mac;
@@ -2556,48 +2537,6 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
     }
     
     return decision;
-}
-
-std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) {
-    EV_INFO << "  Searching for best service vehicle (twin-based selection)..." << endl;
-
-    // Temporary placeholder selection:
-    //   Pick the least-queue-loaded vehicle whose MAC is known and whose Digital
-    //   Twin was updated within the last 3 simulation seconds.
-    //   Excludes the requesting vehicle.
-    //   DRL will replace this whole function later.
-    std::string best_id;
-    uint32_t    best_queue = UINT32_MAX;
-    double      best_cpu   = -1.0;
-    const double STALE_THRESHOLD = 3.0;  // seconds
-
-    for (const auto& kv : vehicle_macs) {
-        const std::string& candidate_id = kv.first;
-        if (candidate_id == request.vehicle_id) continue;  // never offload back to requester
-
-        auto twin_it = vehicle_twins.find(candidate_id);
-        if (twin_it == vehicle_twins.end()) continue;  // no state known
-        const VehicleDigitalTwin& twin = twin_it->second;
-
-        if (simTime().dbl() - twin.last_update_time > STALE_THRESHOLD) continue;  // stale
-
-        if (twin.current_queue_length < best_queue ||
-            (twin.current_queue_length == best_queue && twin.cpu_available > best_cpu)) {
-            best_queue = twin.current_queue_length;
-            best_cpu   = twin.cpu_available;
-            best_id    = candidate_id;
-        }
-    }
-
-    if (best_id.empty()) {
-        EV_INFO << "    No suitable service vehicle found" << endl;
-    } else {
-        EV_INFO << "    Selected service vehicle " << best_id
-                << " (queue=" << best_queue << ", cpu_avail=" << best_cpu << " GHz)" << endl;
-        std::cout << "SV_SELECTED: best=" << best_id
-                  << " queue=" << best_queue << " cpu=" << best_cpu << std::endl;
-    }
-    return best_id;
 }
 
 void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
@@ -3196,7 +3135,12 @@ void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress:
                 status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
             }
         }
-        double energy_j = success ? 5e-27 * 1e9 * 1e9 : 0.0;
+        // SV energy: κ_v=5e-27, f≈5 GHz, cycles=actual from task
+        double energy_j = 0.0;
+        if (success && task_records.count(orig_id)) {
+            double f_hz = 5e9;  // Service vehicle CPU ~5 GHz
+            energy_j = 5e-27 * f_hz * f_hz * static_cast<double>(task_records.at(orig_id).cpu_cycles);
+        }
         std::string fail_reason = !success ? "EXECUTION_FAILED"
                                 : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
@@ -3326,8 +3270,12 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                 status = (total_latency <= deadline) ? "COMPLETED_ON_TIME" : "FAILED";
             }
         }
-        // Approximate energy for service vehicle execution (vehicle CPU ~1GHz, κ_v=5e-27)
-        double energy_j = success ? 5e-27 * 1e9 * 1e9 : 0.0; // placeholder
+        // Energy for service vehicle execution: κ_v=5e-27, f≈5 GHz, cycles=actual from task
+        double energy_j = 0.0;
+        if (success && task_records.count(orig_id)) {
+            double f_hz = 5e9;  // Service vehicle CPU ~5 GHz
+            energy_j = 5e-27 * f_hz * f_hz * static_cast<double>(task_records.at(orig_id).cpu_cycles);
+        }
         std::string fail_reason_sv = !success ? "EXECUTION_FAILED"
                                     : (status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
 
@@ -3476,10 +3424,11 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                 double energy_j = 0.0;
                 if (decision_type == "RSU") {
                     // RSU: κ_rsu=2e-27, f ≈ 4 GHz
-                    energy_j = 2e-27 * 4e9 * 4e9;
+                    energy_j = 2e-27 * 4e9 * 4e9 * static_cast<double>(cpu_cycles);
                 } else {
-                    // SV: κ_v=5e-27, f ≈ 1 GHz
-                    energy_j = 5e-27 * 1e9 * 1e9;
+                    // SV: κ_v=5e-27, f ≈ 5 GHz, cycles=actual from task
+                    double f_hz = 5e9;  // Service vehicle CPU ~5 GHz
+                    energy_j = 5e-27 * f_hz * f_hz * static_cast<double>(cpu_cycles);
                 }
                 redis_twin->writeTaskResults(task_id, "ddqn", ddqn_status,
                                              total_latency, energy_j, ddqn_reason);

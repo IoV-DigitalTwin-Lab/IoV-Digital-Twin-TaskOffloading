@@ -229,6 +229,12 @@ private:
     double edgeMemory_GB = 0.0;         // Edge server memory capacity (GB)
     int maxVehicles = 0;                // Maximum vehicles this RSU can serve
     double processingDelay_ms = 0.0;    // Base processing delay (ms)
+
+    // Direct V2V radio parameters used by the RSSI heuristic.
+    double directLinkTxPower_mW = 0.0;
+    double directLinkCarrierFrequency_Hz = 0.0;
+    double directLinkAntennaHeight_m = 0.0;
+    double directLinkRssiThreshold_dBm = 0.0;
     
     // ============================================================================
     // RSU RESOURCE TRACKING (Dynamic state)
@@ -356,7 +362,7 @@ private:
     
     // ML-based decision engine
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
-    std::string selectBestServiceVehicle(const OffloadingRequest& request);
+    double estimateDirectLinkRssiDbm(double distanceMeters) const;
     
     // RSU task processing (edge server)
     // Tracks tasks currently being processed on the RSU edge server.

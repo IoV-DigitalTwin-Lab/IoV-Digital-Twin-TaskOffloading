@@ -59,6 +59,13 @@ simple MyRSUApp like IBaseApplLayer
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
 
+        // Direct V2V RSSI model parameters. These are configured centrally in
+        // omnetpp.ini and read once during initialization.
+        double directLinkTxPower_mW;
+        double directLinkCarrierFrequency_Hz;
+        double directLinkAntennaHeight_m;
+        double directLinkRssiThreshold_dBm;
+
         // Secondary DT context export (motion + channel context only)
         bool secondaryLinkContextExport = default(false);
         string secondaryRunId = default("dt2_default");
