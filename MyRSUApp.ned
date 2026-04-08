@@ -58,6 +58,7 @@ simple MyRSUApp like IBaseApplLayer
         // Offloading Decision Parameters
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
+        string offloadMode = default("heuristic");                    // "heuristic" | "allOffload" | "allLocal"
 
         // Direct V2V RSSI model parameters. These are configured centrally in
         // omnetpp.ini and read once during initialization.

@@ -805,12 +805,10 @@ void PayloadVehicleApp::initializeTaskSystem() {
     
     // Check if offloading is enabled
     offloadingEnabled = par("offloadingEnabled").boolValue();
-    forceOffload = par("force_offload").boolValue();
-    if (forceOffload) {
-        EV_INFO << "⚡ Force-offload mode ENABLED - all tasks will be sent to RSU/SV" << endl;
-        std::cout << "OFFLOADING: Force-offload mode ON for vehicle "
-                  << getParentModule()->getIndex() << std::endl;
-    }
+    offloadMode = par("offloadMode").stringValue();
+    EV_INFO << "⚡ Offload mode: " << offloadMode << endl;
+    std::cout << "OFFLOADING: mode=" << offloadMode << " for vehicle "
+              << getParentModule()->getIndex() << std::endl;
     
     if (offloadingEnabled) {
         // Initialize decision maker
@@ -988,6 +986,34 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     // OFFLOADING DECISION INTEGRATION
     // ============================================================================
     
+    // ── allLocal mode: all tasks execute locally, bypass RSU entirely ──────────
+    if (offloadMode == "allLocal") {
+        sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"reason\":\"ALL_LOCAL_MODE\"}");
+        if (!canAcceptTask(task)) {
+            EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "REJECTED");
+            cleanupTaskEvents(task);
+            delete task;
+            logTaskStatistics();
+            return;
+        }
+        if (canStartProcessing(task)) {
+            EV_INFO << "✓ allLocal: starting immediately" << endl;
+            allocateResourcesAndStart(task);
+        } else {
+            EV_INFO << "⏸ allLocal: resources busy, queuing" << endl;
+            task->state = QUEUED;
+            task->queue_entry_time = simTime();
+            pending_tasks.push(task);
+        }
+        logResourceState("After task generation (allLocal)");
+        return;
+    }
+
     if (!task->is_offloadable) {
         // Task is marked as local-only (e.g. LOCAL_OBJECT_DETECTION).
         // Do NOT send metadata over the air — saves wireless bandwidth.
@@ -998,7 +1024,28 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
             "{\"reason\":\"NON_OFFLOADABLE\"}");
     }
-    
+
+    // ── allOffload mode: offloadable tasks skip Gate-A/B, always go to RSU ──
+    if (offloadMode == "allOffload" && task->is_offloadable) {
+        sendTaskMetadataToRSU(task);
+        task->state = METADATA_SENT;
+        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+            "{\"reason\":\"ALL_OFFLOAD_MODE\"}");
+        GateBDecisionResult gateResult;
+        gateResult.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        gateResult.classification = GateBClassification::MUST_OFFLOAD;
+        gateResult.reason = "ALL_OFFLOAD_MODE";
+        gateResult.t_local_seconds = 0.0;
+        sendOffloadingRequestToRSU(task, OffloadingDecision::OFFLOAD_TO_RSU, gateResult);
+        cMessage* toMsg = new cMessage("rsuDecisionTimeout");
+        toMsg->setContextPointer(task);
+        scheduleAt(simTime() + rsuDecisionTimeout.dbl(), toMsg);
+        pendingDecisionTimeouts[task->task_id] = toMsg;
+        logResourceState("After task generation (allOffload)");
+        return;
+    }
+
     if (offloadingEnabled && decisionMaker && task->is_offloadable) {
         // Step 6: metadata transmission is deferred until offload is actually committed.
         EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
@@ -1240,37 +1287,42 @@ void PayloadVehicleApp::generateTask(TaskType type) {
 }
 
 void PayloadVehicleApp::finish() {
-    // Stop recurring generation timers.
-    if (localObjDetEvent) { cancelAndDelete(localObjDetEvent); localObjDetEvent = nullptr; }
-    if (coopPercepEvent) { cancelAndDelete(coopPercepEvent); coopPercepEvent = nullptr; }
-    if (routeOptEvent) { cancelAndDelete(routeOptEvent); routeOptEvent = nullptr; }
-    if (fleetForecastEvent) { cancelAndDelete(fleetForecastEvent); fleetForecastEvent = nullptr; }
-    if (voiceCommandEvent) { cancelAndDelete(voiceCommandEvent); voiceCommandEvent = nullptr; }
-    if (sensorHealthEvent) { cancelAndDelete(sensorHealthEvent); sensorHealthEvent = nullptr; }
+    // -------------------------------------------------------------------------
+    // Message cleanup strategy: do NOT call cancelEvent/cancelAndDelete here.
+    // When deleteManagedModule() calls callFinish() then deleteModule(), OMNeT++
+    // removes all pending messages from the FES in deleteModule() without
+    // delivering them. Calling cancelEvent() in finish() on messages whose
+    // internal owner state may have been disturbed by prior signal emissions
+    // (traciModuleRemovedSignal etc.) crashes in cSoftOwner::yieldOwnership.
+    //
+    // Safe approach: null all cMessage* pointers we own (so nothing else tries
+    // to use them), delete our own heap objects (Tasks), then let deleteModule()
+    // handle the actual FES/message cleanup.
+    // -------------------------------------------------------------------------
 
-    // Cancel pending RSU decision timeout messages.
+    // Null recurring generation timers (deleteModule will remove them from FES).
+    localObjDetEvent  = nullptr;
+    coopPercepEvent   = nullptr;
+    routeOptEvent     = nullptr;
+    fleetForecastEvent = nullptr;
+    voiceCommandEvent = nullptr;
+    sensorHealthEvent = nullptr;
+
+    // Null pending RSU decision timeout messages (deleteModule handles FES).
     for (auto& kv : pendingDecisionTimeouts) {
-        cMessage* timeoutMsg = kv.second;
-        if (timeoutMsg) {
-            if (timeoutMsg->isScheduled()) {
-                cancelEvent(timeoutMsg);
-            }
-            delete timeoutMsg;
-        }
+        kv.second = nullptr;
     }
     pendingDecisionTimeouts.clear();
 
-    // Cancel pending offloaded-task timeout messages.
+    // Null pending offloaded-task timeout messages.
     for (auto& kv : offloadedTaskTimeouts) {
-        cMessage* timeoutMsg = kv.second;
-        if (timeoutMsg) {
-            if (timeoutMsg->isScheduled()) cancelEvent(timeoutMsg);
-            delete timeoutMsg;
-        }
+        kv.second = nullptr;
     }
     offloadedTaskTimeouts.clear();
 
-    // Collect unique task pointers from all ownership containers and delete once.
+    // Collect unique Task* pointers and delete them (Tasks are our heap objects,
+    // not cOwnedObjects, so OMNeT++ does not manage them).
+    // Null the task's cMessage pointers first so nothing can follow them.
     std::set<Task*> tasksToDelete;
     while (!pending_tasks.empty()) {
         tasksToDelete.insert(pending_tasks.top());
@@ -1301,7 +1353,12 @@ void PayloadVehicleApp::finish() {
     offloadedTasks.clear();
 
     for (Task* task : tasksToDelete) {
-        cleanupTaskEvents(task);
+        // Null event pointers — the cMessage objects are owned by FES and will
+        // be freed by deleteModule(); do NOT cancel/delete them here.
+        if (task) {
+            task->completion_event = nullptr;
+            task->deadline_event   = nullptr;
+        }
         delete task;
     }
 
@@ -1330,18 +1387,12 @@ void PayloadVehicleApp::cleanupTaskEvents(Task* task) {
     }
 
     if (task->completion_event) {
-        if (task->completion_event->isScheduled()) {
-            cancelEvent(task->completion_event);
-        }
-        delete task->completion_event;
+        cancelAndDelete(task->completion_event);
         task->completion_event = nullptr;
     }
 
     if (task->deadline_event) {
-        if (task->deadline_event->isScheduled()) {
-            cancelEvent(task->deadline_event);
-        }
-        delete task->deadline_event;
+        cancelAndDelete(task->deadline_event);
         task->deadline_event = nullptr;
     }
 }
@@ -1760,12 +1811,9 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     }
     task->logTaskInfo("Task completed");
 
-    // Send completion notification to RSU with timing data
-    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
-                            true, on_time, 
-                            task->mem_footprint_bytes, task->cpu_cycles, 
-                            task->qos_value, "completed");
-    
+    // Send local completion notification to RSU (writes local_result to Redis)
+    sendTaskCompletionToRSU(task);
+
     // Reallocate CPU to remaining tasks
     reallocateCPUResources();
     
@@ -1837,12 +1885,9 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     
     task->logTaskInfo("Task failed - deadline expired");
     
-    // Send completion report for failed task (for completion rate calculation)
-    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
-                            false, false, 
-                            task->mem_footprint_bytes, task->cpu_cycles, 
-                            task->qos_value, "deadline_missed");
-    
+    // Send local completion report for failed task (writes local_result to Redis)
+    sendTaskCompletionToRSU(task);
+
     // Send failure notification to RSU
     sendTaskFailureToRSU(task, "DEADLINE_MISSED");
     
@@ -1900,16 +1945,32 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
 }
 
 void PayloadVehicleApp::sendTaskCompletionToRSU(Task* task) {
-    EV_INFO << "📤 Sending task completion notification to RSU" << endl;
-    
+    EV_INFO << "📤 Sending local task completion to RSU: " << task->task_id << endl;
+
+    bool on_time = (task->state == COMPLETED_ON_TIME);
+    bool success = (task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
+    // Use on_time (not success) so COMPLETED_LATE correctly reports "DEADLINE_MISSED"
+    // instead of "NONE". The RSU uses this to set the Redis reason field.
+    std::string fail_reason = on_time ? "NONE" : "DEADLINE_MISSED";
+
     TaskCompletionMessage* msg = new TaskCompletionMessage();
     msg->setTask_id(task->task_id.c_str());
     msg->setVehicle_id(task->vehicle_id.c_str());
     msg->setCompletion_time(task->completion_time.dbl());
     msg->setProcessing_time((task->completion_time - task->processing_start_time).dbl());
-    msg->setCompleted_on_time(task->state == COMPLETED_ON_TIME);
+    msg->setCompleted_on_time(on_time);
     msg->setCpu_allocated(task->cpu_allocated);
-    
+
+    // Local-execution metadata so RSU can write task:{id}:local_result to Redis
+    msg->setIs_local_execution(true);
+    msg->setTask_type_name(TaskProfileDatabase::getTaskTypeName(task->type).c_str());
+    msg->setQos_value(task->qos_value);
+    msg->setDeadline_seconds(task->relative_deadline);
+    msg->setFailure_reason(fail_reason.c_str());
+
+    // Clean up any timing entry that was created for this task
+    taskTimings.erase(task->task_id);
+
     LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);
@@ -3902,7 +3963,9 @@ void PayloadVehicleApp::reallocateServiceCPUResources() {
             cancelEvent(t->completion_event);
         }
         double new_exec = (per_task_hz > 0.0) ? remaining / per_task_hz : 0.0;
-        scheduleAt(simTime() + new_exec, t->completion_event);
+        if (t->completion_event) {
+            scheduleAt(simTime() + new_exec, t->completion_event);
+        }
 
         EV_INFO << "  SV realloc: task " << t->task_id
                 << " → " << (per_task_hz/1e9) << " GHz, "

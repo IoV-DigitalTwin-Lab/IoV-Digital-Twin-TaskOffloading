@@ -233,6 +233,14 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, ObjectDetectionDataMessag
  *     double processing_time;      // Actual processing duration
  *     bool completed_on_time;      // True if completed before deadline
  *     double cpu_allocated;        // Average CPU allocated during processing
+ * 
+ *     // Local-execution metadata (set when is_local_execution = true)
+ *     // Required by RSU to write task:{id}:local_result to Redis without a prior request hash
+ *     bool is_local_execution = false;       // True when vehicle executed the task locally
+ *     string task_type_name;                 // e.g. "LOCAL_OBJECT_DETECTION"
+ *     double qos_value = 0.0;               // QoS level (0.0–1.0) of the completed task
+ *     double deadline_seconds = 0.0;        // Original deadline of the completed task
+ *     string failure_reason;                 // "NONE", "DEADLINE_MISSED", etc.
  * }
  * </pre>
  */
@@ -245,6 +253,11 @@ class TaskCompletionMessage : public ::veins::BaseFrame1609_4
     double processing_time = 0;
     bool completed_on_time = false;
     double cpu_allocated = 0;
+    bool is_local_execution = false;
+    ::omnetpp::opp_string task_type_name;
+    double qos_value = 0.0;
+    double deadline_seconds = 0.0;
+    ::omnetpp::opp_string failure_reason;
 
   private:
     void copy(const TaskCompletionMessage& other);
@@ -278,13 +291,28 @@ class TaskCompletionMessage : public ::veins::BaseFrame1609_4
 
     virtual double getCpu_allocated() const;
     virtual void setCpu_allocated(double cpu_allocated);
+
+    virtual bool getIs_local_execution() const;
+    virtual void setIs_local_execution(bool is_local_execution);
+
+    virtual const char * getTask_type_name() const;
+    virtual void setTask_type_name(const char * task_type_name);
+
+    virtual double getQos_value() const;
+    virtual void setQos_value(double qos_value);
+
+    virtual double getDeadline_seconds() const;
+    virtual void setDeadline_seconds(double deadline_seconds);
+
+    virtual const char * getFailure_reason() const;
+    virtual void setFailure_reason(const char * failure_reason);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskCompletionMessage& obj) {obj.parsimPack(b);}
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskCompletionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:69</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:77</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Failure Message - Sent from vehicle to RSU when task fails/is rejected
@@ -343,13 +371,14 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskFailureMessage& o
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:80</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:88</tt> by opp_msgtool.
  * <pre>
  * //
  * // Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
  * //
  * packet VehicleResourceStatusMessage extends BaseFrame1609_4
  * {
+ *     LAddress::L2Type senderAddress = -1; // Sender's MAC address (set by vehicle via populateWSM)
  *     LAddress::L2Type senderAddress = -1; // Sender's MAC address (set by vehicle via populateWSM)
  *     string vehicle_id;           // Vehicle identifier
  * 

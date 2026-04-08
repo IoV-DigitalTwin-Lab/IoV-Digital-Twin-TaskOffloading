@@ -61,6 +61,14 @@ packet TaskCompletionMessage extends BaseFrame1609_4 {
     double processing_time;      // Actual processing duration
     bool completed_on_time;      // True if completed before deadline
     double cpu_allocated;        // Average CPU allocated during processing
+
+    // Local-execution metadata (set when is_local_execution = true)
+    // Required by RSU to write task:{id}:local_result to Redis without a prior request hash
+    bool is_local_execution = false;       // True when vehicle executed the task locally
+    string task_type_name;                 // e.g. "LOCAL_OBJECT_DETECTION"
+    double qos_value = 0.0;               // QoS level (0.0–1.0) of the completed task
+    double deadline_seconds = 0.0;        // Original deadline of the completed task
+    string failure_reason;                 // "NONE", "DEADLINE_MISSED", etc.
 }
 
 //

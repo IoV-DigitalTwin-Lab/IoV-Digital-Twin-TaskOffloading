@@ -1283,6 +1283,11 @@ void TaskCompletionMessage::copy(const TaskCompletionMessage& other)
     this->processing_time = other.processing_time;
     this->completed_on_time = other.completed_on_time;
     this->cpu_allocated = other.cpu_allocated;
+    this->is_local_execution = other.is_local_execution;
+    this->task_type_name = other.task_type_name;
+    this->qos_value = other.qos_value;
+    this->deadline_seconds = other.deadline_seconds;
+    this->failure_reason = other.failure_reason;
 }
 
 void TaskCompletionMessage::parsimPack(omnetpp::cCommBuffer *b) const
@@ -1294,6 +1299,11 @@ void TaskCompletionMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->processing_time);
     doParsimPacking(b,this->completed_on_time);
     doParsimPacking(b,this->cpu_allocated);
+    doParsimPacking(b,this->is_local_execution);
+    doParsimPacking(b,this->task_type_name);
+    doParsimPacking(b,this->qos_value);
+    doParsimPacking(b,this->deadline_seconds);
+    doParsimPacking(b,this->failure_reason);
 }
 
 void TaskCompletionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -1305,6 +1315,11 @@ void TaskCompletionMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->processing_time);
     doParsimUnpacking(b,this->completed_on_time);
     doParsimUnpacking(b,this->cpu_allocated);
+    doParsimUnpacking(b,this->is_local_execution);
+    doParsimUnpacking(b,this->task_type_name);
+    doParsimUnpacking(b,this->qos_value);
+    doParsimUnpacking(b,this->deadline_seconds);
+    doParsimUnpacking(b,this->failure_reason);
 }
 
 const char * TaskCompletionMessage::getTask_id() const
@@ -1367,6 +1382,56 @@ void TaskCompletionMessage::setCpu_allocated(double cpu_allocated)
     this->cpu_allocated = cpu_allocated;
 }
 
+bool TaskCompletionMessage::getIs_local_execution() const
+{
+    return this->is_local_execution;
+}
+
+void TaskCompletionMessage::setIs_local_execution(bool is_local_execution)
+{
+    this->is_local_execution = is_local_execution;
+}
+
+const char * TaskCompletionMessage::getTask_type_name() const
+{
+    return this->task_type_name.c_str();
+}
+
+void TaskCompletionMessage::setTask_type_name(const char * task_type_name)
+{
+    this->task_type_name = task_type_name;
+}
+
+double TaskCompletionMessage::getQos_value() const
+{
+    return this->qos_value;
+}
+
+void TaskCompletionMessage::setQos_value(double qos_value)
+{
+    this->qos_value = qos_value;
+}
+
+double TaskCompletionMessage::getDeadline_seconds() const
+{
+    return this->deadline_seconds;
+}
+
+void TaskCompletionMessage::setDeadline_seconds(double deadline_seconds)
+{
+    this->deadline_seconds = deadline_seconds;
+}
+
+const char * TaskCompletionMessage::getFailure_reason() const
+{
+    return this->failure_reason.c_str();
+}
+
+void TaskCompletionMessage::setFailure_reason(const char * failure_reason)
+{
+    this->failure_reason = failure_reason;
+}
+
 class TaskCompletionMessageDescriptor : public omnetpp::cClassDescriptor
 {
   private:
@@ -1378,6 +1443,11 @@ class TaskCompletionMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_processing_time,
         FIELD_completed_on_time,
         FIELD_cpu_allocated,
+        FIELD_is_local_execution,
+        FIELD_task_type_name,
+        FIELD_qos_value,
+        FIELD_deadline_seconds,
+        FIELD_failure_reason,
     };
   public:
     TaskCompletionMessageDescriptor();
@@ -1444,7 +1514,7 @@ const char *TaskCompletionMessageDescriptor::getProperty(const char *propertyNam
 int TaskCompletionMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 6+base->getFieldCount() : 6;
+    return base ? 11+base->getFieldCount() : 11;
 }
 
 unsigned int TaskCompletionMessageDescriptor::getFieldTypeFlags(int field) const
@@ -1462,8 +1532,13 @@ unsigned int TaskCompletionMessageDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,    // FIELD_processing_time
         FD_ISEDITABLE,    // FIELD_completed_on_time
         FD_ISEDITABLE,    // FIELD_cpu_allocated
+        FD_ISEDITABLE,    // FIELD_is_local_execution
+        FD_ISEDITABLE,    // FIELD_task_type_name
+        FD_ISEDITABLE,    // FIELD_qos_value
+        FD_ISEDITABLE,    // FIELD_deadline_seconds
+        FD_ISEDITABLE,    // FIELD_failure_reason
     };
-    return (field >= 0 && field < 6) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 11) ? fieldTypeFlags[field] : 0;
 }
 
 const char *TaskCompletionMessageDescriptor::getFieldName(int field) const
@@ -1481,8 +1556,13 @@ const char *TaskCompletionMessageDescriptor::getFieldName(int field) const
         "processing_time",
         "completed_on_time",
         "cpu_allocated",
+        "is_local_execution",
+        "task_type_name",
+        "qos_value",
+        "deadline_seconds",
+        "failure_reason",
     };
-    return (field >= 0 && field < 6) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 11) ? fieldNames[field] : nullptr;
 }
 
 int TaskCompletionMessageDescriptor::findField(const char *fieldName) const
@@ -1495,6 +1575,11 @@ int TaskCompletionMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "processing_time") == 0) return baseIndex + 3;
     if (strcmp(fieldName, "completed_on_time") == 0) return baseIndex + 4;
     if (strcmp(fieldName, "cpu_allocated") == 0) return baseIndex + 5;
+    if (strcmp(fieldName, "is_local_execution") == 0) return baseIndex + 6;
+    if (strcmp(fieldName, "task_type_name") == 0) return baseIndex + 7;
+    if (strcmp(fieldName, "qos_value") == 0) return baseIndex + 8;
+    if (strcmp(fieldName, "deadline_seconds") == 0) return baseIndex + 9;
+    if (strcmp(fieldName, "failure_reason") == 0) return baseIndex + 10;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -1513,8 +1598,13 @@ const char *TaskCompletionMessageDescriptor::getFieldTypeString(int field) const
         "double",    // FIELD_processing_time
         "bool",    // FIELD_completed_on_time
         "double",    // FIELD_cpu_allocated
+        "bool",    // FIELD_is_local_execution
+        "string",    // FIELD_task_type_name
+        "double",    // FIELD_qos_value
+        "double",    // FIELD_deadline_seconds
+        "string",    // FIELD_failure_reason
     };
-    return (field >= 0 && field < 6) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 11) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **TaskCompletionMessageDescriptor::getFieldPropertyNames(int field) const
@@ -1603,6 +1693,11 @@ std::string TaskCompletionMessageDescriptor::getFieldValueAsString(omnetpp::any_
         case FIELD_processing_time: return double2string(pp->getProcessing_time());
         case FIELD_completed_on_time: return bool2string(pp->getCompleted_on_time());
         case FIELD_cpu_allocated: return double2string(pp->getCpu_allocated());
+        case FIELD_is_local_execution: return bool2string(pp->getIs_local_execution());
+        case FIELD_task_type_name: return oppstring2string(pp->getTask_type_name());
+        case FIELD_qos_value: return double2string(pp->getQos_value());
+        case FIELD_deadline_seconds: return double2string(pp->getDeadline_seconds());
+        case FIELD_failure_reason: return oppstring2string(pp->getFailure_reason());
         default: return "";
     }
 }
@@ -1625,6 +1720,11 @@ void TaskCompletionMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr obj
         case FIELD_processing_time: pp->setProcessing_time(string2double(value)); break;
         case FIELD_completed_on_time: pp->setCompleted_on_time(string2bool(value)); break;
         case FIELD_cpu_allocated: pp->setCpu_allocated(string2double(value)); break;
+        case FIELD_is_local_execution: pp->setIs_local_execution(string2bool(value)); break;
+        case FIELD_task_type_name: pp->setTask_type_name((value)); break;
+        case FIELD_qos_value: pp->setQos_value(string2double(value)); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(string2double(value)); break;
+        case FIELD_failure_reason: pp->setFailure_reason((value)); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskCompletionMessage'", field);
     }
 }
@@ -1645,6 +1745,11 @@ omnetpp::cValue TaskCompletionMessageDescriptor::getFieldValue(omnetpp::any_ptr 
         case FIELD_processing_time: return pp->getProcessing_time();
         case FIELD_completed_on_time: return pp->getCompleted_on_time();
         case FIELD_cpu_allocated: return pp->getCpu_allocated();
+        case FIELD_is_local_execution: return pp->getIs_local_execution();
+        case FIELD_task_type_name: return pp->getTask_type_name();
+        case FIELD_qos_value: return pp->getQos_value();
+        case FIELD_deadline_seconds: return pp->getDeadline_seconds();
+        case FIELD_failure_reason: return pp->getFailure_reason();
         default: throw omnetpp::cRuntimeError("Cannot return field %d of class 'TaskCompletionMessage' as cValue -- field index out of range?", field);
     }
 }
@@ -1667,6 +1772,11 @@ void TaskCompletionMessageDescriptor::setFieldValue(omnetpp::any_ptr object, int
         case FIELD_processing_time: pp->setProcessing_time(value.doubleValue()); break;
         case FIELD_completed_on_time: pp->setCompleted_on_time(value.boolValue()); break;
         case FIELD_cpu_allocated: pp->setCpu_allocated(value.doubleValue()); break;
+        case FIELD_is_local_execution: pp->setIs_local_execution(value.boolValue()); break;
+        case FIELD_task_type_name: pp->setTask_type_name(value.stringValue()); break;
+        case FIELD_qos_value: pp->setQos_value(value.doubleValue()); break;
+        case FIELD_deadline_seconds: pp->setDeadline_seconds(value.doubleValue()); break;
+        case FIELD_failure_reason: pp->setFailure_reason(value.stringValue()); break;
         default: throw omnetpp::cRuntimeError("Cannot set field %d of class 'TaskCompletionMessage'", field);
     }
 }
@@ -2273,6 +2383,16 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->current_processing_count);
     doParsimUnpacking(b,this->avg_completion_time);
     doParsimUnpacking(b,this->deadline_miss_ratio);
+}
+
+const LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
+{
+    return this->senderAddress;
+}
+
+void VehicleResourceStatusMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
+{
+    this->senderAddress = senderAddress;
 }
 
 const LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const

@@ -49,7 +49,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         // Offloading Control
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
         bool motionChannelOnly = default(false);              // Secondary DT mode: disable task generation/offloading
-        bool force_offload = default(false);                  // Force all tasks to be offloaded
+        string offloadMode = default("heuristic");             // "heuristic" | "allOffload" | "allLocal"
         double gateAlpha = default(0.6);                      // Gate-B latency weight
         double gateBeta = default(0.4);                       // Gate-B energy weight
         double gateSafetyMarginSec @unit(s) = default(0.05s); // Safety margin subtracted from remaining deadline
