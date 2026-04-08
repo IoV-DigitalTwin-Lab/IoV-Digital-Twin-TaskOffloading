@@ -3388,14 +3388,14 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             {
                 std::string ddqn_status = on_time ? "COMPLETED_ON_TIME" : "FAILED";
                 std::string ddqn_reason = on_time ? "NONE" : "DEADLINE_MISSED";
-                // Energy estimate: κ * f² * cycles
+                // Energy estimate: κ * f² * cycles  (CMOS dynamic power model)
                 double energy_j = 0.0;
                 if (decision_type == "RSU") {
                     // RSU: κ_rsu=2e-27, f ≈ 4 GHz
-                    energy_j = 2e-27 * 4e9 * 4e9;
+                    energy_j = 2e-27 * 4e9 * 4e9 * static_cast<double>(cpu_cycles);
                 } else {
                     // SV: κ_v=5e-27, f ≈ 1 GHz
-                    energy_j = 5e-27 * 1e9 * 1e9;
+                    energy_j = 5e-27 * 1e9 * 1e9 * static_cast<double>(cpu_cycles);
                 }
                 redis_twin->writeSingleResult(task_id, ddqn_status, total_latency, energy_j, ddqn_reason);
                 std::cout << "RSU_OFFLOAD_RESULT: task=" << task_id
