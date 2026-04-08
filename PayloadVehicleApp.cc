@@ -1347,18 +1347,12 @@ void PayloadVehicleApp::cleanupTaskEvents(Task* task) {
     }
 
     if (task->completion_event) {
-        if (task->completion_event->isScheduled()) {
-            cancelEvent(task->completion_event);
-        }
-        delete task->completion_event;
+        cancelAndDelete(task->completion_event);
         task->completion_event = nullptr;
     }
 
     if (task->deadline_event) {
-        if (task->deadline_event->isScheduled()) {
-            cancelEvent(task->deadline_event);
-        }
-        delete task->deadline_event;
+        cancelAndDelete(task->deadline_event);
         task->deadline_event = nullptr;
     }
 }
@@ -3884,7 +3878,9 @@ void PayloadVehicleApp::reallocateServiceCPUResources() {
             cancelEvent(t->completion_event);
         }
         double new_exec = (per_task_hz > 0.0) ? remaining / per_task_hz : 0.0;
-        scheduleAt(simTime() + new_exec, t->completion_event);
+        if (t->completion_event) {
+            scheduleAt(simTime() + new_exec, t->completion_event);
+        }
 
         EV_INFO << "  SV realloc: task " << t->task_id
                 << " → " << (per_task_hz/1e9) << " GHz, "

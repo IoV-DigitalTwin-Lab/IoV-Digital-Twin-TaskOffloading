@@ -1528,6 +1528,25 @@ void MyRSUApp::initDatabase() {
             PQclear(r);
         }
 
+        // Ensure offloaded_task_completions has all required columns (idempotent)
+        const char* offload_comp_alters[] = {
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS cpu_cycles BIGINT DEFAULT 0",
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS deadline_seconds DOUBLE PRECISION DEFAULT 1.0",
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS qos_value DOUBLE PRECISION DEFAULT 1.0",
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS completed_on_time BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS decision_latency DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS processing_latency DOUBLE PRECISION DEFAULT 0",
+            nullptr
+        };
+        for (int i = 0; offload_comp_alters[i] != nullptr; ++i) {
+            PGresult* r = PQexec(db_conn, offload_comp_alters[i]);
+            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
+                EV_WARN << "⚠ offloaded_task_completions schema update failed: " << PQerrorMessage(db_conn) << endl;
+            }
+            PQclear(r);
+        }
+
         // Ensure offloading_requests has all required columns (idempotent)
         const char* offload_req_alters[] = {
             "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
