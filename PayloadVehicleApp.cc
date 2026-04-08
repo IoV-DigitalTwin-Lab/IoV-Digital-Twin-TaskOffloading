@@ -10,6 +10,8 @@ using namespace veins;
 namespace complex_network {
 
 namespace {
+constexpr double kDefaultV2xLinkBandwidthMbps = 6.0;
+
 std::string buildRouteHint(veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac) {
     std::ostringstream oss;
     oss << "ROUTE|ingress=" << ingressRsuMac << "|processor=" << processorRsuMac << "|";
@@ -1006,6 +1008,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         
         // Task characteristics
         context.task_size_kb = task->mem_footprint_bytes / 1024.0;
+        context.output_size_kb = task->output_size_bytes / 1024.0;
         context.cpu_cycles_required = task->cpu_cycles;
         context.qos_value = task->qos_value;
         context.deadline_seconds = task->relative_deadline;
@@ -1027,12 +1030,15 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.rsu_distance = getRSUDistance();
         context.estimated_rsu_rssi = getEstimatedRSSI();
         context.estimated_transmission_time = estimateTransmissionTime(task);
+        context.estimated_downlink_bandwidth_mbps = kDefaultV2xLinkBandwidthMbps;
+        context.rsu_cpu_available_ghz = EnergyConstants::FREQ_RSU_NOMINAL / 1e9; // fallback when RSU load metrics are unavailable
         
         // RSU edge-compute load — look up the selected RSU in our metrics map
         for (auto& kv : rsuMetrics) {
             if (kv.second.macAddress == rsu) {
                 context.rsu_processing_count = kv.second.rsu_processing_count;
                 context.rsu_max_concurrent   = kv.second.rsu_max_concurrent;
+                context.rsu_cpu_available_ghz = kv.second.rsu_cpu_available_ghz;
                 break;
             }
         }
@@ -1043,6 +1049,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         EV_INFO << "Decision context: LocalCPU=" << context.local_cpu_available << "GHz, "
                 << "Utilization=" << (context.local_cpu_utilization*100) << "%, "
                 << "Queue=" << context.local_queue_length << ", "
+                << "RSU_CPU=" << context.rsu_cpu_available_ghz << "GHz, "
                 << "RSU_dist=" << context.rsu_distance << "m, "
                 << "RSSI=" << context.estimated_rsu_rssi << "dBm" << endl;
         
@@ -2363,6 +2370,17 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
                 
                 rsuMetrics[i].distance = distance;
 
+                // Derive available RSU CPU from current load estimate.
+                // When load telemetry is unavailable, defaults keep this at nominal RSU CPU (from EnergyModel).
+                const double nominal_rsu_cpu_ghz = EnergyConstants::FREQ_RSU_NOMINAL / 1e9;
+                double load_ratio = 0.0;
+                if (rsuMetrics[i].rsu_max_concurrent > 0) {
+                    load_ratio = static_cast<double>(rsuMetrics[i].rsu_processing_count) /
+                                 static_cast<double>(rsuMetrics[i].rsu_max_concurrent);
+                }
+                load_ratio = std::max(0.0, std::min(1.0, load_ratio));
+                rsuMetrics[i].rsu_cpu_available_ghz = std::max(0.1, nominal_rsu_cpu_ghz * (1.0 - load_ratio));
+
                 // RSSI estimation: TwoRay Ground Reflection (matches omnetpp.ini pathLoss config)
                 // RSU TX = 2000mW = 33 dBm; antenna heights ht=hr=1.5m; carrier=5.89GHz
                 const double RSU_TX_dBm = 33.0;
@@ -2674,7 +2692,7 @@ double PayloadVehicleApp::getEstimatedRSSI() {
 
 double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
     // IEEE 802.11p DSRC Channel Rate: 3-27 Mbps (typically 6 Mbps for reliability)
-    double bandwidth_mbps = 6.0;  // Conservative estimate for reliable transmission
+    double bandwidth_mbps = kDefaultV2xLinkBandwidthMbps;  // Conservative estimate for reliable transmission
     
     // Calculate transmission time based on input bytes sent over the air
     double transmission_time = (task->input_size_bytes * 8.0) / (bandwidth_mbps * 1e6);

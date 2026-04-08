@@ -2,6 +2,7 @@
 
 #include <string>
 #include <map>
+#include "EnergyModel.h"
 
 namespace complex_network {
 
@@ -54,6 +55,7 @@ struct GateBDecisionResult {
 struct DecisionContext {
     // Task characteristics
     double task_size_kb;
+    double output_size_kb = 0.0;
     double cpu_cycles_required;
     double qos_value;
     double deadline_seconds;
@@ -74,6 +76,8 @@ struct DecisionContext {
     double rsu_distance;             // Distance to nearest RSU (m)
     double estimated_rsu_rssi;       // Signal strength (dBm)
     double estimated_transmission_time; // Time to send task data (s)
+    double estimated_downlink_bandwidth_mbps = 6.0; // Estimated RSU->vehicle throughput (Mbps)
+    double rsu_cpu_available_ghz = 4.0; // Estimated available RSU CPU for this task (GHz)
     
     // RSU edge-compute load
     int rsu_processing_count = 0;    // Tasks currently executing on the RSU
@@ -182,37 +186,6 @@ private:
     double p_compute_w;
     double p_tx_w;
     double p_rx_w;
-};
-
-/**
- * DRL-based decision maker (placeholder for future implementation)
- * Will use Deep Reinforcement Learning for intelligent offloading
- */
-class DRLDecisionMaker : public TaskOffloadingDecisionMaker {
-public:
-    DRLDecisionMaker();
-    
-    OffloadingDecision makeDecision(const DecisionContext& context) override;
-    void provideFeedback(const std::string& task_id, 
-                        OffloadingDecision decision,
-                        bool success,
-                        double execution_time) override;
-    
-    // DRL-specific methods (to be implemented)
-    void loadModel(const std::string& model_path);
-    void saveModel(const std::string& model_path);
-    void setLearningRate(double rate);
-    void setExplorationRate(double rate);
-    
-private:
-    // DRL state representation
-    // TODO: Implement neural network model
-    // TODO: Implement experience replay buffer
-    // TODO: Implement training logic
-    
-    double exploration_rate;
-    double learning_rate;
-    bool use_pretrained_model;
 };
 
 } // namespace complex_network

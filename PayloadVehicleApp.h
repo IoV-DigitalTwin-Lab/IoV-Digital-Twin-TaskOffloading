@@ -160,9 +160,10 @@ private:
         simtime_t lastContactTime = 0;               // Last successful contact
         double score = 0.0;                          // Calculated selection score
         
-        // RSU edge-compute load (set from beacon / assume 0 when unknown)
-        int rsu_processing_count = 0;  // Active tasks on this RSU right now
-        int rsu_max_concurrent   = 16; // Configured admission ceiling on this RSU
+        // RSU edge-compute load (set from beacon / assume defaults when unknown)
+        int rsu_processing_count = 0;   // Active tasks on this RSU right now
+        int rsu_max_concurrent   = 16;  // Configured admission ceiling on this RSU
+        double rsu_cpu_available_ghz = 4.0; // Estimated available RSU CPU (GHz)
         
         // Calculate Packet Reception Ratio (PRR)
         double getPRR() const {
