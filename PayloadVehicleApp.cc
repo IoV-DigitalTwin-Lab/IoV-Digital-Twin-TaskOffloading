@@ -1257,37 +1257,42 @@ void PayloadVehicleApp::generateTask(TaskType type) {
 }
 
 void PayloadVehicleApp::finish() {
-    // Stop recurring generation timers.
-    if (localObjDetEvent) { cancelAndDelete(localObjDetEvent); localObjDetEvent = nullptr; }
-    if (coopPercepEvent) { cancelAndDelete(coopPercepEvent); coopPercepEvent = nullptr; }
-    if (routeOptEvent) { cancelAndDelete(routeOptEvent); routeOptEvent = nullptr; }
-    if (fleetForecastEvent) { cancelAndDelete(fleetForecastEvent); fleetForecastEvent = nullptr; }
-    if (voiceCommandEvent) { cancelAndDelete(voiceCommandEvent); voiceCommandEvent = nullptr; }
-    if (sensorHealthEvent) { cancelAndDelete(sensorHealthEvent); sensorHealthEvent = nullptr; }
+    // -------------------------------------------------------------------------
+    // Message cleanup strategy: do NOT call cancelEvent/cancelAndDelete here.
+    // When deleteManagedModule() calls callFinish() then deleteModule(), OMNeT++
+    // removes all pending messages from the FES in deleteModule() without
+    // delivering them. Calling cancelEvent() in finish() on messages whose
+    // internal owner state may have been disturbed by prior signal emissions
+    // (traciModuleRemovedSignal etc.) crashes in cSoftOwner::yieldOwnership.
+    //
+    // Safe approach: null all cMessage* pointers we own (so nothing else tries
+    // to use them), delete our own heap objects (Tasks), then let deleteModule()
+    // handle the actual FES/message cleanup.
+    // -------------------------------------------------------------------------
 
-    // Cancel pending RSU decision timeout messages.
+    // Null recurring generation timers (deleteModule will remove them from FES).
+    localObjDetEvent  = nullptr;
+    coopPercepEvent   = nullptr;
+    routeOptEvent     = nullptr;
+    fleetForecastEvent = nullptr;
+    voiceCommandEvent = nullptr;
+    sensorHealthEvent = nullptr;
+
+    // Null pending RSU decision timeout messages (deleteModule handles FES).
     for (auto& kv : pendingDecisionTimeouts) {
-        cMessage* timeoutMsg = kv.second;
-        if (timeoutMsg) {
-            if (timeoutMsg->isScheduled()) {
-                cancelEvent(timeoutMsg);
-            }
-            delete timeoutMsg;
-        }
+        kv.second = nullptr;
     }
     pendingDecisionTimeouts.clear();
 
-    // Cancel pending offloaded-task timeout messages.
+    // Null pending offloaded-task timeout messages.
     for (auto& kv : offloadedTaskTimeouts) {
-        cMessage* timeoutMsg = kv.second;
-        if (timeoutMsg) {
-            if (timeoutMsg->isScheduled()) cancelEvent(timeoutMsg);
-            delete timeoutMsg;
-        }
+        kv.second = nullptr;
     }
     offloadedTaskTimeouts.clear();
 
-    // Collect unique task pointers from all ownership containers and delete once.
+    // Collect unique Task* pointers and delete them (Tasks are our heap objects,
+    // not cOwnedObjects, so OMNeT++ does not manage them).
+    // Null the task's cMessage pointers first so nothing can follow them.
     std::set<Task*> tasksToDelete;
     while (!pending_tasks.empty()) {
         tasksToDelete.insert(pending_tasks.top());
@@ -1318,7 +1323,12 @@ void PayloadVehicleApp::finish() {
     offloadedTasks.clear();
 
     for (Task* task : tasksToDelete) {
-        cleanupTaskEvents(task);
+        // Null event pointers — the cMessage objects are owned by FES and will
+        // be freed by deleteModule(); do NOT cancel/delete them here.
+        if (task) {
+            task->completion_event = nullptr;
+            task->deadline_event   = nullptr;
+        }
         delete task;
     }
 
