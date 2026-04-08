@@ -34,6 +34,9 @@ public:
                            double pos_x, double pos_y, double speed, double heading,
                            double cpu_available, double cpu_utilization,
                            double mem_available, double mem_utilization,
+                           double battery_level_pct, double battery_current_mAh,
+                           double battery_capacity_mAh,
+                           double energy_task_j_total, double energy_task_j_last,
                            int queue_length, int processing_count,
                            double sim_time);
     
@@ -104,7 +107,8 @@ public:
                            int queue_length, int processing_count,
                            double sim_time,
                            double pos_x, double pos_y,
-                           double cpu_utilization = 0.0);
+                           double cpu_utilization = 0.0,
+                           double energy_level_pct = 100.0);
     
     std::map<std::string, std::string> getRSUState(const std::string& rsu_id);
     

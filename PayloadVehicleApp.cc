@@ -59,6 +59,8 @@ void PayloadVehicleApp::initialize(int stage) {
         battery_mAh_current = battery_mAh_max * uniform(0.5, 1.0);  // Start 50-100% charged
         battery_voltage = 12.0;  // Standard automotive 12V system
         lastBatteryUpdateTime = simTime().dbl();
+        task_energy_j_total = 0.0;
+        task_energy_j_last = 0.0;
         
         // Initialize memory (typical vehicle ECU: 2-8 GB RAM)
         memory_MB_max = par("initMemory_MB").doubleValue();
@@ -668,6 +670,27 @@ std::string PayloadVehicleApp::createVehicleDataPayload() {
             << "MAC:" << myMacAddress;
     
     return payload.str();
+}
+
+void PayloadVehicleApp::applyTaskEnergyDrain(double energy_joules, const std::string& source) {
+    if (energy_joules <= 0.0 || battery_voltage <= 0.0) {
+        return;
+    }
+
+    // Convert energy (J) to battery drain (mAh): mAh = E * 1000 / (V * 3600)
+    double drain_mAh = (energy_joules * 1000.0) / (battery_voltage * 3600.0);
+    battery_mAh_current -= drain_mAh;
+
+    task_energy_j_last = energy_joules;
+    task_energy_j_total += energy_joules;
+
+    // Keep at least 1% reserve to avoid negative battery artifacts.
+    if (battery_mAh_current < battery_mAh_max * 0.01) {
+        battery_mAh_current = battery_mAh_max * 0.01;
+    }
+
+    EV_DEBUG << "Battery drain (" << source << "): "
+             << energy_joules << " J (" << drain_mAh << " mAh)" << endl;
 }
 
 void PayloadVehicleApp::receiveSignal(cComponent* src, simsignal_t id, cObject* obj, cObject* details) {
@@ -1723,14 +1746,15 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     // Record statistics
     total_completion_time += completion_time_elapsed;
 
-    if (task->is_profile_task) {
-        double exec_time = (task->completion_time - task->processing_start_time).dbl();
-        double energy_joules = energyCalculator.calcLocalExecutionEnergy(
+    double exec_time = (task->completion_time - task->processing_start_time).dbl();
+    double energy_joules = energyCalculator.calcLocalExecutionEnergy(
             task->cpu_cycles,
             static_cast<uint32_t>(task->input_size_bytes),
             exec_time
-        );
+    );
+    applyTaskEnergyDrain(energy_joules, "LOCAL_EXECUTION");
 
+    if (task->is_profile_task) {
         MetricsManager::getInstance().recordTaskCompletion(
             task->type,
             MetricsManager::LOCAL_EXECUTION,
@@ -1951,6 +1975,14 @@ void PayloadVehicleApp::handleServiceTaskCompletion(Task* task) {
     
     task->completion_time = simTime();
     double processing_time = (task->completion_time - task->processing_start_time).dbl();
+
+    // Service vehicle pays compute energy for the offloaded task it executes.
+    double service_energy_j = energyCalculator.calcLocalExecutionEnergy(
+        task->cpu_cycles,
+        static_cast<uint32_t>(task->input_size_bytes),
+        processing_time
+    );
+    applyTaskEnergyDrain(service_energy_j, "SERVICE_VEHICLE_EXECUTION");
     
     // Determine if task met its deadline
     if (task->completion_time <= task->deadline) {
@@ -2207,9 +2239,12 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setCpu_utilization(cpu_util);
     
     statusMsg->setMem_total(memory_total);
-    statusMsg->setMem_available(memory_available);
-    // Store as ratio (0.0-1.0) not percentage
-    double mem_util = (memory_total > 0) ? ((memory_total - memory_available) / memory_total) : 0.0;
+    // Blend task memory usage with ambient OS/cache pressure for realistic DT state.
+    double task_mem_util = (memory_total > 0) ? ((memory_total - memory_available) / memory_total) : 0.0;
+    double mem_util = std::max(task_mem_util, memoryUsageFactor);
+    mem_util = std::max(0.0, std::min(1.0, mem_util));
+    double reported_mem_available = memory_total * (1.0 - mem_util);
+    statusMsg->setMem_available(reported_mem_available);
     statusMsg->setMem_utilization(mem_util);
     
     // Task statistics
@@ -2234,6 +2269,13 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     } else {
         statusMsg->setDeadline_miss_ratio(0.0);
     }
+
+    double battery_pct = (battery_mAh_max > 0.0) ? (battery_mAh_current / battery_mAh_max) * 100.0 : 0.0;
+    statusMsg->setBattery_level_pct(battery_pct);
+    statusMsg->setBattery_current_mAh(battery_mAh_current);
+    statusMsg->setBattery_capacity_mAh(battery_mAh_max);
+    statusMsg->setEnergy_task_j_total(task_energy_j_total);
+    statusMsg->setEnergy_task_j_last(task_energy_j_last);
     
     // Set sender MAC so RSU can register this vehicle's L2 address from heartbeats alone.
     statusMsg->setSenderAddress(myId);
@@ -3392,6 +3434,11 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac
     if (rsuMac != 0) {
         populateWSM(packet, rsuMac);
         sendDown(packet);
+        uint32_t tx_bytes = static_cast<uint32_t>(task->input_size_bytes > 0
+            ? task->input_size_bytes
+            : task->mem_footprint_bytes);
+        double tx_energy_j = energyCalculator.calcTransmissionEnergy(tx_bytes, 6e6);
+        applyTaskEnergyDrain(tx_energy_j, "OFFLOAD_TX_RSU");
         EV_INFO << "✓ Task offload packet sent to RSU MAC: " << rsuMac << endl;
         std::cout << "OFFLOAD_TARGET_RSU_MAC: " << rsuMac << std::endl;
         if (processorRsuMac != 0 && processorRsuMac != rsuMac) {
@@ -3431,6 +3478,11 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     // Send to service vehicle
     populateWSM(packet, serviceMac);
     sendDown(packet);
+    uint32_t tx_bytes = static_cast<uint32_t>(task->input_size_bytes > 0
+        ? task->input_size_bytes
+        : task->mem_footprint_bytes);
+    double tx_energy_j = energyCalculator.calcTransmissionEnergy(tx_bytes, 6e6);
+    applyTaskEnergyDrain(tx_energy_j, "OFFLOAD_TX_SERVICE_VEHICLE");
     
     EV_INFO << "✓ Task offload packet sent to service vehicle MAC: " << serviceMac << endl;
     
@@ -3470,6 +3522,11 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
 
     populateWSM(packet, firstHopRsu);
     sendDown(packet);
+    uint32_t tx_bytes = static_cast<uint32_t>(task->input_size_bytes > 0
+        ? task->input_size_bytes
+        : task->mem_footprint_bytes);
+    double tx_energy_j = energyCalculator.calcTransmissionEnergy(tx_bytes, 6e6);
+    applyTaskEnergyDrain(tx_energy_j, "OFFLOAD_TX_SERVICE_VEHICLE_VIA_RSU");
 
     offloadedTasks[task->task_id] = task;
     offloadedTaskTargets[task->task_id] = "SV_" + serviceVehicleId;

@@ -65,6 +65,9 @@ void RedisDigitalTwin::updateVehicleState(
     double pos_x, double pos_y, double speed, double heading,
     double cpu_available, double cpu_utilization,
     double mem_available, double mem_utilization,
+    double battery_level_pct, double battery_current_mAh,
+    double battery_capacity_mAh,
+    double energy_task_j_total, double energy_task_j_last,
     int queue_length, int processing_count,
     double sim_time)
 {
@@ -77,11 +80,15 @@ void RedisDigitalTwin::updateVehicleState(
         "HMSET %s pos_x %f pos_y %f speed %f heading %f "
         "cpu_available %f cpu_utilization %f "
         "mem_available %f mem_utilization %f "
+        "battery_level_pct %f battery_current_mAh %f battery_capacity_mAh %f "
+        "energy_task_j_total %f energy_task_j_last %f "
         "queue_length %d processing_count %d "
         "last_update %f",
         key.c_str(), pos_x, pos_y, speed, heading,
         cpu_available, cpu_utilization,
         mem_available, mem_utilization,
+        battery_level_pct, battery_current_mAh, battery_capacity_mAh,
+        energy_task_j_total, energy_task_j_last,
         queue_length, processing_count,
         sim_time
     );
@@ -445,7 +452,8 @@ void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
                                          int queue_length, int processing_count,
                                          double sim_time,
                                          double pos_x, double pos_y,
-                                         double cpu_utilization)
+                                         double cpu_utilization,
+                                         double energy_level_pct)
 {
     if (!redis_ctx || !is_connected) return;
 
@@ -455,10 +463,10 @@ void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s cpu_available %f memory_available %f "
         "queue_length %d processing_count %d update_time %f "
-        "pos_x %f pos_y %f cpu_utilization %f",
+        "pos_x %f pos_y %f cpu_utilization %f energy_level_pct %f",
         key.c_str(), cpu_available, memory_available,
         queue_length, processing_count, sim_time,
-        pos_x, pos_y, cpu_utilization
+        pos_x, pos_y, cpu_utilization, energy_level_pct
     );
 
     if (reply) {

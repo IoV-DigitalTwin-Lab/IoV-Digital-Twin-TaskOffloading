@@ -11,6 +11,7 @@
 #include <deque>
 #include <string>
 #include <set>
+#include <cstdint>
 #include <libpq-fe.h>
 
 using namespace veins;
@@ -37,6 +38,13 @@ struct VehicleDigitalTwin {
     double mem_total = 0.0;
     double mem_available = 0.0;
     double mem_utilization = 0.0;
+
+    // Energy state
+    double battery_level_pct = 0.0;
+    double battery_current_mAh = 0.0;
+    double battery_capacity_mAh = 0.0;
+    double energy_task_j_total = 0.0;
+    double energy_task_j_last = 0.0;
     
     double tx_power = 0.0;
     double reservation_ratio = 0.0;
@@ -225,6 +233,9 @@ private:
     double rsu_cpu_available = 0.0;     // Currently available CPU
     double rsu_memory_total = 0.0;      // Total memory (same as edgeMemory_GB)
     double rsu_memory_available = 0.0;  // Currently available memory
+    double rsu_background_cpu_util = 0.0; // Baseline infrastructure CPU load (0-1)
+    double rsu_background_mem_util = 0.0; // Baseline infrastructure memory load (0-1)
+    double rsu_last_background_update = 0.0;
     
     // Task processing state
     int rsu_queue_length = 0;           // Tasks waiting in queue
@@ -347,6 +358,7 @@ private:
         std::string vehicle_id;
         LAddress::L2Type vehicle_mac = 0;
         LAddress::L2Type ingress_rsu_mac = 0;
+        uint64_t mem_footprint_bytes = 0;   // reserved RSU memory for this task
         uint64_t cpu_cycles = 0;            // total cycles required for this task
         double qos_value = 0.5;             // [0,1], used for weighted CPU sharing
         double cycles_remaining = 0.0;      // cycles not yet executed (updated at each reschedule)
@@ -362,6 +374,7 @@ private:
         std::string vehicle_id;
         LAddress::L2Type vehicle_mac = 0;
         LAddress::L2Type ingress_rsu_mac = 0;
+        uint64_t mem_footprint_bytes = 0;
         uint64_t cpu_cycles = 0;
         double qos_value = 0.5;
         double enqueue_time = 0.0;
@@ -394,6 +407,14 @@ private:
 
     void processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac);
     void tryStartQueuedRSUTasks();
+    void updateRSUBackgroundLoad();
+    double getRSUTaskCpuUtilization() const;
+    double getEffectiveRSUCpuUtilization() const;
+    double getEffectiveRSUMemoryUtilization() const;
+    double getEffectiveRSUMemoryAvailable() const;
+    bool canReserveRSUMemory(uint64_t bytes) const;
+    void reserveRSUMemory(uint64_t bytes);
+    void releaseRSUMemory(uint64_t bytes);
     // Recomputes each in-flight task's remaining cycles and reschedules all completion
     // events so each task gets a weighted share of edgeCPU_GHz.
     void reallocateRSUTasks();
