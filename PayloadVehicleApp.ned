@@ -16,6 +16,12 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz
         double firstStatusDelayS @unit(s) = default(0s);     // delay before first status, allow t=0
 
+        // ---- Optional route-progress export (for external route-aware predictor) ----
+        bool routeProgressRedisEnabled = default(false);
+        string routeProgressRedisHost = default("127.0.0.1");
+        int routeProgressRedisPort = default(6379);
+        int routeProgressRedisDb = default(0);
+
         // First task generation minimum delay
         double firstTaskDelayS @unit(s) = default(0.2s);      // ensure tasks start after initial heartbeats
 

@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <cstdlib>
 #include <cmath>
+#include <string>
 
 using namespace veins;
 
@@ -54,6 +55,20 @@ void PayloadVehicleApp::initialize(int stage) {
 
         // ===== INITIALIZE TASK PROCESSING SYSTEM =====
         initializeTaskSystem();
+
+        routeProgressRedisEnabled = par("routeProgressRedisEnabled").boolValue();
+        if (routeProgressRedisEnabled) {
+            routeProgressRedisHost = par("routeProgressRedisHost").stdstringValue();
+            routeProgressRedisPort = par("routeProgressRedisPort").intValue();
+            routeProgressRedisDb = par("routeProgressRedisDb").intValue();
+            routeProgressRedisClient = new RedisDigitalTwin(routeProgressRedisHost, routeProgressRedisPort, routeProgressRedisDb);
+            if (!routeProgressRedisClient->isConnected()) {
+                EV_WARN << "Route-progress Redis unavailable; disabling export" << endl;
+                delete routeProgressRedisClient;
+                routeProgressRedisClient = nullptr;
+                routeProgressRedisEnabled = false;
+            }
+        }
         
         // Schedule first periodic vehicle status update
         // Allow configuration; default is t=0 so Redis sees vehicles immediately
@@ -82,6 +97,14 @@ void PayloadVehicleApp::initialize(int stage) {
             myMacAddress = 0;
         }
     }
+}
+
+void PayloadVehicleApp::finish() {
+    if (routeProgressRedisClient) {
+        delete routeProgressRedisClient;
+        routeProgressRedisClient = nullptr;
+    }
+    DemoBaseApplLayer::finish();
 }
 
 void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
@@ -1790,10 +1813,39 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
         EV_WARN << "⚠ RSU not found, cannot send resource status" << endl;
         delete statusMsg;
     }
+
+    exportRouteProgressToRedis();
 }
 
 void PayloadVehicleApp::sendVehicleResourceStatus() {
     sendResourceStatusToRSU();
+}
+
+void PayloadVehicleApp::exportRouteProgressToRedis() {
+    if (!routeProgressRedisEnabled || !routeProgressRedisClient || !routeProgressRedisClient->isConnected() || !mobility) {
+        return;
+    }
+
+    std::string edge_id;
+    double lane_pos_m = 0.0;
+
+    try {
+        edge_id = mobility->getRoadId();
+        auto* vehicle_if = mobility->getVehicleCommandInterface();
+        if (vehicle_if) {
+            lane_pos_m = vehicle_if->getLanePosition();
+        }
+    }
+    catch (const cRuntimeError&) {
+        return;
+    }
+
+    if (edge_id.empty()) {
+        return;
+    }
+
+    const std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+    routeProgressRedisClient->updateVehicleRouteProgress(vehicle_id, simTime().dbl(), edge_id, lane_pos_m);
 }
 
 // ============================================================================

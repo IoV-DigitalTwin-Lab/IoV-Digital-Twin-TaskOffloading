@@ -9,6 +9,7 @@
 #include "Task.h"
 #include "TaskMetadataMessage_m.h"
 #include "TaskOffloadingDecision.h"
+#include "RedisDigitalTwin.h"
 #include <queue>
 #include <set>
 #include <vector>
@@ -20,6 +21,7 @@ namespace complex_network {
 class PayloadVehicleApp : public veins::DemoBaseApplLayer {
 protected:
     virtual void initialize(int stage) override;
+    virtual void finish() override;
     virtual void onWSM(veins::BaseFrame1609_4* wsm) override;
     virtual void handleMessage(cMessage* msg) override;
     virtual void handleSelfMsg(cMessage* msg) override;
@@ -138,6 +140,14 @@ private:
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
+    void exportRouteProgressToRedis();       // Export minimal route anchor for external predictor
+
+    // Route-progress Redis export (separate from heartbeat)
+    bool routeProgressRedisEnabled = false;
+    std::string routeProgressRedisHost = "127.0.0.1";
+    int routeProgressRedisPort = 6379;
+    int routeProgressRedisDb = 0;
+    RedisDigitalTwin* routeProgressRedisClient = nullptr;
     
     // ============================================================================
     // MODERN RSU SELECTION SYSTEM

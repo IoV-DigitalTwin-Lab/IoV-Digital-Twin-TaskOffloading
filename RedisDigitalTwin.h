@@ -40,6 +40,13 @@ public:
                            double source_timestamp);
     
     std::map<std::string, std::string> getVehicleState(const std::string& vehicle_id);
+
+    // Minimal route anchor export for route-aware external prediction.
+    void updateVehicleRouteProgress(const std::string& vehicle_id,
+                                    double source_timestamp,
+                                    const std::string& current_edge_id,
+                                    double lane_pos_m);
+    std::map<std::string, std::string> getVehicleRouteProgress(const std::string& vehicle_id);
     
     // Service Vehicle Index (for fast selection)
     void updateServiceVehicle(const std::string& vehicle_id, double cpu_score);

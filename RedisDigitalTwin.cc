@@ -128,6 +128,50 @@ std::map<std::string, std::string> RedisDigitalTwin::getVehicleState(const std::
     return state;
 }
 
+void RedisDigitalTwin::updateVehicleRouteProgress(const std::string& vehicle_id,
+                                                  double source_timestamp,
+                                                  const std::string& current_edge_id,
+                                                  double lane_pos_m) {
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string key = "vehicle:" + vehicle_id + ":route_progress";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s source_timestamp %f current_edge_id %s lane_pos_m %f",
+        key.c_str(),
+        source_timestamp,
+        current_edge_id.c_str(),
+        lane_pos_m
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis route progress HMSET error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", key.c_str(), vehicle_ttl);
+    if (reply) freeReplyObject(reply);
+}
+
+std::map<std::string, std::string> RedisDigitalTwin::getVehicleRouteProgress(const std::string& vehicle_id) {
+    std::map<std::string, std::string> state;
+    if (!redis_ctx || !is_connected) return state;
+
+    const std::string key = "vehicle:" + vehicle_id + ":route_progress";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i + 1 < reply->elements; i += 2) {
+            state[reply->element[i]->str] = reply->element[i + 1]->str;
+        }
+    }
+
+    if (reply) freeReplyObject(reply);
+    return state;
+}
+
 void RedisDigitalTwin::updateServiceVehicle(const std::string& vehicle_id, double cpu_score) {
     if (!redis_ctx || !is_connected) return;
     
