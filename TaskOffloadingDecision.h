@@ -69,6 +69,7 @@ struct DecisionContext {
     double local_cpu_utilization;    // Current CPU usage (0-1)
     double local_mem_available;      // Available memory (MB)
     int local_queue_length;          // Tasks in queue
+    double local_queue_wait_seconds = 0.0; // Estimated wait before local execution starts
     int local_processing_count;      // Tasks being processed
     
     // Network/RSU state

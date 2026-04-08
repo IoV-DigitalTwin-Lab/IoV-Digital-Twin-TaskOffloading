@@ -39,6 +39,22 @@ double computeQueueUtility(const Task* task, simtime_t now) {
     const double remaining = std::max((task->deadline - now).dbl(), 0.001);
     return task->qos_value / remaining;
 }
+
+double estimateQueuedTaskServiceTime(const Task* task, double default_service_time_sec,
+                                      const std::map<TaskType, double>& ewma_by_type,
+                                      double cpu_allocable_hz, size_t max_concurrent_tasks) {
+    auto it = ewma_by_type.find(task->type);
+    if (it != ewma_by_type.end() && it->second > 0.0) {
+        return it->second;
+    }
+
+    const double per_task_cpu_hz = std::max(cpu_allocable_hz / std::max<size_t>(1, max_concurrent_tasks), 1.0e6);
+    const double fallback = static_cast<double>(task->cpu_cycles) / per_task_cpu_hz;
+    if (std::isfinite(fallback) && fallback > 0.0) {
+        return fallback;
+    }
+    return default_service_time_sec;
+}
 }
 
 Define_Module(PayloadVehicleApp);
@@ -203,7 +219,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                         allocateResourcesAndStart(task);
                     } else {
                         task->state = QUEUED;
-                        task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                        markTaskQueued(task);
                         pending_tasks.push(task);
                     }
                 } else {
@@ -1007,7 +1023,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         } else {
             EV_INFO << "⏸ allLocal: resources busy, queuing" << endl;
             task->state = QUEUED;
-            task->queue_entry_time = simTime();
+            markTaskQueued(task);
             pending_tasks.push(task);
         }
         logResourceState("After task generation (allLocal)");
@@ -1070,6 +1086,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.local_mem_available = memory_available / 1e6;  // Convert bytes to MB
         context.local_queue_length = pending_tasks.size();
         context.local_processing_count = processing_tasks.size();
+        context.local_queue_wait_seconds = estimateLocalQueueWait(task);
         
         // RSU availability and channel conditions
         LAddress::L2Type rsu = selectBestRSU();
@@ -1096,6 +1113,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         EV_INFO << "Decision context: LocalCPU=" << context.local_cpu_available << "GHz, "
                 << "Utilization=" << (context.local_cpu_utilization*100) << "%, "
                 << "Queue=" << context.local_queue_length << ", "
+            << "QueueWait=" << context.local_queue_wait_seconds << "s, "
                 << "RSU_CPU=" << context.rsu_cpu_available_ghz << "GHz, "
                 << "RSU_dist=" << context.rsu_distance << "m, "
                 << "RSSI=" << context.estimated_rsu_rssi << "dBm" << endl;
@@ -1194,7 +1212,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             } else {
                 EV_INFO << "⏸ Resources busy - queuing task" << endl;
                 task->state = QUEUED;
-                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                markTaskQueued(task);
                 pending_tasks.push(task);
                 sendTaskOffloadingEvent(task->task_id, "QUEUED",
                     "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1275,7 +1293,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     } else {
         EV_INFO << "⏸ Resources busy - queuing task" << endl;
         task->state = QUEUED;
-        task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+            markTaskQueued(task);
         pending_tasks.push(task);
         sendTaskOffloadingEvent(task->task_id, "QUEUED",
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1528,6 +1546,12 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     // Track start time for latency calculation
     if (taskTimings.find(task->task_id) != taskTimings.end()) {
         taskTimings[task->task_id].start_time = simTime().dbl();
+        if (taskTimings[task->task_id].predicted_service_time <= 0.0) {
+            taskTimings[task->task_id].predicted_service_time =
+                (task->predicted_service_time_sec > 0.0)
+                    ? task->predicted_service_time_sec
+                    : estimateLocalServiceTime(task);
+        }
         EV_INFO << "Start time tracked for task " << task->task_id << endl;
     }
     
@@ -1575,6 +1599,77 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     
     std::cout << "TASK_EXEC: Vehicle " << getParentModule()->getIndex() << " started task " 
               << task->task_id << " with " << (task->cpu_allocated/1e9) << " GHz" << std::endl;
+}
+
+void PayloadVehicleApp::markTaskQueued(Task* task) {
+    task->queue_entry_time = simTime();
+    if (task->predicted_service_time_sec <= 0.0) {
+        task->predicted_service_time_sec = estimateLocalServiceTime(task);
+    }
+
+    TaskTimingInfo& timing = taskTimings[task->task_id];
+    if (timing.predicted_service_time <= 0.0) {
+        timing.predicted_service_time = task->predicted_service_time_sec;
+    }
+}
+
+double PayloadVehicleApp::estimateLocalServiceTime(Task* task) const {
+    return estimateQueuedTaskServiceTime(task, local_service_time_default_sec,
+                                         local_service_time_ewma,
+                                         cpu_allocable, max_concurrent_tasks);
+}
+
+double PayloadVehicleApp::estimateLocalQueueWait(Task* task) const {
+    if (pending_tasks.empty()) {
+        return 0.0;
+    }
+
+    std::priority_queue<Task*, std::vector<Task*>, TaskComparator> snapshot = pending_tasks;
+    double queue_wait = 0.0;
+
+    const double task_deadline = std::max((task->deadline - task->created_time).dbl(), 1e-6);
+    const double task_urgency = std::min(1.0, TaskComparator::DEADLINE_MIN_REF_SEC / task_deadline);
+    const double task_qos = std::max(0.0, std::min(task->qos_value / TaskComparator::QOS_MAX, 1.0));
+    const double task_score = TaskComparator::ALPHA_QOS * task_qos
+                            + TaskComparator::BETA_DEADLINE * task_urgency;
+
+    while (!snapshot.empty()) {
+        Task* queued = snapshot.top();
+        snapshot.pop();
+
+        const double queued_deadline = std::max((queued->deadline - queued->created_time).dbl(), 1e-6);
+        const double queued_urgency = std::min(1.0, TaskComparator::DEADLINE_MIN_REF_SEC / queued_deadline);
+        const double queued_qos = std::max(0.0, std::min(queued->qos_value / TaskComparator::QOS_MAX, 1.0));
+        const double queued_base_score = TaskComparator::ALPHA_QOS * queued_qos
+                                       + TaskComparator::BETA_DEADLINE * queued_urgency;
+        const double queued_wait = std::max(0.0, (simTime() - queued->queue_entry_time).dbl());
+        const double queued_score = queued_base_score
+                                  + std::min(TaskComparator::MAX_AGING_BOOST,
+                                             TaskComparator::AGING_FACTOR_PER_SEC * queued_wait);
+
+        if (queued_score > task_score ||
+            (std::abs(queued_score - task_score) <= 1e-12 && queued->task_id < task->task_id)) {
+            queue_wait += estimateQueuedTaskServiceTime(queued, local_service_time_default_sec,
+                                                        local_service_time_ewma,
+                                                        cpu_allocable, max_concurrent_tasks);
+        }
+    }
+
+    return queue_wait;
+}
+
+void PayloadVehicleApp::updateLocalServiceTimeEstimate(Task* task, double actual_service_time_sec) {
+    if (!(actual_service_time_sec > 0.0) || !std::isfinite(actual_service_time_sec)) {
+        return;
+    }
+
+    double& ewma = local_service_time_ewma[task->type];
+    if (!(ewma > 0.0) || !std::isfinite(ewma)) {
+        ewma = actual_service_time_sec;
+    } else {
+        ewma = local_service_time_ewma_alpha * actual_service_time_sec
+             + (1.0 - local_service_time_ewma_alpha) * ewma;
+    }
 }
 
 double PayloadVehicleApp::calculateCPUAllocation(Task* task) {
@@ -1723,7 +1818,7 @@ void PayloadVehicleApp::processQueuedTasks() {
     }
 
     for (Task* task : deferred_tasks) {
-        task->queue_entry_time = simTime();
+        markTaskQueued(task);
         pending_tasks.push(task);
     }
 
@@ -1779,6 +1874,11 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     total_completion_time += completion_time_elapsed;
 
     double exec_time = (task->completion_time - task->processing_start_time).dbl();
+    if (taskTimings.find(task->task_id) != taskTimings.end()) {
+        taskTimings[task->task_id].finish_time = task->completion_time.dbl();
+        taskTimings[task->task_id].actual_service_time = exec_time;
+    }
+    updateLocalServiceTimeEstimate(task, exec_time);
     double energy_joules = energyCalculator.calcLocalExecutionEnergy(
             task->cpu_cycles,
             static_cast<uint32_t>(task->input_size_bytes),
@@ -3149,7 +3249,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         } else {
             EV_INFO << "⏸ Queuing task for local execution" << endl;
             task->state = QUEUED;
-            task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+            markTaskQueued(task);
             pending_tasks.push(task);
             sendTaskOffloadingEvent(task->task_id, "QUEUED",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3227,7 +3327,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
-                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                    markTaskQueued(task);
                     pending_tasks.push(task);
                     sendTaskOffloadingEvent(task->task_id, "QUEUED",
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3295,7 +3395,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
-                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                    markTaskQueued(task);
                     pending_tasks.push(task);
                     sendTaskOffloadingEvent(task->task_id, "QUEUED",
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3422,7 +3522,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 allocateResourcesAndStart(task);
             } else {
                 task->state = QUEUED;
-                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                markTaskQueued(task);
                 pending_tasks.push(task);
             }
         } else {

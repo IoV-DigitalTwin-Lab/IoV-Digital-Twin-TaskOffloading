@@ -68,7 +68,8 @@ void TaskOffloadingDecisionMaker::provideFeedback(const std::string& task_id,
         } else {
             failed_local++;
         }
-    } else if (decision == OffloadingDecision::OFFLOAD_TO_RSU) {
+    } else if (decision == OffloadingDecision::OFFLOAD_TO_RSU ||
+               decision == OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE) {
         if (success) {
             successful_offload++;
         } else {
@@ -115,7 +116,7 @@ double TaskOffloadingDecisionMaker::estimateLocalExecutionTime(const DecisionCon
     // Simple estimation: cycles / CPU speed
     // Account for queue wait time
     double processing_time = context.cpu_cycles_required / (context.local_cpu_available * 1e9);
-    double queue_wait_time = context.local_queue_length * 0.5; // Assume 0.5s per queued task
+    double queue_wait_time = std::max(0.0, context.local_queue_wait_seconds);
     
     return processing_time + queue_wait_time;
 }
@@ -227,7 +228,7 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     const bool compute_data_ok = context.cpu_cycles_required < (k2 * task_size_bytes);
     const bool must_local_by_threshold = local_capacity_ok && compute_data_ok;
 
-    const double queue_wait_sec = std::max(0.0, static_cast<double>(context.local_queue_length)) * 0.5;
+    const double queue_wait_sec = std::max(0.0, context.local_queue_wait_seconds);
     const bool must_offload_by_queue = (queue_wait_sec + t_local) >= remaining_deadline;
 
     if (context.must_local_tag || must_local_by_threshold) {

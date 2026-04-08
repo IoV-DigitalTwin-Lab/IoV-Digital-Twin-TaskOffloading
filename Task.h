@@ -49,6 +49,7 @@ public:
     // Timing Information
     simtime_t created_time;           // When task was generated
     simtime_t queue_entry_time;       // When task entered pending_tasks queue (for stable aging)
+    double predicted_service_time_sec = 0.0; // Estimated local execution time when queued
     simtime_t deadline;               // Absolute deadline (created_time + relative_deadline)
     double relative_deadline;         // Relative deadline in seconds
     simtime_t received_time;          // When RSU received metadata (0 if not yet received)

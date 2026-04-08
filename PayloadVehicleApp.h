@@ -100,6 +100,9 @@ private:
     uint32_t tasks_rejected = 0;
     
     double total_completion_time = 0.0;       // Sum for average calculation
+    double local_service_time_ewma_alpha = 0.2; // EWMA smoothing for local service time
+    double local_service_time_default_sec = 0.5; // Cold-start fallback estimate
+    std::map<TaskType, double> local_service_time_ewma; // Per-task-type local service estimate
     
     // Self-messages for task generation (one per task type)
     cMessage* localObjDetEvent = nullptr;
@@ -141,6 +144,10 @@ private:
     void logTaskStatistics();
     
     // Helper methods
+    void markTaskQueued(Task* task);           // Record queue entry and predicted service time
+    double estimateLocalServiceTime(Task* task) const; // Estimate local execution time for a task
+    double estimateLocalQueueWait(Task* task) const; // Estimate wait from tasks ahead in queue
+    void updateLocalServiceTimeEstimate(Task* task, double actual_service_time_sec); // EWMA update
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
@@ -185,6 +192,9 @@ private:
         double request_time = 0.0;      // When offloading request was sent
         double decision_time = 0.0;     // When RSU decision was received
         double start_time = 0.0;        // When processing started
+        double finish_time = 0.0;       // When processing finished
+        double predicted_service_time = 0.0; // Predicted local execution time when queued
+        double actual_service_time = 0.0;     // Actual local execution time
         std::string decision_type;      // LOCAL, RSU, SERVICE_VEHICLE
         std::string processor_id;       // ID of processor
     };
