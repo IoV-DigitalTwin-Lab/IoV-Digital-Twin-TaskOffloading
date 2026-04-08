@@ -140,6 +140,9 @@ void MyRSUApp::initialize(int stage) {
         rsu_cpu_available = edgeCPU_GHz;  // Initially all available
         rsu_memory_total = edgeMemory_GB;
         rsu_memory_available = edgeMemory_GB;
+        rsu_background_cpu_util = uniform(0.05, 0.18);
+        rsu_background_mem_util = uniform(0.12, 0.30);
+        rsu_last_background_update = simTime().dbl();
         // Use dedicated rsuMaxConcurrent param (prevents maxVehicles from inflating the cap)
         rsu_max_concurrent = par("rsuMaxConcurrent").intValue();
         if (hasPar("rsuQueueCapacity")) {
@@ -426,6 +429,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
             rsu_processing_count = std::max(0, rsu_processing_count - 1);
             rsu_tasks_processed++;
             rsu_total_processing_time += pending.exec_time_s;
+            releaseRSUMemory(pending.mem_footprint_bytes);
 
             EV_INFO << "✅ RSU task complete: " << task_id
                     << " (exec=" << pending.exec_time_s << "s)" << endl;
@@ -2733,6 +2737,7 @@ void MyRSUApp::handleTaskOffloadPacket(veins::TaskOffloadPacket* msg) {
 void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPacket* packet, LAddress::L2Type ingress_rsu_mac) {
     std::string vehicle_id  = packet->getOrigin_vehicle_id();
     LAddress::L2Type vehicle_mac = packet->getOrigin_vehicle_mac();
+    uint64_t mem_footprint_bytes = packet->getMem_footprint_bytes();
     uint64_t cpu_cycles     = packet->getCpu_cycles();
     double qos_value        = std::max(0.0, std::min(1.0, packet->getQos_value()));
     double deadline_seconds = packet->getDeadline_seconds();  // Extract absolute deadline from task metadata
@@ -2747,6 +2752,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
             queued.vehicle_id = vehicle_id;
             queued.vehicle_mac = vehicle_mac;
             queued.ingress_rsu_mac = ingress_rsu_mac;
+            queued.mem_footprint_bytes = mem_footprint_bytes;
             queued.cpu_cycles = cpu_cycles;
             queued.qos_value = qos_value;
             queued.enqueue_time = simTime().dbl();
@@ -2778,6 +2784,42 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
         return;
     }
 
+    if (!canReserveRSUMemory(mem_footprint_bytes)) {
+        if (static_cast<int>(rsuWaitingQueue.size()) < rsu_waiting_queue_capacity) {
+            QueuedRSUTask queued;
+            queued.task_id = task_id;
+            queued.vehicle_id = vehicle_id;
+            queued.vehicle_mac = vehicle_mac;
+            queued.ingress_rsu_mac = ingress_rsu_mac;
+            queued.mem_footprint_bytes = mem_footprint_bytes;
+            queued.cpu_cycles = cpu_cycles;
+            queued.qos_value = qos_value;
+            queued.enqueue_time = simTime().dbl();
+            queued.deadline_seconds = deadline_seconds;
+            rsuWaitingQueue.push_back(queued);
+            rsu_queue_length = static_cast<int>(rsuWaitingQueue.size());
+
+            insertLifecycleEvent(task_id, "RSU_QUEUED_MEMORY_WAIT",
+                "RSU_" + std::to_string(rsu_id), vehicle_id,
+                "{\"memory_required_mb\":" + std::to_string(mem_footprint_bytes / (1024.0 * 1024.0)) + ","
+                "\"memory_available_mb\":" + std::to_string(getEffectiveRSUMemoryAvailable() * 1024.0) + "}");
+
+            EV_INFO << "⏸ RSU memory constrained - queued task " << task_id
+                    << " (required=" << (mem_footprint_bytes / (1024.0 * 1024.0))
+                    << "MB, available=" << (getEffectiveRSUMemoryAvailable() * 1024.0) << "MB)" << endl;
+            return;
+        }
+
+        EV_WARN << "⛔ RSU memory saturated and queue full - rejecting task " << task_id << endl;
+        insertLifecycleEvent(task_id, "RSU_REJECTED_MEMORY_FULL",
+            "RSU_" + std::to_string(rsu_id), vehicle_id,
+            "{\"memory_required_mb\":" + std::to_string(mem_footprint_bytes / (1024.0 * 1024.0)) + ","
+            "\"memory_available_mb\":" + std::to_string(getEffectiveRSUMemoryAvailable() * 1024.0) + "}");
+        rsu_tasks_rejected++;
+        sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, ingress_rsu_mac, false, 0.0);
+        return;
+    }
+
     // ======================================================================
     // PHYSICS-BASED EXECUTION TIME WITH WEIGHTED CPU SHARING
     //
@@ -2795,6 +2837,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     // ======================================================================
     rsu_processing_count++;
     rsu_tasks_admitted++;
+    reserveRSUMemory(mem_footprint_bytes);
     int concurrent = rsu_processing_count;  // includes this new task
 
     double existing_weight_sum = 0.0;
@@ -2817,6 +2860,7 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     pending.vehicle_id            = vehicle_id;
     pending.vehicle_mac           = vehicle_mac;
     pending.ingress_rsu_mac       = ingress_rsu_mac;
+    pending.mem_footprint_bytes   = mem_footprint_bytes;
     pending.cpu_cycles            = cpu_cycles;
     pending.qos_value             = qos_value;
     pending.cycles_remaining      = static_cast<double>(cpu_cycles);
@@ -2899,6 +2943,68 @@ void MyRSUApp::reallocateRSUTasks() {
     }
 }
 
+bool MyRSUApp::canReserveRSUMemory(uint64_t bytes) const {
+    const double required_gb = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
+    return required_gb <= (getEffectiveRSUMemoryAvailable() + 1e-12);
+}
+
+void MyRSUApp::reserveRSUMemory(uint64_t bytes) {
+    const double delta_gb = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
+    rsu_memory_available = std::max(0.0, rsu_memory_available - delta_gb);
+}
+
+void MyRSUApp::releaseRSUMemory(uint64_t bytes) {
+    const double delta_gb = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
+    rsu_memory_available = std::min(rsu_memory_total, rsu_memory_available + delta_gb);
+}
+
+void MyRSUApp::updateRSUBackgroundLoad() {
+    const double now = simTime().dbl();
+    const double dt = now - rsu_last_background_update;
+    if (dt <= 0.0) {
+        return;
+    }
+
+    // Small bounded random walk models OS/network/cache housekeeping load.
+    rsu_background_cpu_util += uniform(-0.01, 0.01) * dt;
+    rsu_background_mem_util += uniform(-0.008, 0.008) * dt;
+
+    rsu_background_cpu_util = std::max(0.04, std::min(0.30, rsu_background_cpu_util));
+    rsu_background_mem_util = std::max(0.10, std::min(0.50, rsu_background_mem_util));
+    rsu_last_background_update = now;
+}
+
+double MyRSUApp::getRSUTaskCpuUtilization() const {
+    if (rsu_cpu_total <= 0.0) {
+        return 0.0;
+    }
+
+    double used_hz = 0.0;
+    for (const auto& kv : rsuPendingTasks) {
+        used_hz += kv.second.cpu_allocated_hz;
+    }
+
+    return std::max(0.0, std::min(1.0, used_hz / (rsu_cpu_total * 1e9)));
+}
+
+double MyRSUApp::getEffectiveRSUCpuUtilization() const {
+    const double task_cpu_util = getRSUTaskCpuUtilization();
+    return std::max(0.0, std::min(1.0, rsu_background_cpu_util + task_cpu_util * (1.0 - rsu_background_cpu_util)));
+}
+
+double MyRSUApp::getEffectiveRSUMemoryUtilization() const {
+    if (rsu_memory_total <= 0.0) {
+        return rsu_background_mem_util;
+    }
+
+    const double task_mem_util = std::max(0.0, std::min(1.0, (rsu_memory_total - rsu_memory_available) / rsu_memory_total));
+    return std::max(0.0, std::min(1.0, rsu_background_mem_util + task_mem_util * (1.0 - rsu_background_mem_util)));
+}
+
+double MyRSUApp::getEffectiveRSUMemoryAvailable() const {
+    return std::max(0.0, rsu_memory_total * (1.0 - getEffectiveRSUMemoryUtilization()));
+}
+
 double MyRSUApp::getTaskPriorityWeight(double qosValue) const {
     // 3-tier weights approximate 50/30/20 distribution for high/medium/low.
     double qos = std::max(0.0, std::min(1.0, qosValue));
@@ -2937,11 +3043,19 @@ void MyRSUApp::tryStartQueuedRSUTasks() {
         rsuWaitingQueue.pop_front();
         rsu_queue_length = static_cast<int>(rsuWaitingQueue.size());
 
+        if (!canReserveRSUMemory(queued.mem_footprint_bytes)) {
+            // Head-of-line task cannot fit yet; keep FIFO fairness and wait for next release.
+            rsuWaitingQueue.push_front(queued);
+            rsu_queue_length = static_cast<int>(rsuWaitingQueue.size());
+            break;
+        }
+
         double wait_time = std::max(0.0, simTime().dbl() - queued.enqueue_time);
         rsu_total_queue_time += wait_time;
 
         rsu_processing_count++;
         rsu_tasks_admitted++;
+        reserveRSUMemory(queued.mem_footprint_bytes);
         int concurrent = rsu_processing_count;
 
         double this_weight = getTaskPriorityWeight(queued.qos_value);
@@ -2957,6 +3071,7 @@ void MyRSUApp::tryStartQueuedRSUTasks() {
         pending.vehicle_id = queued.vehicle_id;
         pending.vehicle_mac = queued.vehicle_mac;
         pending.ingress_rsu_mac = queued.ingress_rsu_mac;
+        pending.mem_footprint_bytes = queued.mem_footprint_bytes;
         pending.cpu_cycles = queued.cpu_cycles;
         pending.qos_value = queued.qos_value;
         pending.cycles_remaining = static_cast<double>(queued.cpu_cycles);
@@ -3447,10 +3562,14 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
 
 void MyRSUApp::sendRSUStatusUpdate() {
     EV_DEBUG << "📊 RSU: Sending status update to database" << endl;
+
+    updateRSUBackgroundLoad();
+    const double cpu_util = getEffectiveRSUCpuUtilization();
+    const double effective_cpu_available = rsu_cpu_total * (1.0 - cpu_util);
+    const double effective_memory_available = getEffectiveRSUMemoryAvailable();
+    rsu_cpu_available = effective_cpu_available;
     
     // Update dynamic metrics
-    double cpu_util = (rsu_cpu_total > 0) ? ((rsu_cpu_total - rsu_cpu_available) / rsu_cpu_total) : 0.0;
-    double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
     double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
     double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
     double success_rate = (rsu_tasks_admitted > 0) ? ((double)rsu_tasks_processed / rsu_tasks_admitted) : 0.0;
@@ -3481,8 +3600,8 @@ void MyRSUApp::sendRSUStatusUpdate() {
         
         redis_twin->updateRSUResources(
             rsu_id_str,
-            rsu_cpu_available,
-            rsu_memory_available,
+            effective_cpu_available,
+            effective_memory_available,
             rsu_queue_length,
             rsu_processing_count,
             simTime().dbl(),
@@ -3505,8 +3624,12 @@ void MyRSUApp::insertRSUStatus() {
     if (!conn) return;
     
     // Calculate metrics
-    double cpu_util = (rsu_cpu_total > 0) ? ((rsu_cpu_total - rsu_cpu_available) / rsu_cpu_total) : 0.0;
-    double mem_util = (rsu_memory_total > 0) ? ((rsu_memory_total - rsu_memory_available) / rsu_memory_total) : 0.0;
+    updateRSUBackgroundLoad();
+    double cpu_util = getEffectiveRSUCpuUtilization();
+    double mem_util = getEffectiveRSUMemoryUtilization();
+    double effective_cpu_available = rsu_cpu_total * (1.0 - cpu_util);
+    double effective_memory_available = getEffectiveRSUMemoryAvailable();
+    rsu_cpu_available = effective_cpu_available;
     double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
     double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
     double success_rate = (rsu_tasks_admitted > 0) ? ((double)rsu_tasks_processed / rsu_tasks_admitted) : 0.0;
@@ -3523,10 +3646,10 @@ void MyRSUApp::insertRSUStatus() {
     params[1] = std::to_string(update_time);
     params[2] = std::to_string(rsu_cpu_total);
     params[3] = std::to_string(rsu_cpu_total);  // cpu_allocable = total for RSU
-    params[4] = std::to_string(rsu_cpu_available);
+    params[4] = std::to_string(effective_cpu_available);
     params[5] = std::to_string(cpu_util);
     params[6] = std::to_string(rsu_memory_total);
-    params[7] = std::to_string(rsu_memory_available);
+    params[7] = std::to_string(effective_memory_available);
     params[8] = std::to_string(mem_util);
     params[9] = std::to_string(rsu_queue_length);
     params[10] = std::to_string(rsu_processing_count);
@@ -3678,6 +3801,12 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
 
 void MyRSUApp::broadcastRSUStatus() {
     EV_DEBUG << "📡 RSU broadcasting status to neighbors..." << endl;
+
+    updateRSUBackgroundLoad();
+    const double cpu_util = getEffectiveRSUCpuUtilization();
+    const double effective_cpu_available = rsu_cpu_total * (1.0 - cpu_util);
+    const double effective_memory_available = getEffectiveRSUMemoryAvailable();
+    rsu_cpu_available = effective_cpu_available;
     
     // Create RSU status broadcast message
     RSUStatusBroadcastMessage* msg = new RSUStatusBroadcastMessage();
@@ -3692,9 +3821,9 @@ void MyRSUApp::broadcastRSUStatus() {
     msg->setQueue_length(rsu_queue_length);
     msg->setProcessing_count(rsu_processing_count);
     msg->setMax_concurrent_tasks(rsu_max_concurrent);
-    msg->setCpu_available_ghz(rsu_cpu_available);
+    msg->setCpu_available_ghz(effective_cpu_available);
     msg->setCpu_total_ghz(rsu_cpu_total);
-    msg->setMemory_available_gb(rsu_memory_available);
+    msg->setMemory_available_gb(effective_memory_available);
     msg->setMemory_total_gb(rsu_memory_total);
     
     // Coverage information with full vehicle details
@@ -3747,11 +3876,11 @@ void MyRSUApp::broadcastRSUStatus() {
     
     EV_DEBUG << "  Broadcast: queue=" << rsu_queue_length 
              << ", processing=" << rsu_processing_count
-             << ", cpu_avail=" << rsu_cpu_available << " GHz"
+             << ", cpu_avail=" << effective_cpu_available << " GHz"
              << ", vehicles=" << vehicle_twins.size() << endl;
     
     std::cout << "RSU_BROADCAST: " << rsu_id_str << " status - Q:" << rsu_queue_length 
-              << " P:" << rsu_processing_count << " CPU:" << rsu_cpu_available << "GHz" << std::endl;
+              << " P:" << rsu_processing_count << " CPU:" << effective_cpu_available << "GHz" << std::endl;
 }
 
 void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
@@ -3901,7 +4030,7 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
     if (target_type == "RSU") {
         if (target_id == this_rsu || target_id.empty()) {
             // ── Target is THIS RSU: truly execute in the local queue ──────
-            if (rsu_processing_count >= rsu_max_concurrent) {
+            if (rsu_processing_count >= rsu_max_concurrent || !canReserveRSUMemory(record.mem_footprint_bytes)) {
                 redis_twin->writeTaskResults(record.task_id, agent_name, "FAILED",
                                              record.deadline_seconds, 0.0, "RSU_QUEUE_FULL");
                 std::cout << "AGENT_SUBTASK: " << sub_id << " REJECTED (RSU full)" << std::endl;
@@ -3910,12 +4039,14 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
 
             rsu_processing_count++;
             rsu_tasks_admitted++;
+            reserveRSUMemory(record.mem_footprint_bytes);
 
             // Create pending task structure
             PendingRSUTask p;
             p.vehicle_id            = record.vehicle_id;
             p.vehicle_mac           = 0;          // sub-task: no vehicle notification
             p.ingress_rsu_mac       = myId;
+            p.mem_footprint_bytes   = record.mem_footprint_bytes;
             p.cpu_cycles            = record.cpu_cycles;
             p.cycles_remaining      = static_cast<double>(record.cpu_cycles);
             p.qos_value             = record.qos_value;

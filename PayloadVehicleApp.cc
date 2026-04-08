@@ -2239,9 +2239,12 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setCpu_utilization(cpu_util);
     
     statusMsg->setMem_total(memory_total);
-    statusMsg->setMem_available(memory_available);
-    // Store as ratio (0.0-1.0) not percentage
-    double mem_util = (memory_total > 0) ? ((memory_total - memory_available) / memory_total) : 0.0;
+    // Blend task memory usage with ambient OS/cache pressure for realistic DT state.
+    double task_mem_util = (memory_total > 0) ? ((memory_total - memory_available) / memory_total) : 0.0;
+    double mem_util = std::max(task_mem_util, memoryUsageFactor);
+    mem_util = std::max(0.0, std::min(1.0, mem_util));
+    double reported_mem_available = memory_total * (1.0 - mem_util);
+    statusMsg->setMem_available(reported_mem_available);
     statusMsg->setMem_utilization(mem_util);
     
     // Task statistics
