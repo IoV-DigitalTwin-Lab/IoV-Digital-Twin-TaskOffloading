@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="org.omnetpp.simulation.launchconfig">
+<stringAttribute key="runMode" value="run"/>
+<stringAttribute key="configName" value="Default"/>
+<stringAttribute key="executable" value="${opp_run}"/>
+<stringAttribute key="inifile" value="omnetpp.ini"/>
+<stringAttribute key="nedPath" value=".;../inet4.5/src;/opt/omnet/veins/src/veins"/>
+<stringAttribute key="workingDirectory" value="${workspace_loc:/${project_name}}"/>
+<stringAttribute key="cmdenvOptions" value=""/>
+<stringAttribute key="simulationOptions" value=""/>
+<booleanAttribute key="recordEventlog" value="false"/>
+<booleanAttribute key="recordScalars" value="true"/>
+<booleanAttribute key="recordVectors" value="true"/>
+<mapAttribute key="org.eclipse.debug.core.environmentVariables">
+<mapEntry key="LD_LIBRARY_PATH" value="/home/mihiraja/.local/lib:/opt/omnet/omnetpp-6.1/lib:/opt/omnet/omnetpp-6.1/workspace/inet4.5/src:/opt/omnet/veins/src"/>
+</mapAttribute>
+</launchConfiguration>
