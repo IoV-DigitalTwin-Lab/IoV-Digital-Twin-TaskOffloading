@@ -80,26 +80,20 @@ void PayloadVehicleApp::initialize(int stage) {
         }
 
         EV_INFO << "PayloadVehicleApp: Initialized with vehicle data" << endl;
-        std::cout << "CONSOLE: PayloadVehicleApp initialized at " << simTime() << std::endl;
-        std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data initialized" << std::endl;
-        std::cout << "SHADOW: Vehicle starting signal monitoring for shadowing analysis" << std::endl;
 
         // ===== INITIALIZE TASK PROCESSING SYSTEM =====
         motionChannelOnly = par("motionChannelOnly").boolValue();
         initializeTaskSystem();
-        
+
         // Schedule first periodic vehicle status update
         // Allow configuration; default is t=0 so Redis sees vehicles immediately
         double firstStatusDelay = par("firstStatusDelayS").doubleValue();
         cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
         scheduleAt(simTime() + firstStatusDelay, sendMsgEvent);
-        std::cout << "CONSOLE: PayloadVehicleApp - Scheduled first payload message at time "
-              << (simTime() + firstStatusDelay) << std::endl;
-        
+
         // Schedule periodic position monitoring for shadowing analysis
         cMessage* monitorEvent = new cMessage("monitorPosition");
         scheduleAt(simTime() + 1, monitorEvent);
-        std::cout << "SHADOW: Position monitoring started - checking for obstacle effects" << std::endl;
     }
     else if (stage == 1) {
         // Get MAC address in stage 1
@@ -108,10 +102,8 @@ void PayloadVehicleApp::initialize(int stage) {
 
         if (macInterface) {
             myMacAddress = macInterface->getMACAddress();
-            std::cout << "CONSOLE: PayloadVehicleApp MAC address: " << myMacAddress << std::endl;
             EV_INFO << "PayloadVehicleApp MAC address: " << myMacAddress << endl;
         } else {
-            std::cout << "CONSOLE: ERROR - PayloadVehicleApp MAC interface NOT found!" << std::endl;
             myMacAddress = 0;
         }
     }
@@ -228,6 +220,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         Task* task = (Task*)msg->getContextPointer();
         auto it = offloadedTasks.find(task->task_id);
         if (it != offloadedTasks.end()) {
+            offloadedTaskTimeouts.erase(task->task_id);
             offloadedTasks.erase(it);
             offloadedTaskTargets.erase(task->task_id);
 
@@ -239,7 +232,12 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                 MetricsManager::getInstance().recordTaskFailed(task->type, latency);
             }
 
-            sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
+            // Distinguish timeout reason: SV left range vs RSU handover failure
+            auto targetIt = offloadedTaskTargets.find(task->task_id);
+            std::string target = (targetIt != offloadedTaskTargets.end()) ? targetIt->second : "";
+            std::string failReason = (target == "RSU") ? "HANDOVER_FAIL" : "SV_OUT_OF_RANGE";
+
+            sendTaskFailureToRSU(task, failReason);
             cleanupTaskEvents(task);
             delete task;
         }
@@ -247,7 +245,6 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "sendPayloadMessage") == 0) {
-        std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic vehicle status update..." << std::endl;
         EV << "PayloadVehicleApp: Sending periodic vehicle status update..." << endl;
 
         // Update vehicle data before sending
@@ -408,23 +405,11 @@ void PayloadVehicleApp::onWSM(BaseFrame1609_4* wsm) {
     // Check if this is a response from RSU
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if (dsm) {
-        std::string receivedPayload = dsm->getName(); // Use getName instead of getPayload
-        
-        std::cout << "CONSOLE: PayloadVehicleApp - DEBUG - Received message: '" << receivedPayload << "'" << std::endl;
-
-        if (!receivedPayload.empty() && 
-            (receivedPayload.find("RSU_RESPONSE") != std::string::npos || 
+        std::string receivedPayload = dsm->getName();
+        if (!receivedPayload.empty() &&
+            (receivedPayload.find("RSU_RESPONSE") != std::string::npos ||
              receivedPayload.find("RSU Response") != std::string::npos)) {
-            std::cout << "CONSOLE: =========================================" << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - RECEIVED PAYLOAD FROM RSU:" << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - Payload: " << receivedPayload << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - Received at time: " << simTime() << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - Sender Module: " << wsm->getSenderModule()->getFullName() << std::endl;
-            std::cout << "CONSOLE: =========================================" << std::endl;
-
             EV << "PayloadVehicleApp: RECEIVED PAYLOAD: " << receivedPayload << endl;
-        } else {
-            std::cout << "CONSOLE: PayloadVehicleApp - DEBUG - Message is not an RSU response" << std::endl;
         }
     }
 
@@ -432,7 +417,6 @@ void PayloadVehicleApp::onWSM(BaseFrame1609_4* wsm) {
 }
 
 void PayloadVehicleApp::handleMessage(cMessage* msg) {
-    std::cout << "CONSOLE: PayloadVehicleApp handleMessage() called with: " << msg->getName() << std::endl;
     EV << "PayloadVehicleApp: handleMessage() called with " << msg->getName() << endl;
 
     // ========================================================================
@@ -492,18 +476,15 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
 }
 
 LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
-    std::cout << "CONSOLE: PayloadVehicleApp - Looking for closest RSU MAC address..." << std::endl;
-
     // Get the network module
     cModule* networkModule = getModuleByPath("^.^");
     if (!networkModule) {
-        std::cout << "CONSOLE: PayloadVehicleApp ERROR - Network module not found!" << std::endl;
         return 0;
     }
 
     // Get current vehicle position
     Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
-    
+
     double minDistance = 999999.0;
     int closestRSUIndex = -1;
     LAddress::L2Type closestRSUMac = 0;
@@ -512,30 +493,22 @@ LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
     for (int i = 0; i < 3; i++) {
         cModule* rsuModule = networkModule->getSubmodule("rsu", i);
         if (rsuModule) {
-            // Get RSU mobility module to access position
             cModule* rsuMobilityModule = rsuModule->getSubmodule("mobility");
             if (rsuMobilityModule) {
-                // Get RSU position from mobility parameters
                 double rsuX = rsuMobilityModule->par("x").doubleValue();
                 double rsuY = rsuMobilityModule->par("y").doubleValue();
-                
-                // Calculate Euclidean distance
+
                 double dx = vehiclePos.x - rsuX;
                 double dy = vehiclePos.y - rsuY;
                 double distance = sqrt(dx * dx + dy * dy);
-                
-                std::cout << "CONSOLE: PayloadVehicleApp - RSU[" << i << "] at (" << rsuX << "," << rsuY 
-                          << ") distance: " << distance << "m" << std::endl;
-                
-                // Track closest RSU
+
                 if (distance < minDistance) {
                     minDistance = distance;
                     closestRSUIndex = i;
-                    
-                    // Get the MAC address of this RSU
+
                     DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
                         FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
-                    
+
                     if (rsuMacInterface) {
                         closestRSUMac = rsuMacInterface->getMACAddress();
                     }
@@ -545,12 +518,9 @@ LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
     }
 
     if (closestRSUIndex >= 0 && closestRSUMac != 0) {
-        std::cout << "CONSOLE: PayloadVehicleApp - Selected CLOSEST RSU[" << closestRSUIndex 
-                  << "] at distance " << minDistance << "m, MAC: " << closestRSUMac << std::endl;
         return closestRSUMac;
     }
 
-    std::cout << "CONSOLE: PayloadVehicleApp ERROR - No valid RSU MAC address found!" << std::endl;
     return 0;
 }
 
@@ -635,12 +605,6 @@ void PayloadVehicleApp::updateVehicleData() {
     // Calculate battery percentage
     double battery_pct = (battery_mAh_current / battery_mAh_max) * 100.0;
     
-    std::cout << "CONSOLE: PayloadVehicleApp - Updated vehicle data: pos=(" << pos.x << "," << pos.y 
-              << ") speed=" << speed << " CPU_max=" << flocHz_max/1e9 << "GHz"
-              << " CPU_avail=" << flocHz_available/1e9 << "GHz (load=" << (cpuLoadFactor*100) << "%)" 
-              << " Battery=" << battery_pct << "% (" << battery_mAh_current << "/" << battery_mAh_max << "mAh)"
-              << " Memory=" << memory_MB_available << "/" << memory_MB_max << "MB"
-              << " txPower_mW=" << txPower_mW << std::endl;
 }
 
 std::string PayloadVehicleApp::createVehicleDataPayload() {
@@ -880,7 +844,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
         try {
             serviceDirectRssiThresholdDbm = par("serviceDirectRssiThresholdDbm").doubleValue();
         } catch (...) {
-            serviceDirectRssiThresholdDbm = -72.0;
+            serviceDirectRssiThresholdDbm = -85.0;  // IEEE 802.11p typical: -85 to -90 dBm
         }
         EV_INFO << "✓ Service vehicle mode ENABLED (can process tasks for others)" << endl;
         std::cout << "SERVICE_VEHICLE: Vehicle " << getParentModule()->getIndex() 
@@ -1288,6 +1252,16 @@ void PayloadVehicleApp::finish() {
         }
     }
     pendingDecisionTimeouts.clear();
+
+    // Cancel pending offloaded-task timeout messages.
+    for (auto& kv : offloadedTaskTimeouts) {
+        cMessage* timeoutMsg = kv.second;
+        if (timeoutMsg) {
+            if (timeoutMsg->isScheduled()) cancelEvent(timeoutMsg);
+            delete timeoutMsg;
+        }
+    }
+    offloadedTaskTimeouts.clear();
 
     // Collect unique task pointers from all ownership containers and delete once.
     std::set<Task*> tasksToDelete;
@@ -2357,13 +2331,10 @@ uint32_t PayloadVehicleApp::countFreshNeighborDetections() {
 // ============================================================================
 
 LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
-    std::cout << "\n🎯 RSU_SELECTION: Starting modern multi-criteria selection..." << std::endl;
-    
     // Get vehicle position
     Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
     cModule* networkModule = getModuleByPath("^.^");
     if (!networkModule) {
-        std::cout << "RSU_SELECTION: ERROR - Network module not found!" << std::endl;
         return 0;
     }
     
@@ -2391,7 +2362,7 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
                 }
                 
                 rsuMetrics[i].distance = distance;
-                
+
                 // RSSI estimation: TwoRay Ground Reflection (matches omnetpp.ini pathLoss config)
                 // RSU TX = 2000mW = 33 dBm; antenna heights ht=hr=1.5m; carrier=5.89GHz
                 const double RSU_TX_dBm = 33.0;
@@ -2416,9 +2387,6 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
                 } else {
                     rsuMetrics[i].lastRSSI = 0.7 * rsuMetrics[i].lastRSSI + 0.3 * estimatedRSSI;
                 }
-                
-                std::cout << "RSU_SELECTION: RSU[" << i << "] dist=" << distance 
-                          << "m, estRSSI=" << estimatedRSSI << " dBm" << std::endl;
             }
         }
     }
@@ -2436,36 +2404,26 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
         if (metrics.consecutiveFailures >= failure_blacklist_threshold) {
             simtime_t timeSinceLastFailure = simTime() - metrics.lastContactTime;
             if (timeSinceLastFailure < blacklist_duration) {
-                std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] BLACKLISTED (failures=" 
-                          << metrics.consecutiveFailures << ")" << std::endl;
                 continue;  // Skip blacklisted RSU
             } else {
                 // Reset blacklist after timeout
                 metrics.consecutiveFailures = 0;
-                std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] blacklist expired, reset" << std::endl;
             }
         }
-        
+
         // Check minimum RSSI threshold
         if (metrics.lastRSSI < rssi_threshold) {
-            std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] below RSSI threshold ("
-                      << metrics.lastRSSI << " < " << rssi_threshold << " dBm)" << std::endl;
             continue;  // Skip RSUs with too weak signal
         }
-        
+
         // Calculate multi-criteria score
         metrics.score = calculateRSUScore(metrics);
-        
+
         // Apply hysteresis: favor currently selected RSU
         if (metrics.macAddress == currentRSU && currentRSU != 0) {
             metrics.score += 0.1;  // 10% bonus for staying with current RSU
-            std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] is CURRENT, added hysteresis bonus" << std::endl;
         }
-        
-        std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] SCORE=" << metrics.score 
-                  << " (RSSI=" << metrics.lastRSSI << ", PRR=" << metrics.getPRR() 
-                  << ", dist=" << metrics.distance << "m)" << std::endl;
-        
+
         // Track best candidate
         if (metrics.score > bestScore) {
             bestScore = metrics.score;
@@ -2478,24 +2436,15 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
     if (bestRSU != 0 && bestRSU != currentRSU && currentRSU != 0) {
         // Switching to new RSU - check if improvement is significant enough
         if (bestScore - rsuMetrics[bestIndex].score < 0.15) {  // Need >15% improvement
-            std::cout << "RSU_SELECTION: ⚠️ Hysteresis prevents switch (not enough improvement)" << std::endl;
             return currentRSU;  // Stay with current RSU
         }
     }
-    
+
     if (bestRSU != 0) {
-        if (bestRSU != currentRSU) {
-            std::cout << "RSU_SELECTION: ✅ SWITCHING to RSU[" << bestIndex 
-                      << "] MAC=" << bestRSU << " (score=" << bestScore << ")" << std::endl;
-            currentRSU = bestRSU;
-        } else {
-            std::cout << "RSU_SELECTION: ✅ STAYING with RSU[" << bestIndex 
-                      << "] MAC=" << bestRSU << " (score=" << bestScore << ")" << std::endl;
-        }
+        currentRSU = bestRSU;
         return bestRSU;
     }
-    
-    std::cout << "RSU_SELECTION: ❌ No viable RSU found, fallback to distance-based" << std::endl;
+
     return findRSUMacAddress();  // Fallback to old method
 }
 
@@ -2970,6 +2919,12 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
 
         std::string sub_id = task->task_id + "::" + agent_name;
 
+        // Pass remaining deadline so the target node uses accurate timing.
+        // Using original relative_deadline would give the SV/RSU a full 0.5s
+        // even though 0.1-0.3s has already elapsed — corrupting deadline checks.
+        double elapsed_s = (simTime() - task->created_time).dbl();
+        double remaining_deadline_s = std::max(0.001, task->relative_deadline - elapsed_s);
+
         if (target_type == "RSU") {
             // Send to the dispatch RSU (TV's RSU) for local processing.
             // If target_id != this RSU, the route hint will forward it.
@@ -2980,7 +2935,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
             pkt->setOffload_time(simTime().dbl());
             pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
             pkt->setCpu_cycles(task->cpu_cycles);
-            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setDeadline_seconds(remaining_deadline_s);
             pkt->setQos_value(task->qos_value);
             pkt->setTask_input_data("{}");  // no route hint — goes to TV's nearest RSU
 
@@ -3006,7 +2961,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
                 pkt->setOffload_time(simTime().dbl());
                 pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
                 pkt->setCpu_cycles(task->cpu_cycles);
-                pkt->setDeadline_seconds(task->relative_deadline);
+                pkt->setDeadline_seconds(remaining_deadline_s);
                 pkt->setQos_value(task->qos_value);
                 pkt->setTask_input_data("{}");
                 LAddress::L2Type rsuMac = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
@@ -3026,7 +2981,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
             pkt->setOffload_time(simTime().dbl());
             pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
             pkt->setCpu_cycles(task->cpu_cycles);
-            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setDeadline_seconds(remaining_deadline_s);
             pkt->setQos_value(task->qos_value);
 
             // Try direct V2V first; fall back to infrastructure relay via TV's RSU
@@ -3156,10 +3111,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
         timeoutMsg->setContextPointer(task);
         scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
-        
+        offloadedTaskTimeouts[task->task_id] = timeoutMsg;
+
         EV_INFO << "✓ Task offloaded to RSU, awaiting result" << endl;
     }
-    
+
     // ========================================================================
     // DECISION: OFFLOAD TO SERVICE VEHICLE
     // ========================================================================
@@ -3222,10 +3178,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
         timeoutMsg->setContextPointer(task);
         scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
-        
+        offloadedTaskTimeouts[task->task_id] = timeoutMsg;
+
         EV_INFO << "✓ Task offloaded to service vehicle, awaiting result" << endl;
     }
-    
+
     // ========================================================================
     // DECISION: REDIRECT TO ANOTHER RSU
     // ========================================================================
@@ -3423,7 +3380,7 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     std::string routeHint = buildRouteHint(ingressRsuMac, processorRsuMac);
     packet->setTask_input_data(routeHint.c_str());
@@ -3471,7 +3428,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
     
@@ -3507,7 +3464,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     std::string hint = buildServiceRouteHint(serviceMac, anchorRsuMac, myId);
     packet->setTask_input_data(hint.c_str());
@@ -3662,13 +3619,21 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
             }
         }
         
+        // Cancel the offloadedTaskTimeout so it doesn't fire on freed memory
+        auto tmIt = offloadedTaskTimeouts.find(task_id);
+        if (tmIt != offloadedTaskTimeouts.end()) {
+            if (tmIt->second->isScheduled()) cancelAndDelete(tmIt->second);
+            else delete tmIt->second;
+            offloadedTaskTimeouts.erase(tmIt);
+        }
+
         // Clean up
         cleanupTaskEvents(task);
         delete task;
         offloadedTasks.erase(it);
         offloadedTaskTargets.erase(task_id);
     }
-    
+
     delete msg;
 }
 

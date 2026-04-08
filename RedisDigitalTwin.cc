@@ -69,12 +69,13 @@ void RedisDigitalTwin::updateVehicleState(
     double battery_capacity_mAh,
     double energy_task_j_total, double energy_task_j_last,
     int queue_length, int processing_count,
-    double sim_time)
+    double sim_time,
+    double acceleration)
 {
     if (!redis_ctx || !is_connected) return;
-    
+
     std::string key = "vehicle:" + vehicle_id + ":state";
-    
+
     // Use HSET to store as hash
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s pos_x %f pos_y %f speed %f heading %f "
@@ -83,14 +84,14 @@ void RedisDigitalTwin::updateVehicleState(
         "battery_level_pct %f battery_current_mAh %f battery_capacity_mAh %f "
         "energy_task_j_total %f energy_task_j_last %f "
         "queue_length %d processing_count %d "
-        "last_update %f",
+        "last_update %f acceleration %f",
         key.c_str(), pos_x, pos_y, speed, heading,
         cpu_available, cpu_utilization,
         mem_available, mem_utilization,
         battery_level_pct, battery_current_mAh, battery_capacity_mAh,
         energy_task_j_total, energy_task_j_last,
         queue_length, processing_count,
-        sim_time
+        sim_time, acceleration
     );
     
     if (reply) {
@@ -414,6 +415,10 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
 {
     if (!redis_ctx || !is_connected) return;
 
+    // Ensure fail_reason is never blank for failures — default to UNKNOWN
+    const std::string& effective_reason = (!fail_reason.empty()) ? fail_reason
+        : (status != "COMPLETED_ON_TIME" ? "UNKNOWN" : "NONE");
+
     std::string key = "task:" + task_id + ":results";
 
     // Write four per-agent fields atomically: status, latency, energy, fail_reason
@@ -428,7 +433,7 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
         status_field.c_str(),  status.c_str(),
         latency_field.c_str(), total_latency,
         energy_field.c_str(),  energy_joules,
-        reason_field.c_str(),  fail_reason.c_str()
+        reason_field.c_str(),  effective_reason.c_str()
     );
 
     if (reply) {
@@ -443,7 +448,7 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
     if (reply) freeReplyObject(reply);
 
     EV_INFO << "✓ writeTaskResults: task=" << task_id << " agent=" << agent_name
-            << " status=" << status << " reason=" << fail_reason
+            << " status=" << status << " reason=" << effective_reason
             << " latency=" << total_latency << "s energy=" << energy_joules << "J" << std::endl;
 }
 

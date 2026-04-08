@@ -211,6 +211,7 @@ private:
     // Offloaded tasks (awaiting results)
     std::map<std::string, Task*> offloadedTasks;  // task_id -> Task*
     std::map<std::string, std::string> offloadedTaskTargets;  // task_id -> target ("RSU" or vehicle_id)
+    std::map<std::string, cMessage*> offloadedTaskTimeouts;  // task_id -> timeout msg (cancel on result)
     
     // Timeout parameters
     simtime_t rsuDecisionTimeout = 1.0;            // Timeout for RSU decision response
@@ -276,7 +277,7 @@ private:
     std::set<Task*> processingServiceTasks;  // Currently processing service tasks
     std::map<std::string, std::string> serviceTaskOriginVehicles;  // task_id -> origin_vehicle_id
     std::map<std::string, veins::LAddress::L2Type> serviceTaskOriginMACs;  // task_id -> origin_mac
-    double serviceDirectRssiThresholdDbm = -72.0;   // direct TV<->SV/SV<->TV threshold
+    double serviceDirectRssiThresholdDbm = -85.0;   // direct TV<->SV/SV<->TV threshold (IEEE 802.11p: -85 to -90 dBm for ~300m range)
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);
