@@ -4,6 +4,8 @@
 #include <iomanip>
 #include <cstdlib>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 
 using namespace veins;
 
@@ -11,6 +13,23 @@ namespace complex_network {
 
 namespace {
 constexpr double kDefaultV2xLinkBandwidthMbps = 6.0;
+constexpr int64_t kPacketHeaderBytes = 256;
+constexpr int64_t kResultMinPayloadBytes = 512;
+
+int64_t clampPacketBytes(uint64_t payloadBytes) {
+    const int64_t maxSafe = static_cast<int64_t>(std::numeric_limits<int32_t>::max() - kPacketHeaderBytes);
+    const int64_t payload = static_cast<int64_t>(std::min<uint64_t>(payloadBytes, static_cast<uint64_t>(maxSafe)));
+    return std::max<int64_t>(1, kPacketHeaderBytes + payload);
+}
+
+void setOffloadPacketSize(veins::TaskOffloadPacket* packet, uint64_t payloadBytes) {
+    packet->setByteLength(clampPacketBytes(payloadBytes));
+}
+
+void setResultPacketSize(veins::TaskResultMessage* packet, uint64_t outputBytes) {
+    const uint64_t payload = std::max<uint64_t>(outputBytes, static_cast<uint64_t>(kResultMinPayloadBytes));
+    packet->setByteLength(clampPacketBytes(payload));
+}
 
 std::string buildRouteHint(veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac) {
     std::ostringstream oss;
@@ -3563,6 +3582,7 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac
     packet->setQos_value(task->qos_value);
     std::string routeHint = buildRouteHint(ingressRsuMac, processorRsuMac);
     packet->setTask_input_data(routeHint.c_str());
+    setOffloadPacketSize(packet, task->input_size_bytes > 0 ? task->input_size_bytes : task->mem_footprint_bytes);
     
     // Send to RSU. If caller provided a target RSU (decision-origin), use it.
     // Otherwise keep legacy behavior and choose current best RSU.
@@ -3610,6 +3630,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
+    setOffloadPacketSize(packet, task->input_size_bytes > 0 ? task->input_size_bytes : task->mem_footprint_bytes);
     
     // Send to service vehicle
     populateWSM(packet, serviceMac);
@@ -3647,6 +3668,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
     packet->setQos_value(task->qos_value);
     std::string hint = buildServiceRouteHint(serviceMac, anchorRsuMac, myId);
     packet->setTask_input_data(hint.c_str());
+    setOffloadPacketSize(packet, task->input_size_bytes > 0 ? task->input_size_bytes : task->mem_footprint_bytes);
 
     LAddress::L2Type firstHopRsu = (ingressRsuMac != 0) ? ingressRsuMac : selectBestRSU();
     if (firstHopRsu == 0) {
@@ -3749,7 +3771,34 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
         Task* task = it->second;
         bool success = msg->getSuccess();
         double completion_time = msg->getCompletion_time();
+        double receive_time = simTime().dbl();
         bool on_time = completion_time <= task->deadline.dbl();
+
+        double decision_latency = 0.0;
+        double total_offload_latency = 0.0;
+        if (taskTimings.find(task_id) != taskTimings.end()) {
+            const TaskTimingInfo& timing = taskTimings[task_id];
+            decision_latency = std::max(0.0, timing.decision_time - timing.request_time);
+            total_offload_latency = std::max(0.0, receive_time - timing.request_time);
+        }
+        double downlink_latency = std::max(0.0, receive_time - completion_time);
+        double estimated_uplink_and_queue = std::max(0.0,
+            total_offload_latency - msg->getProcessing_time() - downlink_latency);
+
+        sendTaskOffloadingEvent(task_id, "OFFLOAD_TIMING_MEASURED",
+            msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+            "{\"decision_latency_s\":" + std::to_string(decision_latency) +
+            ",\"uplink_plus_queue_s\":" + std::to_string(estimated_uplink_and_queue) +
+            ",\"processing_s\":" + std::to_string(msg->getProcessing_time()) +
+            ",\"downlink_s\":" + std::to_string(downlink_latency) +
+            ",\"total_offload_s\":" + std::to_string(total_offload_latency) + "}");
+
+        std::cout << "OFFLOAD_TIMING: task=" << task_id
+                  << " decision=" << decision_latency
+                  << " uplink+queue=" << estimated_uplink_and_queue
+                  << " processing=" << msg->getProcessing_time()
+                  << " downlink=" << downlink_latency
+                  << " total=" << total_offload_latency << std::endl;
         sendTaskOffloadingEvent(task_id, "TASK_RESULTS_RECEIVED",
             msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             "{\"success\":" + std::string(success ? "true" : "false") + ","
@@ -4088,6 +4137,7 @@ void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& ori
     result->setSuccess(task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
     result->setCompletion_time(task->completion_time.dbl());
     result->setProcessing_time((task->completion_time - task->processing_start_time).dbl());
+    setResultPacketSize(result, task->output_size_bytes);
     
     // Set result data (placeholder - in real system would include actual computation output)
     result->setTask_output_data("{\"status\":\"completed_by_service_vehicle\"}");

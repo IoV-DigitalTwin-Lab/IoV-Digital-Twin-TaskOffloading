@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <cstdint>
 
 using namespace veins;
 
@@ -17,6 +18,19 @@ constexpr const char* kRoutePrefix = "ROUTE|";
 constexpr const char* kRelayPayloadPrefix = "RSU_RELAY_RESULT|";
 constexpr const char* kServiceRoutePrefix = "SVROUTE|";
 constexpr const char* kServiceResultRelayPrefix = "SV_RESULT_RELAY|";
+constexpr int64_t kPacketHeaderBytes = 256;
+constexpr int64_t kResultMinPayloadBytes = 512;
+
+int64_t clampPacketBytes(uint64_t payloadBytes) {
+    const int64_t maxSafe = static_cast<int64_t>(std::numeric_limits<int32_t>::max() - kPacketHeaderBytes);
+    const int64_t payload = static_cast<int64_t>(std::min<uint64_t>(payloadBytes, static_cast<uint64_t>(maxSafe)));
+    return std::max<int64_t>(1, kPacketHeaderBytes + payload);
+}
+
+void setResultPacketSize(veins::TaskResultMessage* packet, uint64_t outputBytes) {
+    const uint64_t payload = std::max<uint64_t>(outputBytes, static_cast<uint64_t>(kResultMinPayloadBytes));
+    packet->setByteLength(clampPacketBytes(payload));
+}
 
 bool parseRouteHint(const std::string& routeHint, LAddress::L2Type& ingressRsuMac, LAddress::L2Type& processorRsuMac) {
     ingressRsuMac = 0;
@@ -2676,6 +2690,16 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
     uint64_t cpu_cycles     = packet->getCpu_cycles();
     double qos_value        = std::max(0.0, std::min(1.0, packet->getQos_value()));
     double deadline_seconds = packet->getDeadline_seconds();  // Extract absolute deadline from task metadata
+    const double uplink_latency_s = std::max(0.0, simTime().dbl() - packet->getOffload_time());
+
+    insertLifecycleEvent(task_id, "TASK_UPLINK_RECEIVED",
+        vehicle_id, "RSU_" + std::to_string(rsu_id),
+        "{\"uplink_s\":" + std::to_string(uplink_latency_s) +
+        ",\"input_bytes\":" + std::to_string(mem_footprint_bytes) + "}");
+
+    std::cout << "RSU_UPLINK_MEASURED: task=" << task_id
+              << " uplink=" << uplink_latency_s
+              << " input_bytes=" << mem_footprint_bytes << std::endl;
 
     // ======================================================================
     // ADMISSION CONTROL: bounded waiting queue before rejection
@@ -3055,6 +3079,12 @@ void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::st
     result->setSuccess(success);
     result->setProcessing_time(processing_time);
     result->setCompletion_time(simTime().dbl());
+    uint64_t output_bytes = kResultMinPayloadBytes;
+    auto recIt = task_records.find(task_id);
+    if (recIt != task_records.end()) {
+        output_bytes = std::max<uint64_t>(recIt->second.output_size_bytes, static_cast<uint64_t>(kResultMinPayloadBytes));
+    }
+    setResultPacketSize(result, output_bytes);
     
     if (success) {
         result->setTask_output_data("RSU_EDGE_RESULT");
