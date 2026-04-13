@@ -58,6 +58,7 @@ class ExternalController:
         self.prediction_horizon_s = float(os.getenv("DT2_PRED_HORIZON_S", "0.5"))
         self.prediction_step_s = float(os.getenv("DT2_PRED_STEP_S", "0.02"))
         self.prediction_ttl_s = int(os.getenv("DT2_PRED_TTL_S", "2"))
+        self.q_cycle_scan_limit = int(os.getenv("DT2_Q_SCAN_LIMIT", "50000"))
         self.last_prediction_source_ts = -1.0
         self.prediction_cycle_id = 0
 
@@ -227,6 +228,40 @@ class ExternalController:
 
     def _get_all_vehicle_states(self) -> List[Dict[str, object]]:
         vehicles: List[Dict[str, object]] = []
+
+        # Primary schema: dt2:vehicle:<run_id>:<vehicle_id>:latest (written by RedisDigitalTwin)
+        dt2_pattern = f"dt2:vehicle:{self.run_id}:*:latest"
+        for raw_key in self.redis.keys(dt2_pattern):
+            key = raw_key.decode(errors="ignore")
+            parts = key.split(":")
+            # key format: dt2:vehicle:<run_id>:<vehicle_id>:latest  → parts[-2] is vehicle_id
+            vehicle_id = parts[-2]
+            state_raw = self.redis.hgetall(key)
+            if not state_raw:
+                continue
+            state = self._decode_hash(state_raw)
+            # Also try legacy route_progress if it exists (optional).
+            route_raw = self.redis.hgetall(self.key_vehicle_route_progress.format(vehicle_id=vehicle_id))
+            route = self._decode_hash(route_raw) if route_raw else {}
+            vehicles.append({
+                "vehicle_id": vehicle_id,
+                "source_timestamp": self._to_float(
+                    state.get("sim_time"),
+                    self._to_float(route.get("source_timestamp"), 0.0)
+                ),
+                "pos_x": self._to_float(state.get("pos_x")),
+                "pos_y": self._to_float(state.get("pos_y")),
+                "speed": self._to_float(state.get("speed")),
+                "acceleration": self._to_float(state.get("acceleration")),
+                "heading": self._to_float(state.get("heading")),
+                "current_edge_id": route.get("current_edge_id", ""),
+                "lane_pos_m": self._to_float(route.get("lane_pos_m")),
+            })
+
+        if vehicles:
+            return vehicles
+
+        # Fallback: legacy schema vehicle:<vehicle_id>:state (TTL-based, may be empty)
         for raw_key in self.redis.keys("vehicle:*:state"):
             key = raw_key.decode(errors="ignore")
             parts = key.split(":")
@@ -235,10 +270,10 @@ class ExternalController:
             vehicle_id = parts[1]
             state_raw = self.redis.hgetall(key)
             route_raw = self.redis.hgetall(self.key_vehicle_route_progress.format(vehicle_id=vehicle_id))
-            if not state_raw or not route_raw:
+            if not state_raw:
                 continue
             state = self._decode_hash(state_raw)
-            route = self._decode_hash(route_raw)
+            route = self._decode_hash(route_raw) if route_raw else {}
             vehicles.append({
                 "vehicle_id": vehicle_id,
                 "source_timestamp": self._to_float(route.get("source_timestamp"), self._to_float(state.get("source_timestamp"), 0.0)),
@@ -263,16 +298,47 @@ class ExternalController:
             return cached
         return None
 
+    def _predict_vehicle_constant_velocity(self, vehicle: Dict[str, object]) -> List[Dict[str, float]]:
+        """Constant-velocity dead-reckoning fallback when no route data is available."""
+        vehicle_id = str(vehicle["vehicle_id"])
+        speed = max(0.0, float(vehicle.get("speed", 0.0)))
+        acceleration = float(vehicle.get("acceleration", 0.0))
+        source_ts = float(vehicle.get("source_timestamp", 0.0))
+        heading_deg = float(vehicle.get("heading", 0.0))
+        pos_x = float(vehicle.get("pos_x", 0.0))
+        pos_y = float(vehicle.get("pos_y", 0.0))
+        heading_rad = heading_deg * math.pi / 180.0
+        cos_h = math.cos(heading_rad)
+        sin_h = math.sin(heading_rad)
+        steps = max(1, int(math.floor(self.prediction_horizon_s / self.prediction_step_s + 1e-9)))
+        predictions = []
+        for step_index in range(1, steps + 1):
+            t = step_index * self.prediction_step_s
+            delta = max(0.0, speed * t + 0.5 * acceleration * t * t)
+            predictions.append({
+                "vehicle_id": vehicle_id,
+                "step_index": step_index,
+                "predicted_time": source_ts + t,
+                "pos_x": pos_x + delta * cos_h,
+                "pos_y": pos_y + delta * sin_h,
+                "speed": max(0.0, speed + acceleration * t),
+                "heading": heading_deg,
+                "acceleration": acceleration,
+            })
+        return predictions
+
     def _predict_vehicle(self, vehicle: Dict[str, object]) -> List[Dict[str, float]]:
         vehicle_id = str(vehicle["vehicle_id"])
         route_edges = self.vehicle_routes.get(vehicle_id)
         if not route_edges:
-            return []
+            # No static route knowledge — use constant-velocity dead-reckoning.
+            return self._predict_vehicle_constant_velocity(vehicle)
 
         current_edge_id = str(vehicle.get("current_edge_id", ""))
         edge_index = self._resolve_route_edge_index(vehicle_id, current_edge_id, route_edges)
         if edge_index is None:
-            return []
+            # Have route but can't determine current position on it — fall back.
+            return self._predict_vehicle_constant_velocity(vehicle)
 
         speed = max(0.0, float(vehicle.get("speed", 0.0)))
         acceleration = float(vehicle.get("acceleration", 0.0))
@@ -417,33 +483,65 @@ class ExternalController:
             'source_vehicle': source_vehicle,
         }
 
-    def get_compute_capacity_hz(self, vehicle_id: str) -> float:
-        """Get available compute capacity in Hz for a vehicle."""
-        key = self.key_vehicle_state.format(vehicle_id=vehicle_id)
+    def _normalize_cpu_hz(self, cpu_value: float, default_hz: float = 1e9) -> float:
+        """Normalize CPU availability values to Hz.
+
+        Some producers store CPU in GHz while others store in Hz.
+        """
+        if cpu_value <= 0.0:
+            return default_hz
+        if cpu_value < 1e6:
+            return cpu_value * 1e9
+        return cpu_value
+
+    def get_compute_capacity_hz(self, target_id: str) -> float:
+        """Get available compute capacity in Hz for a vehicle or RSU target."""
+        # RSU resources are stored in a dedicated keyspace.
+        if target_id.startswith("RSU_"):
+            rsu_key = f"rsu:{target_id}:resources"
+            rsu_raw = self.redis.hgetall(rsu_key)
+            if rsu_raw:
+                rsu = self._decode_hash(rsu_raw)
+                cpu_available = self._to_float(rsu.get('cpu_available'), 0.0)
+                return max(self._normalize_cpu_hz(cpu_available), 1.0)
+
+        # Primary source: dt2 vehicle latest state for this run.
+        dt2_key = f"dt2:vehicle:{self.run_id}:{target_id}:latest"
+        dt2_raw = self.redis.hgetall(dt2_key)
+        if dt2_raw:
+            dt2_state = self._decode_hash(dt2_raw)
+            cpu_available = self._to_float(dt2_state.get('cpu_available'), 0.0)
+            if cpu_available > 0.0:
+                return max(self._normalize_cpu_hz(cpu_available), 1.0)
+
+        # Legacy fallback: vehicle:<id>:state.
+        key = self.key_vehicle_state.format(vehicle_id=target_id)
         raw = self.redis.hgetall(key)
-        if not raw:
-            return 1e9  # Default 1 GHz
+        if raw:
+            data = self._decode_hash(raw)
+            cpu_available = self._to_float(data.get('cpu_available'), 0.0)
+            if cpu_available > 0.0:
+                return max(self._normalize_cpu_hz(cpu_available), 1.0)
 
-        data = self._decode_hash(raw)
-        cpu_available = self._to_float(data.get('cpu_available'), 1e9)
-
-        # Normalize if a small value was stored as GHz.
-        if cpu_available < 1e6:
-            cpu_available *= 1e9
-
-        return max(cpu_available, 1.0)
+        return 1e9  # Conservative default
 
     def process_q_entries(self, cycle_id: int) -> Dict[str, Dict]:
         """Process Q entries for a cycle, group by link."""
         stream_key = f"dt2:q:{self.run_id}:entries"
-        entries = self.redis.xrange(stream_key)
+        entries = self.redis.xrevrange(stream_key, max='+', min='-', count=self.q_cycle_scan_limit)
 
         links = {}  # link_key -> {'sinr_sequence': [], 'metadata': {}}
 
+        seen_target_cycle = False
         for entry_id, fields in entries:
             entry_cycle = int(fields.get(b'cycle_index', 0))
-            if entry_cycle != cycle_id:
+            if entry_cycle > cycle_id:
                 continue
+            if entry_cycle < cycle_id:
+                if seen_target_cycle:
+                    break
+                continue
+            seen_target_cycle = True
 
             # Parse entry
             link_type = fields.get(b'link_type', b'').decode()
@@ -468,10 +566,11 @@ class ExternalController:
             links[link_key]['sinr_sequence'].append(sinr_db)
             links[link_key]['predicted_times'].append(predicted_time)
 
-        # Sort sequences by predicted time
+        # xrevrange returns newest-first; sort each link sequence by predicted time.
         for link in links.values():
             combined = sorted(zip(link['predicted_times'], link['sinr_sequence']))
             link['sinr_sequence'] = [sinr for _, sinr in combined]
+            link['predicted_times'] = [ts for ts, _ in combined]
 
         return links
 
@@ -605,11 +704,8 @@ class ExternalController:
                         tau_up + tau_comp,
                     )
                 else:
-                    # Reverse link not in window — fall back to mirrored UL sequence
-                    # offset from the correct slot position.
-                    dl_sinr_seq = self._slice_from_offset(
-                        ul_sinr_seq, ul_pred_times, tau_up + tau_comp
-                    )
+                    # No explicit reverse-link prediction, skip this candidate.
+                    continue
                 tau_down = self.accumulate_transmission_time(dl_sinr_seq, d_out_bits)
 
             elif link_type == 'V2RSU' and tx_id == source_vehicle:
@@ -632,10 +728,8 @@ class ExternalController:
                         tau_up + tau_comp,
                     )
                 else:
-                    # No RSU2V entry — offset the V2RSU uplink sequence as proxy.
-                    dl_sinr_seq = self._slice_from_offset(
-                        ul_sinr_seq, ul_pred_times, tau_up + tau_comp
-                    )
+                    # No explicit reverse-link prediction, skip this candidate.
+                    continue
                 tau_down = self.accumulate_transmission_time(dl_sinr_seq, d_out_bits)
 
             else:

@@ -140,6 +140,12 @@ public:
                                     double speed,
                                     double heading,
                                     double acceleration,
+                                    double cpu_available,
+                                    double cpu_utilization,
+                                    double mem_available,
+                                    double mem_utilization,
+                                    int queue_length,
+                                    int processing_count,
                                     int max_series_len = 6000);
     void pushSecondaryV2RsuLinkSample(const std::string& run_id,
                                       const std::string& tx_vehicle_id,

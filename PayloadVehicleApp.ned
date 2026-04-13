@@ -15,6 +15,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         // ---- Heartbeat (continuous vehicle telemetry) ----
         double heartbeatIntervalS @unit(s) = default(0.5s);  // e.g., 2 Hz
         double firstStatusDelayS @unit(s) = default(0s);     // delay before first status, allow t=0
+        bool motionChannelOnly = default(false);             // disable task generation/offloading when true
 
         // ---- Optional route-progress export (for external route-aware predictor) ----
         bool routeProgressRedisEnabled = default(false);
@@ -69,6 +70,11 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         // ---- Legacy task parameters (kept for compatibility) ----
         double taskGenIntervalS @unit(s) = default(2.0s);     // mean cadence for task arrivals
         double paramJitterFactor = default(0.0);              // optional slow drift of Floc/TxP (0 = off)
+        int maxCandidateRsus = default(3);                    // compatibility knob for legacy RSU candidate config
+        int maxRedirectHops = default(2);                     // compatibility knob for legacy redirect limits
+        int candidateBlacklistThreshold = default(2);         // compatibility knob for legacy RSU blacklist threshold
+        double candidateBlacklistDuration @unit(s) = default(5s); // compatibility knob for legacy candidate blacklist
+        double rssiThreshold_dBm = default(-90);              // compatibility knob for legacy RSU threshold
         double taskSizeB_min = default(1e5);
         double taskSizeB_max = default(1.5e5);
         double cpuPerByte_min = default(2e6);

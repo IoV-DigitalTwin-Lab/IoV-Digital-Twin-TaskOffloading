@@ -53,8 +53,16 @@ void PayloadVehicleApp::initialize(int stage) {
         std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data initialized" << std::endl;
         std::cout << "SHADOW: Vehicle starting signal monitoring for shadowing analysis" << std::endl;
 
+        motionChannelOnly = par("motionChannelOnly").boolValue();
+
         // ===== INITIALIZE TASK PROCESSING SYSTEM =====
-        initializeTaskSystem();
+        if (!motionChannelOnly) {
+            initializeTaskSystem();
+        } else {
+            offloadingEnabled = false;
+            serviceVehicleEnabled = false;
+            EV_INFO << "PayloadVehicleApp: motionChannelOnly=true, task generation/offloading disabled" << endl;
+        }
 
         routeProgressRedisEnabled = par("routeProgressRedisEnabled").boolValue();
         if (routeProgressRedisEnabled) {
@@ -73,14 +81,18 @@ void PayloadVehicleApp::initialize(int stage) {
         // Schedule first periodic vehicle status update
         // Allow configuration; default is t=0 so Redis sees vehicles immediately
         double firstStatusDelay = par("firstStatusDelayS").doubleValue();
-        cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
-        scheduleAt(simTime() + firstStatusDelay, sendMsgEvent);
+        if (!sendPayloadEvent) {
+            sendPayloadEvent = new cMessage("sendPayloadMessage");
+        }
+        scheduleAt(simTime() + firstStatusDelay, sendPayloadEvent);
         std::cout << "CONSOLE: PayloadVehicleApp - Scheduled first payload message at time "
               << (simTime() + firstStatusDelay) << std::endl;
         
         // Schedule periodic position monitoring for shadowing analysis
-        cMessage* monitorEvent = new cMessage("monitorPosition");
-        scheduleAt(simTime() + 1, monitorEvent);
+        if (!monitorPositionEvent) {
+            monitorPositionEvent = new cMessage("monitorPosition");
+        }
+        scheduleAt(simTime() + 1, monitorPositionEvent);
         std::cout << "SHADOW: Position monitoring started - checking for obstacle effects" << std::endl;
     }
     else if (stage == 1) {
@@ -100,6 +112,22 @@ void PayloadVehicleApp::initialize(int stage) {
 }
 
 void PayloadVehicleApp::finish() {
+    auto cleanupTimer = [this](cMessage*& timer) {
+        if (timer) {
+            cancelAndDelete(timer);
+            timer = nullptr;
+        }
+    };
+
+    cleanupTimer(sendPayloadEvent);
+    cleanupTimer(monitorPositionEvent);
+    cleanupTimer(localObjDetEvent);
+    cleanupTimer(coopPercepEvent);
+    cleanupTimer(routeOptEvent);
+    cleanupTimer(fleetForecastEvent);
+    cleanupTimer(voiceCommandEvent);
+    cleanupTimer(sensorHealthEvent);
+
     if (routeProgressRedisClient) {
         delete routeProgressRedisClient;
         routeProgressRedisClient = nullptr;
@@ -218,11 +246,9 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         // This includes position, speed, CPU, memory, and task statistics
         sendVehicleResourceStatus();
 
-        // Schedule next periodic update using heartbeatIntervalS parameter
+        // Reuse the same timer for periodic status updates.
         double heartbeatInterval = par("heartbeatIntervalS").doubleValue();
-        scheduleAt(simTime() + heartbeatInterval, new cMessage("sendPayloadMessage"));
-        
-        delete msg;
+        scheduleAt(simTime() + heartbeatInterval, msg);
     } 
     else if (strcmp(msg->getName(), "monitorPosition") == 0) {
         // Monitor vehicle position and get REAL simulation shadowing data
@@ -446,6 +472,7 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
         onWSM(wsm);
+        delete wsm;
         return;
     }
 

@@ -30,6 +30,7 @@ protected:
 private:
     veins::LAddress::L2Type myMacAddress;  // Store our own MAC address
     bool messageSent = false;              // To send only once
+    bool motionChannelOnly = false;        // Secondary DT mode: mobility + channel only
     
     // Vehicle data members (similar to VehicleApp)
     double flocHz_max = 0.0;         // Maximum CPU capacity (Hz)
@@ -97,6 +98,10 @@ private:
     uint32_t tasks_rejected = 0;
     
     double total_completion_time = 0.0;       // Sum for average calculation
+
+    // Recurring self-messages owned by this module
+    cMessage* sendPayloadEvent = nullptr;
+    cMessage* monitorPositionEvent = nullptr;
     
     // Self-message for task generation (one per task type)
     cMessage* localObjDetEvent = nullptr;

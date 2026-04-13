@@ -16,7 +16,8 @@ packet TaskMetadataMessage extends BaseFrame1609_4 {
     string vehicle_id;           // Originating vehicle ID
     
     // Task Characteristics
-    uint64_t task_size_bytes;    // Memory footprint (D_task)
+    uint64_t task_size_bytes;    // Legacy payload size field
+    uint64_t mem_footprint_bytes; // Working memory footprint (D_task)
     uint64_t cpu_cycles;         // Required CPU cycles (C_task)
     
     // Timing Information
@@ -118,7 +119,8 @@ packet OffloadingRequestMessage extends BaseFrame1609_4 {
     double request_time;                 // When request was sent
     
     // Task Characteristics
-    uint64_t task_size_bytes;            // Task size
+    uint64_t task_size_bytes;            // Legacy payload size field
+    uint64_t mem_footprint_bytes;        // Working memory footprint
     uint64_t cpu_cycles;                 // Required CPU cycles
     double deadline_seconds;             // Task deadline
     double qos_value;                    // QoS priority
@@ -154,6 +156,11 @@ packet OffloadingDecisionMessage extends BaseFrame1609_4 {
     // If SERVICE_VEHICLE: target information
     string target_service_vehicle_id;    // Service vehicle ID (if applicable)
     uint64_t target_service_vehicle_mac; // Service vehicle MAC address (if applicable)
+
+    // Optional RSU redirection hints for multi-hop offloading
+    string redirect_target_rsu_id;       // Preferred RSU ID for forwarding
+    uint64_t redirect_target_rsu_mac;    // Preferred RSU MAC for forwarding
+    int next_candidate_index = 0;        // Candidate index hint for retry chains
     
     // Decision Metadata
     double confidence_score;             // ML model confidence (0-1)
@@ -171,7 +178,8 @@ packet TaskOffloadPacket extends BaseFrame1609_4 {
     double offload_time;                 // When task was offloaded
     
     // Task Characteristics
-    uint64_t task_size_bytes;            // Task size
+    uint64_t task_size_bytes;            // Legacy payload size field
+    uint64_t mem_footprint_bytes;        // Working memory footprint
     uint64_t cpu_cycles;                 // Required CPU cycles
     double deadline_seconds;             // Task deadline
     double qos_value;                    // QoS priority
@@ -206,5 +214,31 @@ packet TaskOffloadingEvent extends BaseFrame1609_4 {
     string target_entity_id;             // Target entity (if applicable)
     double event_time;                   // When event occurred
     string event_details;                // JSON with additional details
+}
+
+//
+// RSU Status Broadcast Message - RSU -> RSU periodic neighbor-state sharing
+//
+packet RSUStatusBroadcastMessage extends BaseFrame1609_4 {
+    string rsu_id;                       // Broadcasting RSU identifier (e.g., RSU_0)
+    uint64_t rsu_mac;                    // Broadcasting RSU MAC address
+    double broadcast_time;               // Sim time of broadcast
+
+    // Resource state
+    int queue_length;
+    int processing_count;
+    int max_concurrent_tasks;
+    double cpu_available_ghz;
+    double cpu_total_ghz;
+    double memory_available_gb;
+    double memory_total_gb;
+
+    // Coverage information
+    string vehicle_ids_in_coverage[];
+    int vehicle_count;
+
+    // RSU position
+    double pos_x;
+    double pos_y;
 }
 

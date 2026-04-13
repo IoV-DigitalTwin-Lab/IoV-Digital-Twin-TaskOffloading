@@ -383,8 +383,12 @@ private:
     double secondary_candidate_radius_m = 1500.0;
     bool secondary_q_publish_enabled = true;
     double secondary_sinr_threshold_db = 3.0;
+    double secondary_interference_mw = 0.09;
     int secondary_q_ttl_s = 2;
     int secondary_q_stream_maxlen = 200000;
+    bool secondary_nakagami_enabled = true;
+    double secondary_nakagami_m = 1.0;
+    double secondary_nakagami_cell_size_m = 5.0;
     std::map<std::string, double> secondary_last_export_time; // vehicle_id -> last export sim_time
     std::unique_ptr<IFuturePositionPredictor> secondary_predictor;
     cMessage* secondary_cycle_timer = nullptr;
@@ -403,6 +407,15 @@ private:
         double pos_y = 0.0;
     };
     std::vector<RsuStaticContext> rsu_static_contexts;
+
+    // Obstacle polygon for secondary SINR shadow loss
+    struct ObstaclePolygon {
+        double db_per_cut;
+        double db_per_meter;
+        double aabb_min_x, aabb_min_y, aabb_max_x, aabb_max_y;
+        std::vector<std::pair<double, double>> vertices;
+    };
+    std::vector<ObstaclePolygon> secondary_obstacle_polygons;
     
     void initDatabase();
     void closeDatabase();
@@ -437,6 +450,13 @@ private:
     void initializeRsuStaticContexts();
     void initializeSecondaryPredictor();
     void initializeSecondaryCycleWorker();
+    void loadObstaclePolygons();
+    double computeObstacleLossDb(double tx_x, double tx_y, double rx_x, double rx_y) const;
+    double estimateSinrDbWithObstacles(double tx_x, double tx_y, double rx_x, double rx_y, double dist,
+                                       double vehicle_shadow_loss_db = 0.0,
+                                       double lognormal_shadow_db = 0.0,
+                                       double nakagami_fading_db = 0.0,
+                                       double interference_mw = -1.0) const;
     void runSecondaryCycle();
     void exportSecondaryContextSamples(const VehicleResourceStatusMessage* msg,
                                        const VehicleDigitalTwin& sourceTwin);

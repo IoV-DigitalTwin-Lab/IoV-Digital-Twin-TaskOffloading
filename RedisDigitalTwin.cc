@@ -650,14 +650,22 @@ void RedisDigitalTwin::pushSecondaryVehicleSample(const std::string& run_id,
                                                   double speed,
                                                   double heading,
                                                   double acceleration,
+                                                  double cpu_available,
+                                                  double cpu_utilization,
+                                                  double mem_available,
+                                                  double mem_utilization,
+                                                  int queue_length,
+                                                  int processing_count,
                                                   int max_series_len) {
     if (!redis_ctx || !is_connected) return;
 
     std::string latest_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":latest";
     redisReply* reply = (redisReply*)redisCommand(
         redis_ctx,
-        "HMSET %s sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
-        latest_key.c_str(), sim_time, pos_x, pos_y, speed, heading, acceleration
+        "HMSET %s sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f cpu_available %f cpu_utilization %f mem_available %f mem_utilization %f queue_length %d processing_count %d",
+        latest_key.c_str(), sim_time, pos_x, pos_y, speed, heading, acceleration,
+        cpu_available, cpu_utilization, mem_available, mem_utilization,
+        queue_length, processing_count
     );
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {
@@ -669,9 +677,11 @@ void RedisDigitalTwin::pushSecondaryVehicleSample(const std::string& run_id,
     std::string stream_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":samples";
     reply = (redisReply*)redisCommand(
         redis_ctx,
-        "XADD %s MAXLEN ~ %d * sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
+        "XADD %s MAXLEN ~ %d * sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f cpu_available %f cpu_utilization %f mem_available %f mem_utilization %f queue_length %d processing_count %d",
         stream_key.c_str(), std::max(1, max_series_len),
-        sim_time, pos_x, pos_y, speed, heading, acceleration
+        sim_time, pos_x, pos_y, speed, heading, acceleration,
+        cpu_available, cpu_utilization, mem_available, mem_utilization,
+        queue_length, processing_count
     );
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {

@@ -73,8 +73,12 @@ simple MyRSUApp like IBaseApplLayer
         double secondaryCandidateRadius @unit(m) = default(1500m);
         bool secondaryQPublishEnabled = default(true);
         double secondarySinrThresholdDb = default(3);
+        double secondaryInterferenceMw = default(0.09);
         int secondaryQTTLSec = default(2);
         int secondaryQStreamMaxLen = default(200000);
+        bool secondaryNakagamiEnabled = default(true);
+        double secondaryNakagamiM = default(1.0);
+        double secondaryNakagamiCellSize @unit(m) = default(5m);
 
     gates:
         input lowerLayerIn;

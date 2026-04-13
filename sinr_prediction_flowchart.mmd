@@ -1,0 +1,16 @@
+flowchart LR
+    A[Redis: Latest Snapshot<br/>vehicle state at time t<br/>x,y,v,a,heading] --> B[Secondary DT Cycle Trigger]
+    B --> C[State Preprocessing<br/>validate + align timestamps]
+    C --> D[Location Prediction<br/>for each future slot k]
+    D --> E[Predicted Positions<br/>future x and y per slot]
+    E --> F[Build Candidate Links<br/>V2V, V2RSU, RSU links]
+    F --> G[Distance Per Link Per Slot]
+    G --> H[Channel Model]
+    H --> I[SINR Per Link Per Slot<br/>SINR matrix over horizon]
+    I --> J[Write Back to Redis<br/>cycle_id, link_id, slot_id, sinr_db]
+    J --> K[Controller Reads SINR + Task Metadata]
+    K --> L[Compute tau candidates<br/>tau_up, tau_comp, tau_down, tau_total]
+    L --> M[Send to DRL for Offloading Decision]
+
+    M --> N[Decision written to Redis]
+    N -. next cycle .-> B

@@ -1,4 +1,6 @@
 #include "MyRSUApp.h"
+#include "veins/modules/mobility/traci/TraCICommandInterface.h"
+#include "veins/modules/mobility/traci/TraCIScenarioManager.h"
 #include <sstream>
 #include <fstream>
 #include <chrono>
@@ -7,6 +9,7 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <random>
 
 using namespace veins;
 
@@ -114,12 +117,15 @@ double estimateRssiFromDistance(double distanceMeters) {
 }
 
 double estimateSinrDbFromDistance(double distanceMeters) {
-    const double tx_power_dbm = 20.0;
-    const double frequency_mhz = 5890.0;
+    const double tx_power_dbm = 33.0;   // 2000 mW per omnetpp.ini txPower
+    const double frequency_hz = 5.89e9;
+    const double pathloss_alpha = 2.2;   // Matches config.xml SimplePathlossModel alpha
     const double noise_floor_dbm = -110.0;
 
-    const double d_km = std::max(1.0, distanceMeters) / 1000.0;
-    const double path_loss_db = 32.44 + 20.0 * std::log10(frequency_mhz) + 20.0 * std::log10(d_km);
+    const double d_m = std::max(1.0, distanceMeters);
+    const double lambda = 299792458.0 / frequency_hz;
+    const double path_loss_db = 20.0 * std::log10(4.0 * M_PI / lambda)
+                                + 10.0 * pathloss_alpha * std::log10(d_m);
     const double rx_power_dbm = tx_power_dbm - path_loss_db;
     const double sinr_db = rx_power_dbm - noise_floor_dbm;
 
@@ -158,14 +164,19 @@ void MyRSUApp::initialize(int stage) {
         secondary_candidate_radius_m = par("secondaryCandidateRadius").doubleValue();
         secondary_q_publish_enabled = par("secondaryQPublishEnabled").boolValue();
         secondary_sinr_threshold_db = par("secondarySinrThresholdDb").doubleValue();
+        secondary_interference_mw = par("secondaryInterferenceMw").doubleValue();
         secondary_q_ttl_s = par("secondaryQTTLSec").intValue();
         secondary_q_stream_maxlen = par("secondaryQStreamMaxLen").intValue();
+        secondary_nakagami_enabled = par("secondaryNakagamiEnabled").boolValue();
+        secondary_nakagami_m = par("secondaryNakagamiM").doubleValue();
+        secondary_nakagami_cell_size_m = par("secondaryNakagamiCellSize").doubleValue();
         if (!secondary_use_external_predictions) {
             initializeSecondaryPredictor();
         }
         initializeSecondaryCycleWorker();
         initializeRsuStaticContexts();
-        
+        loadObstaclePolygons();
+
         // Initialize RSU resource tracking (dynamic state)
         rsu_cpu_total = edgeCPU_GHz;
         rsu_cpu_available = edgeCPU_GHz;  // Initially all available
@@ -235,8 +246,8 @@ void MyRSUApp::initialize(int stage) {
         rsu_broadcast_timer = new cMessage("rsuBroadcast");
         scheduleAt(simTime() + uniform(0.0, rsu_broadcast_interval), rsu_broadcast_timer);  // Stagger initial broadcasts
         
-        // Initialize decision checker
-        checkDecisionMsg = new cMessage("checkDecision");
+        // Initialize decision checker lazily when the first task metadata arrives.
+        checkDecisionMsg = nullptr;
         
         std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
                   << " initialized with edge resources:" << std::endl;
@@ -247,10 +258,12 @@ void MyRSUApp::initialize(int stage) {
         std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
         
         double interval = par("beaconInterval").doubleValue();
-        
-    // create and store the beacon self-message so we can cancel/delete it safely later
-    beaconMsg = new cMessage("sendMessage");
-    scheduleAt(simTime() + 2.0, beaconMsg);
+
+        if (par("sendBeacons").boolValue()) {
+            // create and store the beacon self-message so we can cancel/delete it safely later
+            beaconMsg = new cMessage("sendMessage");
+            scheduleAt(simTime() + 2.0, beaconMsg);
+        }
 
         std::cout << "=== CONSOLE: MyRSUApp INITIALIZED ===" << std::endl;
         std::cout << "CONSOLE: MyRSUApp - Beacon interval: " << interval << "s" << std::endl;
@@ -540,6 +553,7 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     if(!dsm) {
         std::cout << "CONSOLE: MyRSUApp - ERROR: Message is NOT DemoSafetyMessage!" 
                   << std::endl;
+        delete wsm;
         return;
     }
     
@@ -616,6 +630,10 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // This onWSM() handler primarily receives regular beacons
     
     std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
+
+    // Explicit ownership model: onWSM path must release any frame that was
+    // handled locally and not forwarded via sendDown().
+    delete wsm;
 }
 
 void MyRSUApp::finish() {
@@ -660,6 +678,15 @@ void MyRSUApp::finish() {
         checkDecisionMsg = nullptr;
     }
 
+    // Cancel and delete pending RSU task completion events
+    for (auto& kv : rsuPendingTasks) {
+        if (kv.second.completion_event) {
+            cancelAndDelete(kv.second.completion_event);
+            kv.second.completion_event = nullptr;
+        }
+    }
+    rsuPendingTasks.clear();
+
     // Cancel and delete secondary cycle timer
     if (secondary_cycle_timer) {
         cancelAndDelete(secondary_cycle_timer);
@@ -690,6 +717,150 @@ void MyRSUApp::initializeSecondaryCycleWorker() {
 
     EV_INFO << "Secondary cycle worker started: interval=" << secondary_cycle_interval_s
             << "s candidate_radius=" << secondary_candidate_radius_m << "m" << endl;
+}
+
+void MyRSUApp::loadObstaclePolygons() {
+    // Attenuation values match SimpleObstacleShadowing entries in config.xml
+    const std::map<std::string, std::pair<double, double>> type_att = {
+        {"building",            {2.0,  0.1}},
+        {"office_building",     {18.0, 0.9}},
+        {"apartment_complex",   {12.0, 0.6}},
+        {"single_house",        {8.0,  0.4}},
+        {"warehouse",           {6.0,  0.3}},
+        {"shopping_mall",       {15.0, 0.75}},
+        {"urban_park",          {4.0,  0.2}},
+        {"street_trees",        {2.0,  0.1}},
+        {"parking_garage",      {10.0, 0.5}},
+        {"road_infrastructure", {14.0, 0.7}},
+    };
+
+    cXMLElement* root = nullptr;
+    try {
+        root = getEnvir()->getXMLDocument("erlangen.poly.xml");
+    } catch (...) {
+        EV_WARN << "loadObstaclePolygons: could not open erlangen.poly.xml" << endl;
+        return;
+    }
+    if (!root) return;
+
+    cXMLElement* shapes = root->getFirstChildWithTag("shapes");
+    if (!shapes) shapes = root;
+
+    for (cXMLElement* poly = shapes->getFirstChildWithTag("poly");
+         poly; poly = poly->getNextSiblingWithTag("poly")) {
+        const char* type_c  = poly->getAttribute("type");
+        const char* shape_c = poly->getAttribute("shape");
+        if (!type_c || !shape_c) continue;
+
+        const auto it = type_att.find(type_c);
+        if (it == type_att.end()) continue;
+
+        ObstaclePolygon p;
+        p.db_per_cut   = it->second.first;
+        p.db_per_meter = it->second.second;
+        p.aabb_min_x = p.aabb_min_y =  1e18;
+        p.aabb_max_x = p.aabb_max_y = -1e18;
+
+        std::istringstream ss(shape_c);
+        std::string token;
+        while (ss >> token) {
+            const size_t comma = token.find(',');
+            if (comma == std::string::npos) continue;
+            const double x = std::stod(token.substr(0, comma));
+            const double y = std::stod(token.substr(comma + 1));
+            p.vertices.emplace_back(x, y);
+            p.aabb_min_x = std::min(p.aabb_min_x, x);
+            p.aabb_min_y = std::min(p.aabb_min_y, y);
+            p.aabb_max_x = std::max(p.aabb_max_x, x);
+            p.aabb_max_y = std::max(p.aabb_max_y, y);
+        }
+        if (p.vertices.size() >= 3) {
+            secondary_obstacle_polygons.push_back(std::move(p));
+        }
+    }
+    EV_INFO << "Loaded " << secondary_obstacle_polygons.size()
+            << " obstacle polygons for secondary SINR evaluation" << endl;
+}
+
+double MyRSUApp::computeObstacleLossDb(double tx_x, double tx_y, double rx_x, double rx_y) const {
+    const double dx = rx_x - tx_x;
+    const double dy = rx_y - tx_y;
+    const double ray_len = std::sqrt(dx * dx + dy * dy);
+    if (ray_len < 1e-9) return 0.0;
+
+    const double ray_min_x = std::min(tx_x, rx_x);
+    const double ray_max_x = std::max(tx_x, rx_x);
+    const double ray_min_y = std::min(tx_y, rx_y);
+    const double ray_max_y = std::max(tx_y, rx_y);
+
+    double total_loss = 0.0;
+    for (const auto& poly : secondary_obstacle_polygons) {
+        if (poly.aabb_max_x < ray_min_x || poly.aabb_min_x > ray_max_x) continue;
+        if (poly.aabb_max_y < ray_min_y || poly.aabb_min_y > ray_max_y) continue;
+
+        std::vector<double> ts;
+        const int n = static_cast<int>(poly.vertices.size());
+        for (int i = 0; i < n; ++i) {
+            const int j = (i + 1) % n;
+            const double ax = poly.vertices[i].first;
+            const double ay = poly.vertices[i].second;
+            const double ex = poly.vertices[j].first - ax;
+            const double ey = poly.vertices[j].second - ay;
+            // Cramer's rule: det = ex*dy - dx*ey
+            const double det = ex * dy - dx * ey;
+            if (std::abs(det) < 1e-12) continue;
+            const double fx = ax - tx_x;
+            const double fy = ay - tx_y;
+            const double t = (ex * fy - ey * fx) / det;
+            const double u = (dx * fy - dy * fx) / det;
+            if (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0) {
+                ts.push_back(t);
+            }
+        }
+        if (ts.size() < 2) continue;
+
+        std::sort(ts.begin(), ts.end());
+        const auto last = std::unique(ts.begin(), ts.end(),
+            [](double a, double b) { return std::abs(a - b) < 1e-9; });
+        ts.erase(last, ts.end());
+        if (ts.size() < 2) continue;
+
+        const int cuts = static_cast<int>(ts.size()) / 2;
+        const double inside_len = (ts.back() - ts.front()) * ray_len;
+        total_loss += cuts * poly.db_per_cut + inside_len * poly.db_per_meter;
+    }
+    return total_loss;
+}
+
+double MyRSUApp::estimateSinrDbWithObstacles(double tx_x, double tx_y, double rx_x, double rx_y, double dist,
+                                             double vehicle_shadow_loss_db,
+                                             double lognormal_shadow_db,
+                                             double nakagami_fading_db,
+                                             double interference_mw) const {
+    constexpr double tx_power_dbm    = 33.0;   // 2000 mW per omnetpp.ini txPower
+    constexpr double frequency_hz    = 5.89e9;
+    constexpr double pathloss_alpha  = 2.2;    // Matches config.xml SimplePathlossModel alpha
+    constexpr double noise_floor_dbm = -110.0;
+
+    const double d_m            = std::max(1.0, dist);
+    const double lambda         = 299792458.0 / frequency_hz;
+    const double path_loss_db   = 20.0 * std::log10(4.0 * M_PI / lambda)
+                                  + 10.0 * pathloss_alpha * std::log10(d_m);
+    const double obstacle_loss  = computeObstacleLossDb(tx_x, tx_y, rx_x, rx_y);
+    const double rx_power_dbm   = tx_power_dbm - path_loss_db - obstacle_loss
+                                  - std::max(0.0, vehicle_shadow_loss_db) - lognormal_shadow_db
+                                  + nakagami_fading_db;
+    const double signal_mw      = std::pow(10.0, rx_power_dbm / 10.0);
+    const double noise_mw       = std::pow(10.0, noise_floor_dbm / 10.0);
+    // Backward-compatible fallback when no explicit per-link interference is provided.
+    const double fallback_interference_mw = std::max(0.0, secondary_interference_mw) * noise_mw;
+    const double effective_interference_mw = (interference_mw >= 0.0)
+        ? interference_mw
+        : fallback_interference_mw;
+    const double sinr_linear    = signal_mw / std::max(1e-15, noise_mw + effective_interference_mw);
+    const double sinr_db        = 10.0 * std::log10(std::max(1e-15, sinr_linear));
+
+    return std::max(-30.0, std::min(80.0, sinr_db));
 }
 
 void MyRSUApp::runSecondaryCycle() {
@@ -834,6 +1005,354 @@ void MyRSUApp::runSecondaryCycle() {
         rsu_by_id[rsu.rsu_id] = rsu;
     }
 
+    // Index predicted vehicle states by step to evaluate dynamic vehicle blocking per snapshot.
+    std::map<int, std::vector<const PredictedVehicleState*>> step_vehicle_states;
+    for (const auto& kv : secondary_cycle_predictions) {
+        for (const auto& st : kv.second) {
+            step_vehicle_states[st.step_index].push_back(&st);
+        }
+    }
+
+    struct VehicleDims {
+        double len_m = 4.8;
+        double wid_m = 1.9;
+        double hgt_m = 1.5;
+    };
+    std::map<std::string, VehicleDims> vehicle_dims_cache;
+
+    auto getVehicleDims = [&](const std::string& vehicle_id) {
+        auto it = vehicle_dims_cache.find(vehicle_id);
+        if (it != vehicle_dims_cache.end()) return it->second;
+
+        VehicleDims dims;
+        try {
+            auto* manager = TraCIScenarioManagerAccess().get();
+            if (manager && manager->isConnected() && manager->getCommandInterface()) {
+                auto veh = manager->getCommandInterface()->vehicle(vehicle_id);
+                const double l = veh.getLength();
+                const double w = veh.getWidth();
+                const double h = veh.getHeight();
+                if (std::isfinite(l) && l > 0.5) dims.len_m = l;
+                if (std::isfinite(w) && w > 0.3) dims.wid_m = w;
+                if (std::isfinite(h) && h > 0.5) dims.hgt_m = h;
+            }
+        }
+        catch (const cRuntimeError&) {
+            // Fallback to defaults when a vehicle disappears between snapshots.
+        }
+        catch (...) {
+            // Keep defaults on any TraCI lookup error.
+        }
+
+        vehicle_dims_cache[vehicle_id] = dims;
+        return dims;
+    };
+
+    auto estimateVehicleShadowLossDb = [&](double tx_x,
+                                           double tx_y,
+                                           double rx_x,
+                                           double rx_y,
+                                           int step_index,
+                                           const std::string& tx_id,
+                                           const std::string& rx_id) {
+        const auto it = step_vehicle_states.find(step_index);
+        if (it == step_vehicle_states.end()) return 0.0;
+
+        const double dx = rx_x - tx_x;
+        const double dy = rx_y - tx_y;
+        const double d = std::sqrt(dx * dx + dy * dy);
+        if (d < 1e-6) return 0.0;
+
+        constexpr double freq_hz = 5.89e9;
+        constexpr double c_mps = 299792458.0;
+        constexpr double lambda_m = c_mps / freq_hz;
+        constexpr double tx_h_m = 1.5;
+        constexpr double rx_h_m = 1.5;
+        constexpr double default_vehicle_h_m = 1.5;
+
+        struct BlockerInfo {
+            double d1 = 0.0;
+            double h = default_vehicle_h_m;
+            double len_m = 4.8;
+            double wid_m = 1.9;
+        };
+
+        auto cross2d = [](double ax, double ay, double bx, double by) {
+            return ax * by - ay * bx;
+        };
+
+        auto segIntersects = [&](double ax, double ay, double bx, double by,
+                                 double cx, double cy, double dx2, double dy2) {
+            const double r_x = bx - ax;
+            const double r_y = by - ay;
+            const double s_x = dx2 - cx;
+            const double s_y = dy2 - cy;
+            const double denom = cross2d(r_x, r_y, s_x, s_y);
+            if (std::fabs(denom) < 1e-12) return false;
+            const double qmp_x = cx - ax;
+            const double qmp_y = cy - ay;
+            const double t = cross2d(qmp_x, qmp_y, s_x, s_y) / denom;
+            const double u = cross2d(qmp_x, qmp_y, r_x, r_y) / denom;
+            return t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0;
+        };
+
+        auto lineIntersectsVehicleRect = [&](const PredictedVehicleState& st) {
+            const VehicleDims dims = getVehicleDims(st.vehicle_id);
+            const double heading_rad = st.heading_deg * M_PI / 180.0;
+            const double hx = std::cos(heading_rad);
+            const double hy = std::sin(heading_rad);
+            const double wx = -hy;
+            const double wy = hx;
+            const double hl = 0.5 * dims.len_m;
+            const double hw = 0.5 * dims.wid_m;
+
+            const double c0x = st.pos_x + hx * hl + wx * hw;
+            const double c0y = st.pos_y + hy * hl + wy * hw;
+            const double c1x = st.pos_x + hx * hl - wx * hw;
+            const double c1y = st.pos_y + hy * hl - wy * hw;
+            const double c2x = st.pos_x - hx * hl - wx * hw;
+            const double c2y = st.pos_y - hy * hl - wy * hw;
+            const double c3x = st.pos_x - hx * hl + wx * hw;
+            const double c3y = st.pos_y - hy * hl + wy * hw;
+
+            return segIntersects(tx_x, tx_y, rx_x, rx_y, c0x, c0y, c1x, c1y) ||
+                   segIntersects(tx_x, tx_y, rx_x, rx_y, c1x, c1y, c2x, c2y) ||
+                   segIntersects(tx_x, tx_y, rx_x, rx_y, c2x, c2y, c3x, c3y) ||
+                   segIntersects(tx_x, tx_y, rx_x, rx_y, c3x, c3y, c0x, c0y);
+        };
+
+        auto knifeEdgeLossDb = [&](double d1, double obs_h) {
+            if (d1 <= 1e-6 || d1 >= d - 1e-6) return 0.0;
+            const double d2 = d - d1;
+            const double y = ((rx_h_m - tx_h_m) / d) * d1 + tx_h_m;
+            const double H = obs_h - y;
+            const double r1 = std::sqrt(lambda_m * d1 * d2 / d);
+            if (r1 <= 1e-9) return 0.0;
+            const double nu = std::sqrt(2.0) * H / r1;
+            if (nu <= -0.7) return 0.0;
+            const double inside = std::sqrt((nu - 0.1) * (nu - 0.1) + 1.0) + nu - 0.1;
+            if (inside <= 1e-12) return 0.0;
+            return 6.9 + 20.0 * std::log10(inside);
+        };
+
+        std::vector<BlockerInfo> blockers;
+        blockers.reserve(it->second.size());
+        for (const auto* st : it->second) {
+            if (!st) continue;
+            if (st->vehicle_id == tx_id || st->vehicle_id == rx_id) continue;
+
+            const double px = st->pos_x - tx_x;
+            const double py = st->pos_y - tx_y;
+            const double t = (px * dx + py * dy) / (d * d);
+            if (t <= 0.01 || t >= 0.99) continue;
+            if (!lineIntersectsVehicleRect(*st)) continue;
+
+            BlockerInfo bi;
+            const VehicleDims dims = getVehicleDims(st->vehicle_id);
+            bi.d1 = t * d;
+            bi.h = dims.hgt_m;
+            bi.len_m = dims.len_m;
+            bi.wid_m = dims.wid_m;
+            blockers.push_back(bi);
+        }
+
+        if (blockers.empty()) return 0.0;
+
+        std::sort(blockers.begin(), blockers.end(), [](const BlockerInfo& a, const BlockerInfo& b) {
+            return a.d1 < b.d1;
+        });
+
+        // Veins-style diffraction trend: knife-edge loss per blocker.
+        double total_loss_db = 0.0;
+        for (const auto& b : blockers) {
+            total_loss_db += knifeEdgeLossDb(b.d1, b.h);
+        }
+
+        // Multi-obstacle correction term inspired by VehicleObstacleShadowing DZ model.
+        if (blockers.size() >= 2) {
+            std::vector<double> seg;
+            seg.reserve(blockers.size() + 1);
+            double prev = 0.0;
+            for (const auto& b : blockers) {
+                const double s = std::max(1e-6, b.d1 - prev);
+                seg.push_back(s);
+                prev = b.d1;
+            }
+            seg.push_back(std::max(1e-6, d - prev));
+
+            double prod_s = 1.0;
+            double sum_s = 0.0;
+            for (double s : seg) {
+                prod_s *= s;
+                sum_s += s;
+            }
+
+            double prod_pair = 1.0;
+            for (size_t i = 1; i < seg.size(); ++i) {
+                prod_pair *= (seg[i] + seg[i - 1]);
+            }
+
+            const double denom = prod_pair * seg.front() * seg.back();
+            const double numer = prod_s * sum_s;
+            if (numer > 1e-18 && denom > 1e-18) {
+                const double ratio = numer / denom;
+                if (ratio > 1e-12) {
+                    total_loss_db += std::max(0.0, -10.0 * std::log10(ratio));
+                }
+            }
+        }
+
+        return std::min(30.0, total_loss_db);
+    };
+
+    auto estimateLogNormalShadowDb = [&](double tx_x,
+                                         double tx_y,
+                                         double rx_x,
+                                         double rx_y,
+                                         int step_index,
+                                         const std::string& tx_id,
+                                         const std::string& rx_id) {
+        constexpr double sigma_db = 6.0;
+        constexpr double corr_distance_m = 50.0;
+        if (sigma_db <= 0.0) return 0.0;
+
+        const double mid_x = 0.5 * (tx_x + rx_x);
+        const double mid_y = 0.5 * (tx_y + rx_y);
+        const long long cell_x = static_cast<long long>(std::floor(mid_x / corr_distance_m));
+        const long long cell_y = static_cast<long long>(std::floor(mid_y / corr_distance_m));
+
+        const std::string a = (tx_id < rx_id) ? tx_id : rx_id;
+        const std::string b = (tx_id < rx_id) ? rx_id : tx_id;
+        uint64_t seed = static_cast<uint64_t>(std::hash<std::string>{}(a + "|" + b));
+        seed ^= static_cast<uint64_t>(cell_x) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(cell_y) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(step_index / 2) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+
+        auto splitmix64 = [](uint64_t& x) {
+            x += 0x9e3779b97f4a7c15ULL;
+            uint64_t z = x;
+            z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+            return z ^ (z >> 31);
+        };
+
+        const double u1 = std::max(1e-12, (splitmix64(seed) + 1.0) / 18446744073709551616.0);
+        const double u2 = (splitmix64(seed) + 1.0) / 18446744073709551616.0;
+        const double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(6.283185307179586 * u2);
+        return sigma_db * z;
+    };
+
+    auto estimateNakagamiFadingDb = [&](double tx_x,
+                                        double tx_y,
+                                        double rx_x,
+                                        double rx_y,
+                                        int step_index,
+                                        const std::string& tx_id,
+                                        const std::string& rx_id) {
+        if (!secondary_nakagami_enabled) return 0.0;
+        const double m = std::max(1e-3, secondary_nakagami_m);
+        const double cell_size_m = std::max(0.1, secondary_nakagami_cell_size_m);
+        if (m <= 0.0) return 0.0;
+
+        const std::string a = (tx_id < rx_id) ? tx_id : rx_id;
+        const std::string b = (tx_id < rx_id) ? rx_id : tx_id;
+
+        // Small-scale fading decorrelation cell size is runtime-configurable.
+        const double mid_x = 0.5 * (tx_x + rx_x);
+        const double mid_y = 0.5 * (tx_y + rx_y);
+        const long long cell_x = static_cast<long long>(std::floor(mid_x / cell_size_m));
+        const long long cell_y = static_cast<long long>(std::floor(mid_y / cell_size_m));
+
+        uint64_t seed = static_cast<uint64_t>(std::hash<std::string>{}(a + "|" + b + "|nakagami"));
+        seed ^= static_cast<uint64_t>(cell_x) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(cell_y) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(step_index) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+
+        std::mt19937_64 rng(seed);
+        // Nakagami power gain follows Gamma(shape=m, scale=1/m), E[gain]=1.
+        std::gamma_distribution<double> gamma_dist(m, 1.0 / m);
+        const double gain_linear = std::max(1e-12, gamma_dist(rng));
+        const double fading_db = 10.0 * std::log10(std::max(1e-12, gain_linear));
+        return std::max(-30.0, std::min(30.0, fading_db));
+    };
+
+    auto estimateInterferenceMw = [&](double rx_x,
+                                      double rx_y,
+                                      int step_index,
+                                      const std::string& desired_tx_id,
+                                      const std::string& desired_rx_id) {
+        const auto it = step_vehicle_states.find(step_index);
+        if (it == step_vehicle_states.end()) return 0.0;
+
+        // secondary_interference_mw now acts as activity ratio (e.g. 0.09 => 9%).
+        const double activity_ratio = std::max(0.0, std::min(1.0, secondary_interference_mw));
+        if (activity_ratio <= 0.0) return 0.0;
+
+        constexpr double tx_power_dbm = 33.0;
+        constexpr double frequency_hz = 5.89e9;
+        constexpr double pathloss_alpha = 2.2;
+        const double lambda = 299792458.0 / frequency_hz;
+        double total_interference_mw = 0.0;
+
+        for (const auto* interferer : it->second) {
+            if (!interferer) continue;
+            const std::string& interferer_id = interferer->vehicle_id;
+            if (interferer_id == desired_tx_id || interferer_id == desired_rx_id) continue;
+
+            // "Cars in the area": only nearby interferers around the receiver are considered.
+            const double dx = interferer->pos_x - rx_x;
+            const double dy = interferer->pos_y - rx_y;
+            const double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist > secondary_candidate_radius_m) continue;
+
+            // Deterministic random activation per slot: pick ~9% (activity_ratio) of nearby cars.
+            const std::string sample_key = std::to_string(cycle_id) + "|" + std::to_string(step_index) +
+                                           "|" + desired_rx_id + "|" + interferer_id;
+            const uint64_t h = static_cast<uint64_t>(std::hash<std::string>{}(sample_key));
+            const double u = static_cast<double>(h & 0xffffffffULL) / 4294967295.0;
+            if (u >= activity_ratio) continue;
+
+            const double d_m = std::max(1.0, dist);
+            const double path_loss_db = 20.0 * std::log10(4.0 * M_PI / lambda)
+                                        + 10.0 * pathloss_alpha * std::log10(d_m);
+            const double obstacle_loss_db = computeObstacleLossDb(interferer->pos_x, interferer->pos_y, rx_x, rx_y);
+            const double veh_shadow_db = estimateVehicleShadowLossDb(
+                interferer->pos_x,
+                interferer->pos_y,
+                rx_x,
+                rx_y,
+                step_index,
+                interferer_id,
+                desired_rx_id
+            );
+            const double lognormal_db = estimateLogNormalShadowDb(
+                interferer->pos_x,
+                interferer->pos_y,
+                rx_x,
+                rx_y,
+                step_index,
+                interferer_id,
+                desired_rx_id
+            );
+            const double nakagami_db = estimateNakagamiFadingDb(
+                interferer->pos_x,
+                interferer->pos_y,
+                rx_x,
+                rx_y,
+                step_index,
+                interferer_id,
+                desired_rx_id
+            );
+
+            const double int_rx_dbm = tx_power_dbm - path_loss_db - obstacle_loss_db
+                                      - std::max(0.0, veh_shadow_db) - lognormal_db
+                                      + nakagami_db;
+            total_interference_mw += std::pow(10.0, int_rx_dbm / 10.0);
+        }
+
+        return total_interference_mw;
+    };
+
     auto emitQEntry = [&](const std::string& link_type,
                           const std::string& tx_id,
                           const std::string& rx_id,
@@ -902,7 +1421,30 @@ void MyRSUApp::runSecondaryCycle() {
                 const double dx = step.pos_x - rsu.pos_x;
                 const double dy = step.pos_y - rsu.pos_y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
-                const double sinr_db = estimateSinrDbFromDistance(dist);
+                const double veh_shadow_db = estimateVehicleShadowLossDb(
+                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double lognormal_db = estimateLogNormalShadowDb(
+                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double nakagami_db = estimateNakagamiFadingDb(
+                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double interference_mw = estimateInterferenceMw(
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    step.step_index,
+                    src_id,
+                    rsu_id
+                );
+                const double sinr_db = estimateSinrDbWithObstacles(
+                    step.pos_x,
+                    step.pos_y,
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    dist,
+                    veh_shadow_db,
+                    lognormal_db,
+                    nakagami_db,
+                    interference_mw
+                );
                 if (sinr_db < secondary_sinr_threshold_db) {
                     continue;
                 }
@@ -950,7 +1492,30 @@ void MyRSUApp::runSecondaryCycle() {
                 const double dx = src_step.pos_x - peer_step.pos_x;
                 const double dy = src_step.pos_y - peer_step.pos_y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
-                const double sinr_db = estimateSinrDbFromDistance(dist);
+                const double veh_shadow_db = estimateVehicleShadowLossDb(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    src_step.step_index, src_id, peer_id);
+                const double lognormal_db = estimateLogNormalShadowDb(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    src_step.step_index, src_id, peer_id);
+                const double nakagami_db = estimateNakagamiFadingDb(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    src_step.step_index, src_id, peer_id);
+                const double interference_mw = estimateInterferenceMw(
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    src_step.step_index,
+                    src_id,
+                    peer_id
+                );
+                const double sinr_db = estimateSinrDbWithObstacles(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    dist,
+                    veh_shadow_db,
+                    lognormal_db,
+                    nakagami_db,
+                    interference_mw
+                );
                 if (sinr_db < secondary_sinr_threshold_db) {
                     continue;
                 }
@@ -1173,6 +1738,10 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     if (!checkDecisionMsg->isScheduled()) {
         scheduleAt(simTime() + 0.1, checkDecisionMsg);
     }
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
@@ -1229,6 +1798,10 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
@@ -1286,6 +1859,10 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
@@ -1362,6 +1939,10 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::initializeRsuStaticContexts() {
@@ -1420,6 +2001,12 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
             sourceTwin.speed,
             sourceTwin.heading,
             msg->getAcceleration(),
+            sourceTwin.cpu_available,
+            sourceTwin.cpu_utilization,
+            sourceTwin.mem_available,
+            sourceTwin.mem_utilization,
+            static_cast<int>(sourceTwin.current_queue_length),
+            static_cast<int>(sourceTwin.current_processing_count),
             secondary_redis_max_series_len
         );
     }
@@ -2787,7 +3374,8 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                         (request.pos_x - sv.pos_x) * (request.pos_x - sv.pos_x) +
                         (request.pos_y - sv.pos_y) * (request.pos_y - sv.pos_y)
                     );
-                    const double tv_sv_sinr_db = estimateSinrDbFromDistance(tv_sv_dist);
+                    const double tv_sv_sinr_db = estimateSinrDbWithObstacles(
+                        request.pos_x, request.pos_y, sv.pos_x, sv.pos_y, tv_sv_dist);
                     const double tv_sv_rate_bps = LinkRateModel::effectiveRateBps(
                         tv_sv_sinr_db,
                         offload_link_bandwidth_hz,
@@ -2843,7 +3431,8 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                     (request.pos_x - curPosition.x) * (request.pos_x - curPosition.x) +
                     (request.pos_y - curPosition.y) * (request.pos_y - curPosition.y)
                 );
-                const double tv_rsu_sinr_db = estimateSinrDbFromDistance(tv_rsu_dist);
+                const double tv_rsu_sinr_db = estimateSinrDbWithObstacles(
+                    request.pos_x, request.pos_y, curPosition.x, curPosition.y, tv_rsu_dist);
                 const double tv_rsu_rate_bps = LinkRateModel::effectiveRateBps(
                     tv_rsu_sinr_db,
                     offload_link_bandwidth_hz,

@@ -17,5 +17,5 @@ export QT_QPA_PLATFORM=xcb
 
 # Run the simulation  
 exec ./out/gcc-release/IoV-Digital-Twin-TaskOffloading \
-    -n .:../inet4.5/src:/opt/omnet/veins/src/veins \
+    -n .:../inet4.5/src:../veins/src/veins \
     "$@"

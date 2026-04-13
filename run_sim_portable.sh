@@ -59,6 +59,7 @@ find_omnetpp_home() {
   fi
 
   pick_first_dir \
+    "/opt/omnet/omnetpp-6.1" \
     "$HOME/omnetpp-6.1" \
     "$HOME/omnetpp" \
     "/opt/omnetpp-6.1" \
@@ -96,8 +97,23 @@ echo "Veins:   $VEINS_PATH"
 echo "NED path: .:$INET_PATH/src:$VEINS_PATH/src/veins"
 echo ""
 
+# Detect if running in headless environment
+UI_ENV="Qtenv"
+if [ -z "${DISPLAY:-}" ]; then
+  echo "Headless environment detected (no DISPLAY). Using Cmdenv (command-line mode)."
+  UI_ENV="Cmdenv"
+else
+  echo "GUI mode (Qtenv) available."
+fi
+
+# Allow override via environment or command-line
+if [ "${HEADLESS_MODE:-0}" = "1" ] || [ "${CMDENV_MODE:-0}" = "1" ]; then
+  UI_ENV="Cmdenv"
+fi
+
+# The executable is already linked against INET and Veins.
+# Loading them again with -l can register a second copy and crash on shutdown.
 ./IoV-Digital-Twin-TaskOffloading \
+  -u "$UI_ENV" \
   -n ".:$INET_PATH/src:$VEINS_PATH/src/veins" \
-  -l "$INET_PATH/src/INET" \
-  -l "$VEINS_PATH/src/veins" \
   omnetpp.ini "$@"
