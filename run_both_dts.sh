@@ -11,7 +11,7 @@ cd "$SCRIPT_DIR"
 # Set OMNeT++ home directory explicitly
 # The installation is at /opt/omnet/omnetpp-6.1 (note: "omnet" not "omnetpp")
 export OMNETPP_HOME="${OMNETPP_HOME:-/opt/omnet/omnetpp-6.1}"
-export VEINS_PATH="${VEINS_PATH:-/opt/omnet/veins}"
+export VEINS_PATH="${VEINS_PATH:-../veins}"
 export INET_PATH="${INET_PATH:-../inet4.5}"
 
 if [ ! -f "$OMNETPP_HOME/setenv" ]; then

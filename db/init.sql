@@ -392,6 +392,46 @@ CREATE TABLE IF NOT EXISTS dt_link_context_samples (
 CREATE INDEX IF NOT EXISTS idx_dt_link_context_samples_lookup
     ON dt_link_context_samples (run_id, link_type, tx_entity_id, rx_entity_id, sim_time);
 
+CREATE TABLE IF NOT EXISTS dt_secondary_q_cycles (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    cycle_id BIGINT NOT NULL,
+    sim_time DOUBLE PRECISION NOT NULL,
+    prediction_horizon_s DOUBLE PRECISION,
+    prediction_step_s DOUBLE PRECISION,
+    sinr_threshold_db DOUBLE PRECISION,
+    trajectory_count INTEGER,
+    candidate_count INTEGER,
+    entry_count INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE (run_id, rsu_id, cycle_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_secondary_q_cycles_lookup
+    ON dt_secondary_q_cycles (run_id, rsu_id, cycle_id, sim_time);
+
+CREATE TABLE IF NOT EXISTS dt_secondary_q_entries (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rsu_id INTEGER,
+    cycle_id BIGINT NOT NULL,
+    link_type TEXT NOT NULL,
+    tx_entity_id TEXT NOT NULL,
+    rx_entity_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    predicted_time DOUBLE PRECISION NOT NULL,
+    tx_pos_x DOUBLE PRECISION,
+    tx_pos_y DOUBLE PRECISION,
+    rx_pos_x DOUBLE PRECISION,
+    rx_pos_y DOUBLE PRECISION,
+    distance_m DOUBLE PRECISION,
+    sinr_db DOUBLE PRECISION,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dt_secondary_q_entries_lookup
+    ON dt_secondary_q_entries (run_id, rsu_id, cycle_id, tx_entity_id, rx_entity_id, step_index);
 -- ============================================================================
 -- MIGRATION: Add task profile columns to task_metadata (idempotent)
 -- ============================================================================

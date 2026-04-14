@@ -38,9 +38,18 @@ public:
                            double battery_capacity_mAh,
                            double energy_task_j_total, double energy_task_j_last,
                            int queue_length, int processing_count,
-                           double sim_time);
+                           double sim_time,
+                           double acceleration,
+                           double source_timestamp);
     
     std::map<std::string, std::string> getVehicleState(const std::string& vehicle_id);
+
+    // Minimal route anchor export for route-aware external prediction.
+    void updateVehicleRouteProgress(const std::string& vehicle_id,
+                                    double source_timestamp,
+                                    const std::string& current_edge_id,
+                                    double lane_pos_m);
+    std::map<std::string, std::string> getVehicleRouteProgress(const std::string& vehicle_id);
     
     // Service Vehicle Index (for fast selection)
     void updateServiceVehicle(const std::string& vehicle_id, double cpu_score);
@@ -116,9 +125,11 @@ public:
     struct VehicleSnapshot {
         std::string vehicle_id;
         double pos_x, pos_y, speed, heading;
+        double acceleration;
         double cpu_available, cpu_utilization;
         double mem_available, mem_utilization;
         int queue_length, processing_count;
+        double source_timestamp;
         double last_update;
     };
     
@@ -143,7 +154,6 @@ public:
         const std::string& source_entity = "",
         const std::string& target_entity = "",
         const std::string& details = "");
-
     // Secondary DT exports (motion + channel context, no SINR math)
     void updateSecondaryProgress(const std::string& run_id,
                                  double sim_time,
@@ -156,6 +166,12 @@ public:
                                     double speed,
                                     double heading,
                                     double acceleration,
+                                    double cpu_available,
+                                    double cpu_utilization,
+                                    double mem_available,
+                                    double mem_utilization,
+                                    int queue_length,
+                                    int processing_count,
                                     int max_series_len = 6000);
     void pushSecondaryV2RsuLinkSample(const std::string& run_id,
                                       const std::string& tx_vehicle_id,
@@ -182,6 +198,66 @@ public:
                                     double tx_heading,
                                     double rx_heading,
                                     int max_series_len = 6000);
+
+    // Secondary Q matrix exports (directional per-step SINR entries)
+    void updateSecondaryQCycle(const std::string& run_id,
+                               uint64_t cycle_index,
+                               double sim_time,
+                               double horizon_s,
+                               double step_s,
+                               double sinr_threshold_db,
+                               int trajectory_count,
+                               int entry_count,
+                               int ttl_seconds);
+    void pushSecondaryQEntry(const std::string& run_id,
+                             uint64_t cycle_index,
+                             const std::string& link_type,
+                             const std::string& tx_entity_id,
+                             const std::string& rx_entity_id,
+                             int step_index,
+                             double predicted_time,
+                             double tx_pos_x,
+                             double tx_pos_y,
+                             double rx_pos_x,
+                             double rx_pos_y,
+                             double distance_m,
+                             double sinr_db,
+                             int max_series_len = 200000);
+
+    struct PredictedTrajectoryPoint {
+        uint64_t cycle_id = 0;
+        std::string vehicle_id;
+        int step_index = 0;
+        double predicted_time = 0.0;
+        double pos_x = 0.0;
+        double pos_y = 0.0;
+        double speed = 0.0;
+        double heading = 0.0;
+        double acceleration = 0.0;
+    };
+
+    // External predictor -> secondary simulation exchange
+    void updateSecondaryPredictionCycle(const std::string& run_id,
+                                        uint64_t cycle_id,
+                                        double generated_at,
+                                        double horizon_s,
+                                        double step_s,
+                                        int trajectory_count,
+                                        int ttl_seconds);
+    void pushSecondaryPredictedPoint(const std::string& run_id,
+                                     uint64_t cycle_id,
+                                     const std::string& vehicle_id,
+                                     int step_index,
+                                     double predicted_time,
+                                     double pos_x,
+                                     double pos_y,
+                                     double speed,
+                                     double heading,
+                                     double acceleration,
+                                     int max_series_len = 200000);
+    int64_t getLatestSecondaryPredictionCycle(const std::string& run_id);
+    std::vector<PredictedTrajectoryPoint> getSecondaryPredictedPoints(const std::string& run_id,
+                                                                      uint64_t cycle_id);
 };
 
 } // namespace

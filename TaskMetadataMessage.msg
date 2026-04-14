@@ -16,10 +16,8 @@ packet TaskMetadataMessage extends BaseFrame1609_4 {
     string vehicle_id;           // Originating vehicle ID
     
     // Task Characteristics
-    // mem_footprint_bytes: working memory reserved on the processing entity.
-    // Set to input_size_bytes; kept as a separate wire field so the RSU's
-    // admission-control and DB schema don't need to look up the profile.
-    uint64_t mem_footprint_bytes;    // Working memory footprint (= input_size_bytes for this task)
+    uint64_t task_size_bytes;    // Legacy payload size field (= input_size_bytes)
+    uint64_t mem_footprint_bytes; // Working memory footprint (D_task)
     uint64_t cpu_cycles;         // Required CPU cycles (C_task)
     
     // Timing Information
@@ -129,7 +127,8 @@ packet OffloadingRequestMessage extends BaseFrame1609_4 {
     double request_time;                 // When request was sent
     
     // Task Characteristics
-    uint64_t mem_footprint_bytes;            // Task size
+    uint64_t task_size_bytes;            // Legacy payload size field
+    uint64_t mem_footprint_bytes;        // Working memory footprint
     uint64_t cpu_cycles;                 // Required CPU cycles
     double deadline_seconds;             // Task deadline
     double qos_value;                    // QoS priority
@@ -170,17 +169,17 @@ packet OffloadingDecisionMessage extends BaseFrame1609_4 {
     // If SERVICE_VEHICLE: target information
     string target_service_vehicle_id;    // Service vehicle ID (if applicable)
     uint64_t target_service_vehicle_mac; // Service vehicle MAC address (if applicable)
+
+    // Optional RSU redirection hints for multi-hop offloading
+    string redirect_target_rsu_id;       // Preferred RSU ID for forwarding
+    uint64_t redirect_target_rsu_mac;    // Preferred RSU MAC for forwarding
+    int next_candidate_index = 0;        // Candidate index hint for retry chains
     
     // Decision Metadata
     double confidence_score;             // ML model confidence (0-1)
     double estimated_completion_time;    // Estimated time to complete
     string decision_reason;              // Human-readable reasoning
     
-    // Redirect Information (if decision_type == "REDIRECT")
-    uint64_t redirect_target_rsu_mac;    // MAC address of RSU to try next
-    string redirect_target_rsu_id;       // ID of RSU to try next
-    int next_candidate_index;            // Index in candidate list to try next
-
     // Multi-agent baseline decisions (TV dispatches sub-tasks for each agent)
     // Encoded as CSV: "agent:TYPE:target_id:target_mac,..."
     // Example: "random:SERVICE_VEHICLE:42:318,greedy_comp:RSU:RSU_0:0,..."
@@ -197,7 +196,8 @@ packet TaskOffloadPacket extends BaseFrame1609_4 {
     double offload_time;                 // When task was offloaded
     
     // Task Characteristics
-    uint64_t mem_footprint_bytes;            // Task size
+    uint64_t task_size_bytes;            // Legacy payload size field
+    uint64_t mem_footprint_bytes;        // Working memory footprint
     uint64_t cpu_cycles;                 // Required CPU cycles
     double deadline_seconds;             // Task deadline
     double qos_value;                    // QoS priority
@@ -268,6 +268,7 @@ packet RSUStatusBroadcastMessage extends BaseFrame1609_4 {
 
     // Coverage Information with Vehicle Details
     VehicleDetailInBroadcast vehicle_details_in_coverage[];  // Full vehicle state in coverage
+    string vehicle_ids_in_coverage[];    // Vehicle IDs in coverage
     int vehicle_count;                   // Number of vehicles in coverage
 
     // Network Topology
