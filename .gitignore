@@ -96,3 +96,6 @@ REDIS_CONTRACT.md
 sinr_prediction_flowchart.mmd
 sinr_prediction_flowchart.png
 sinr_prediction_flowchart.svg
+
+# Shell artifact accidentally committed as filename
+-cli ping
