@@ -88,3 +88,11 @@ logs/*
 __pycache__/
 *.pyc
 README_SINR_IMPLEMENTATION_PHASES.md
+
+# SINR benchmark/docs artifacts requested to untrack
+benchmark_results/parity_report.md
+BENCHMARK_GUIDE.md
+REDIS_CONTRACT.md
+sinr_prediction_flowchart.mmd
+sinr_prediction_flowchart.png
+sinr_prediction_flowchart.svg
