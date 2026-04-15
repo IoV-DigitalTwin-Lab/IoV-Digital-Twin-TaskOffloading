@@ -69,7 +69,9 @@ void RedisDigitalTwin::updateVehicleState(
     double battery_capacity_mAh,
     double energy_task_j_total, double energy_task_j_last,
     int queue_length, int processing_count,
-    double sim_time)
+    double sim_time,
+    double acceleration,
+    double source_timestamp)
 {
     if (!redis_ctx || !is_connected) return;
     
@@ -78,18 +80,21 @@ void RedisDigitalTwin::updateVehicleState(
     // Use HSET to store as hash
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s pos_x %f pos_y %f speed %f heading %f "
+        "acceleration %f "
         "cpu_available %f cpu_utilization %f "
         "mem_available %f mem_utilization %f "
         "battery_level_pct %f battery_current_mAh %f battery_capacity_mAh %f "
         "energy_task_j_total %f energy_task_j_last %f "
         "queue_length %d processing_count %d "
-        "last_update %f",
+        "source_timestamp %f last_update %f",
         key.c_str(), pos_x, pos_y, speed, heading,
+        acceleration,
         cpu_available, cpu_utilization,
         mem_available, mem_utilization,
         battery_level_pct, battery_current_mAh, battery_capacity_mAh,
         energy_task_j_total, energy_task_j_last,
         queue_length, processing_count,
+        source_timestamp,
         sim_time
     );
     
@@ -126,6 +131,50 @@ std::map<std::string, std::string> RedisDigitalTwin::getVehicleState(const std::
         }
     }
     
+    if (reply) freeReplyObject(reply);
+    return state;
+}
+
+void RedisDigitalTwin::updateVehicleRouteProgress(const std::string& vehicle_id,
+                                                  double source_timestamp,
+                                                  const std::string& current_edge_id,
+                                                  double lane_pos_m) {
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string key = "vehicle:" + vehicle_id + ":route_progress";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s source_timestamp %f current_edge_id %s lane_pos_m %f",
+        key.c_str(),
+        source_timestamp,
+        current_edge_id.c_str(),
+        lane_pos_m
+    );
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis route progress HMSET error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", key.c_str(), vehicle_ttl);
+    if (reply) freeReplyObject(reply);
+}
+
+std::map<std::string, std::string> RedisDigitalTwin::getVehicleRouteProgress(const std::string& vehicle_id) {
+    std::map<std::string, std::string> state;
+    if (!redis_ctx || !is_connected) return state;
+
+    const std::string key = "vehicle:" + vehicle_id + ":route_progress";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i + 1 < reply->elements; i += 2) {
+            state[reply->element[i]->str] = reply->element[i + 1]->str;
+        }
+    }
+
     if (reply) freeReplyObject(reply);
     return state;
 }
@@ -530,12 +579,14 @@ RedisDigitalTwin::getNearbyVehicles(double center_x, double center_y, double ran
                             snap.pos_y = pos_y;
                             snap.speed = std::stod(state["speed"]);
                             snap.heading = std::stod(state["heading"]);
+                            snap.acceleration = state.count("acceleration") ? std::stod(state["acceleration"]) : 0.0;
                             snap.cpu_available = std::stod(state["cpu_available"]);
                             snap.cpu_utilization = std::stod(state["cpu_utilization"]);
                             snap.mem_available = std::stod(state["mem_available"]);
                             snap.mem_utilization = std::stod(state["mem_utilization"]);
                             snap.queue_length = std::stoi(state["queue_length"]);
                             snap.processing_count = std::stoi(state["processing_count"]);
+                            snap.source_timestamp = state.count("source_timestamp") ? std::stod(state["source_timestamp"]) : 0.0;
                             snap.last_update = std::stod(state["last_update"]);
                             vehicles.push_back(snap);
                         }
@@ -579,12 +630,14 @@ RedisDigitalTwin::getAllVehicles()
                         snap.pos_y = std::stod(state["pos_y"]);
                         snap.speed = std::stod(state["speed"]);
                         snap.heading = std::stod(state["heading"]);
+                        snap.acceleration = state.count("acceleration") ? std::stod(state["acceleration"]) : 0.0;
                         snap.cpu_available = std::stod(state["cpu_available"]);
                         snap.cpu_utilization = std::stod(state["cpu_utilization"]);
                         snap.mem_available = std::stod(state["mem_available"]);
                         snap.mem_utilization = std::stod(state["mem_utilization"]);
                         snap.queue_length = std::stoi(state["queue_length"]);
                         snap.processing_count = std::stoi(state["processing_count"]);
+                        snap.source_timestamp = state.count("source_timestamp") ? std::stod(state["source_timestamp"]) : 0.0;
                         snap.last_update = std::stod(state["last_update"]);
                         vehicles.push_back(snap);
                     } catch (const std::exception& e) {
@@ -670,14 +723,22 @@ void RedisDigitalTwin::pushSecondaryVehicleSample(const std::string& run_id,
                                                   double speed,
                                                   double heading,
                                                   double acceleration,
+                                                  double cpu_available,
+                                                  double cpu_utilization,
+                                                  double mem_available,
+                                                  double mem_utilization,
+                                                  int queue_length,
+                                                  int processing_count,
                                                   int max_series_len) {
     if (!redis_ctx || !is_connected) return;
 
     std::string latest_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":latest";
     redisReply* reply = (redisReply*)redisCommand(
         redis_ctx,
-        "HMSET %s sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
-        latest_key.c_str(), sim_time, pos_x, pos_y, speed, heading, acceleration
+        "HMSET %s sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f cpu_available %f cpu_utilization %f mem_available %f mem_utilization %f queue_length %d processing_count %d",
+        latest_key.c_str(), sim_time, pos_x, pos_y, speed, heading, acceleration,
+        cpu_available, cpu_utilization, mem_available, mem_utilization,
+        queue_length, processing_count
     );
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {
@@ -689,9 +750,11 @@ void RedisDigitalTwin::pushSecondaryVehicleSample(const std::string& run_id,
     std::string stream_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":samples";
     reply = (redisReply*)redisCommand(
         redis_ctx,
-        "XADD %s MAXLEN ~ %d * sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
+        "XADD %s MAXLEN ~ %d * sim_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f cpu_available %f cpu_utilization %f mem_available %f mem_utilization %f queue_length %d processing_count %d",
         stream_key.c_str(), std::max(1, max_series_len),
-        sim_time, pos_x, pos_y, speed, heading, acceleration
+        sim_time, pos_x, pos_y, speed, heading, acceleration,
+        cpu_available, cpu_utilization, mem_available, mem_utilization,
+        queue_length, processing_count
     );
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {
@@ -800,4 +863,248 @@ void RedisDigitalTwin::appendTaskLifecycleEvent(
     }
 }
 
+void RedisDigitalTwin::updateSecondaryQCycle(const std::string& run_id,
+                                             uint64_t cycle_index,
+                                             double sim_time,
+                                             double horizon_s,
+                                             double step_s,
+                                             double sinr_threshold_db,
+                                             int trajectory_count,
+                                             int entry_count,
+                                             int ttl_seconds) {
+    if (!redis_ctx || !is_connected) return;
+
+    std::string key = "dt2:q:" + run_id + ":cycle:" + std::to_string(cycle_index) + ":meta";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s cycle_index %llu sim_time %f horizon_s %f step_s %f sinr_threshold_db %f trajectory_count %d entry_count %d generated_at %f",
+        key.c_str(),
+        static_cast<unsigned long long>(cycle_index),
+        sim_time,
+        horizon_s,
+        step_s,
+        sinr_threshold_db,
+        trajectory_count,
+        entry_count,
+        sim_time
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 q cycle HMSET error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", key.c_str(), std::max(1, ttl_seconds));
+    if (reply) {
+        freeReplyObject(reply);
+    }
+
+    const std::string latest_key = "dt2:q:" + run_id + ":latest";
+    reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s cycle_index %llu sim_time %f generated_at %f entry_count %d",
+        latest_key.c_str(),
+        static_cast<unsigned long long>(cycle_index),
+        sim_time,
+        sim_time,
+        entry_count
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 q latest HMSET error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", latest_key.c_str(), std::max(1, ttl_seconds));
+    if (reply) {
+        freeReplyObject(reply);
+    }
+}
+
+void RedisDigitalTwin::pushSecondaryQEntry(const std::string& run_id,
+                                           uint64_t cycle_index,
+                                           const std::string& link_type,
+                                           const std::string& tx_entity_id,
+                                           const std::string& rx_entity_id,
+                                           int step_index,
+                                           double predicted_time,
+                                           double tx_pos_x,
+                                           double tx_pos_y,
+                                           double rx_pos_x,
+                                           double rx_pos_y,
+                                           double distance_m,
+                                           double sinr_db,
+                                           int max_series_len) {
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string stream_key = "dt2:q:" + run_id + ":entries";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "XADD %s MAXLEN ~ %d * cycle_index %llu link_type %s tx_id %s rx_id %s step_index %d predicted_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f sinr_db %f",
+        stream_key.c_str(),
+        std::max(1, max_series_len),
+        static_cast<unsigned long long>(cycle_index),
+        link_type.c_str(),
+        tx_entity_id.c_str(),
+        rx_entity_id.c_str(),
+        step_index,
+        predicted_time,
+        tx_pos_x,
+        tx_pos_y,
+        rx_pos_x,
+        rx_pos_y,
+        distance_m,
+        sinr_db
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 q entry XADD error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+void RedisDigitalTwin::updateSecondaryPredictionCycle(const std::string& run_id,
+                                                      uint64_t cycle_id,
+                                                      double generated_at,
+                                                      double horizon_s,
+                                                      double step_s,
+                                                      int trajectory_count,
+                                                      int ttl_seconds) {
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string latest_key = "dt2:pred:" + run_id + ":latest";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "HMSET %s cycle_id %llu generated_at %f horizon_s %f step_s %f trajectory_count %d",
+        latest_key.c_str(),
+        static_cast<unsigned long long>(cycle_id),
+        generated_at,
+        horizon_s,
+        step_s,
+        trajectory_count
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 prediction latest HMSET error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", latest_key.c_str(), std::max(1, ttl_seconds));
+    if (reply) freeReplyObject(reply);
+}
+
+void RedisDigitalTwin::pushSecondaryPredictedPoint(const std::string& run_id,
+                                                   uint64_t cycle_id,
+                                                   const std::string& vehicle_id,
+                                                   int step_index,
+                                                   double predicted_time,
+                                                   double pos_x,
+                                                   double pos_y,
+                                                   double speed,
+                                                   double heading,
+                                                   double acceleration,
+                                                   int max_series_len) {
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string stream_key = "dt2:pred:" + run_id + ":cycle:" + std::to_string(cycle_id) + ":entries";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "XADD %s MAXLEN ~ %d * cycle_id %llu vehicle_id %s step_index %d predicted_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f",
+        stream_key.c_str(),
+        std::max(1, max_series_len),
+        static_cast<unsigned long long>(cycle_id),
+        vehicle_id.c_str(),
+        step_index,
+        predicted_time,
+        pos_x,
+        pos_y,
+        speed,
+        heading,
+        acceleration
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 prediction XADD error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+int64_t RedisDigitalTwin::getLatestSecondaryPredictionCycle(const std::string& run_id) {
+    if (!redis_ctx || !is_connected) return -1;
+
+    const std::string latest_key = "dt2:pred:" + run_id + ":latest";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGET %s cycle_id", latest_key.c_str());
+    int64_t cycle_id = -1;
+
+    if (reply) {
+        if (reply->type == REDIS_REPLY_STRING && reply->str) {
+            try {
+                cycle_id = std::stoll(reply->str);
+            } catch (...) {
+                cycle_id = -1;
+            }
+        }
+        freeReplyObject(reply);
+    }
+    return cycle_id;
+}
+
+std::vector<RedisDigitalTwin::PredictedTrajectoryPoint>
+RedisDigitalTwin::getSecondaryPredictedPoints(const std::string& run_id, uint64_t cycle_id) {
+    std::vector<PredictedTrajectoryPoint> points;
+    if (!redis_ctx || !is_connected) return points;
+
+    const std::string stream_key = "dt2:pred:" + run_id + ":cycle:" + std::to_string(cycle_id) + ":entries";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "XRANGE %s - +", stream_key.c_str());
+    if (!reply || reply->type != REDIS_REPLY_ARRAY) {
+        if (reply) freeReplyObject(reply);
+        return points;
+    }
+
+    for (size_t i = 0; i < reply->elements; ++i) {
+        redisReply* stream_entry = reply->element[i];
+        if (!stream_entry || stream_entry->type != REDIS_REPLY_ARRAY || stream_entry->elements < 2) {
+            continue;
+        }
+
+        redisReply* kv = stream_entry->element[1];
+        if (!kv || kv->type != REDIS_REPLY_ARRAY) {
+            continue;
+        }
+
+        std::map<std::string, std::string> fields;
+        for (size_t j = 0; j + 1 < kv->elements; j += 2) {
+            const char* k = kv->element[j]->str;
+            const char* v = kv->element[j + 1]->str;
+            if (k && v) {
+                fields[k] = v;
+            }
+        }
+
+        try {
+            PredictedTrajectoryPoint p;
+            p.cycle_id = fields.count("cycle_id") ? static_cast<uint64_t>(std::stoull(fields["cycle_id"])) : cycle_id;
+            p.vehicle_id = fields.count("vehicle_id") ? fields["vehicle_id"] : "";
+            p.step_index = fields.count("step_index") ? std::stoi(fields["step_index"]) : 0;
+            p.predicted_time = fields.count("predicted_time") ? std::stod(fields["predicted_time"]) : 0.0;
+            p.pos_x = fields.count("pos_x") ? std::stod(fields["pos_x"]) : 0.0;
+            p.pos_y = fields.count("pos_y") ? std::stod(fields["pos_y"]) : 0.0;
+            p.speed = fields.count("speed") ? std::stod(fields["speed"]) : 0.0;
+            p.heading = fields.count("heading") ? std::stod(fields["heading"]) : 0.0;
+            p.acceleration = fields.count("acceleration") ? std::stod(fields["acceleration"]) : 0.0;
+            if (!p.vehicle_id.empty() && p.step_index > 0) {
+                points.push_back(p);
+            }
+        } catch (const std::exception& e) {
+            EV_ERROR << "Error parsing predicted trajectory point: " << e.what() << std::endl;
+        }
+    }
+
+    freeReplyObject(reply);
+    return points;
+}
 } // namespace

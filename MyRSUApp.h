@@ -6,12 +6,15 @@
 // #include "rsu_http_poster.h"  // Disabled - using direct PostgreSQL
 #include "TaskMetadataMessage_m.h"
 #include "RedisDigitalTwin.h"
+#include "FuturePositionPredictor.h"
+#include "LinkRateModel.h"
 #include <map>
 #include <vector>
 #include <deque>
 #include <string>
 #include <set>
 #include <cstdint>
+#include <memory>
 #include <libpq-fe.h>
 
 using namespace veins;
@@ -140,6 +143,7 @@ struct RSUNeighborState {
 
     // Coverage information with full vehicle details
     std::vector<VehicleDetail> vehicle_details_in_coverage;
+    std::vector<std::string> vehicle_ids_in_coverage;
     int vehicle_count;
 
     // Position
@@ -419,6 +423,7 @@ private:
     // events so each task gets a weighted share of edgeCPU_GHz.
     void reallocateRSUTasks();
     double getTaskPriorityWeight(double qosValue) const;
+    void reallocateRSUTasks(double new_cpu_per_task_Hz);
     void sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                   LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
                                   bool success, double processing_time);
@@ -427,6 +432,10 @@ private:
     bool mlModelEnabled = false;
     int maxConcurrentOffloadedTasks = 10;
     bool serviceVehicleSelectionEnabled = true;
+    double offload_link_bandwidth_hz = 10e6;
+    double offload_rate_efficiency = 0.8;
+    double offload_rate_cap_bps = -1.0;
+    double offload_response_ratio = 0.2;
     
     // ============================================================================
     // POSTGRESQL DATABASE INTEGRATION
@@ -452,6 +461,30 @@ private:
     double secondary_link_sample_interval = 0.1;
     int secondary_redis_max_series_len = 6000;
     std::map<std::string, double> secondary_last_export_time; // vehicle_id -> last export sim_time
+    std::string secondary_predictor_mode = "placeholder";
+    bool secondary_use_external_predictions = true;
+    double secondary_prediction_horizon_s = 0.5;
+    double secondary_prediction_step_s = 0.02;
+    double secondary_cycle_interval_s = 0.1;
+    double secondary_candidate_radius_m = 1500.0;
+    bool secondary_q_publish_enabled = true;
+    double secondary_sinr_threshold_db = 3.0;
+    double secondary_interference_mw = 0.09;
+    int secondary_q_ttl_s = 2;
+    int secondary_q_stream_maxlen = 200000;
+    bool secondary_nakagami_enabled = true;
+    double secondary_nakagami_m = 1.0;
+    double secondary_nakagami_cell_size_m = 5.0;
+    std::unique_ptr<IFuturePositionPredictor> secondary_predictor;
+    cMessage* secondary_cycle_timer = nullptr;
+    uint64_t secondary_cycle_index = 0;
+
+    struct SecondaryCandidateSet {
+        std::vector<std::string> rsu_ids;
+        std::vector<std::string> vehicle_ids;
+    };
+    std::map<std::string, std::vector<PredictedVehicleState>> secondary_cycle_predictions;
+    std::map<std::string, SecondaryCandidateSet> secondary_cycle_candidates;
 
     struct RsuStaticContext {
         std::string rsu_id;
@@ -459,6 +492,15 @@ private:
         double pos_y = 0.0;
     };
     std::vector<RsuStaticContext> rsu_static_contexts;
+
+    // Obstacle polygon for secondary SINR shadow loss
+    struct ObstaclePolygon {
+        double db_per_cut;
+        double db_per_meter;
+        double aabb_min_x, aabb_min_y, aabb_max_x, aabb_max_y;
+        std::vector<std::pair<double, double>> vertices;
+    };
+    std::vector<ObstaclePolygon> secondary_obstacle_polygons;
     
     void initDatabase();
     void closeDatabase();
@@ -491,6 +533,16 @@ private:
 
     // Secondary DT storage exports (DB + Redis)
     void initializeRsuStaticContexts();
+    void initializeSecondaryPredictor();
+    void initializeSecondaryCycleWorker();
+    void loadObstaclePolygons();
+    double computeObstacleLossDb(double tx_x, double tx_y, double rx_x, double rx_y) const;
+    double estimateSinrDbWithObstacles(double tx_x, double tx_y, double rx_x, double rx_y, double dist,
+                                       double vehicle_shadow_loss_db = 0.0,
+                                       double lognormal_shadow_db = 0.0,
+                                       double nakagami_fading_db = 0.0,
+                                       double interference_mw = -1.0) const;
+    void runSecondaryCycle();
     void exportSecondaryContextSamples(const VehicleResourceStatusMessage* msg,
                                        const VehicleDigitalTwin& sourceTwin);
     void insertSecondaryProgress(double sim_time);
@@ -507,6 +559,23 @@ private:
                                    double relative_speed,
                                    double tx_heading,
                                    double rx_heading);
+    void insertSecondaryQCycle(uint64_t cycle_id,
+                               double sim_time,
+                               int trajectory_count,
+                               int candidate_count,
+                               int entry_count);
+    void insertSecondaryQEntry(uint64_t cycle_id,
+                               const std::string& link_type,
+                               const std::string& tx_entity_id,
+                               const std::string& rx_entity_id,
+                               int step_index,
+                               double predicted_time,
+                               double tx_pos_x,
+                               double tx_pos_y,
+                               double rx_pos_x,
+                               double rx_pos_y,
+                               double distance_m,
+                               double sinr_db);
     
     // ============================================================================
     // RSU-TO-RSU COMMUNICATION METHODS

@@ -1,4 +1,6 @@
 #include "MyRSUApp.h"
+#include "veins/modules/mobility/traci/TraCICommandInterface.h"
+#include "veins/modules/mobility/traci/TraCIScenarioManager.h"
 #include <sstream>
 #include <fstream>
 #include <chrono>
@@ -7,6 +9,7 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <random>
 
 using namespace veins;
 
@@ -112,6 +115,22 @@ double estimateRssiFromDistance(double distanceMeters) {
     double d = std::max(1.0, distanceMeters);
     return -40.0 - 20.0 * std::log10(d);
 }
+
+double estimateSinrDbFromDistance(double distanceMeters) {
+    const double tx_power_dbm = 33.0;   // 2000 mW per omnetpp.ini txPower
+    const double frequency_hz = 5.89e9;
+    const double pathloss_alpha = 2.2;   // Matches config.xml SimplePathlossModel alpha
+    const double noise_floor_dbm = -110.0;
+
+    const double d_m = std::max(1.0, distanceMeters);
+    const double lambda = 299792458.0 / frequency_hz;
+    const double path_loss_db = 20.0 * std::log10(4.0 * M_PI / lambda)
+                                + 10.0 * pathloss_alpha * std::log10(d_m);
+    const double rx_power_dbm = tx_power_dbm - path_loss_db;
+    const double sinr_db = rx_power_dbm - noise_floor_dbm;
+
+    return std::max(-30.0, std::min(80.0, sinr_db));
+}
 }
 
 Define_Module(MyRSUApp);
@@ -128,13 +147,35 @@ void MyRSUApp::initialize(int stage) {
         edgeMemory_GB = par("edgeMemory_GB").doubleValue();
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
+        offload_link_bandwidth_hz = par("offloadLinkBandwidthHz").doubleValue();
+        offload_rate_efficiency = par("offloadRateEfficiency").doubleValue();
+        offload_rate_cap_bps = par("offloadRateCapBps").doubleValue();
+        offload_response_ratio = par("offloadResponseRatio").doubleValue();
 
         secondary_link_context_export = par("secondaryLinkContextExport").boolValue();
         secondary_run_id = par("secondaryRunId").stdstringValue();
         secondary_link_sample_interval = par("secondaryLinkSampleInterval").doubleValue();
         secondary_redis_max_series_len = par("secondaryRedisMaxSeriesLen").intValue();
+        secondary_predictor_mode = par("secondaryPredictorMode").stdstringValue();
+        secondary_use_external_predictions = par("secondaryUseExternalPredictions").boolValue();
+        secondary_prediction_horizon_s = par("secondaryPredictionHorizon").doubleValue();
+        secondary_prediction_step_s = par("secondaryPredictionStep").doubleValue();
+        secondary_cycle_interval_s = par("secondaryCycleInterval").doubleValue();
+        secondary_candidate_radius_m = par("secondaryCandidateRadius").doubleValue();
+        secondary_q_publish_enabled = par("secondaryQPublishEnabled").boolValue();
+        secondary_sinr_threshold_db = par("secondarySinrThresholdDb").doubleValue();
+        secondary_interference_mw = par("secondaryInterferenceMw").doubleValue();
+        secondary_q_ttl_s = par("secondaryQTTLSec").intValue();
+        secondary_q_stream_maxlen = par("secondaryQStreamMaxLen").intValue();
+        secondary_nakagami_enabled = par("secondaryNakagamiEnabled").boolValue();
+        secondary_nakagami_m = par("secondaryNakagamiM").doubleValue();
+        secondary_nakagami_cell_size_m = par("secondaryNakagamiCellSize").doubleValue();
+        if (!secondary_use_external_predictions) {
+            initializeSecondaryPredictor();
+        }
+        initializeSecondaryCycleWorker();
         initializeRsuStaticContexts();
-        
+        loadObstaclePolygons();
         // Initialize RSU resource tracking (dynamic state)
         rsu_cpu_total = edgeCPU_GHz;
         rsu_cpu_available = edgeCPU_GHz;  // Initially all available
@@ -209,9 +250,9 @@ void MyRSUApp::initialize(int stage) {
         // Start periodic RSU-to-RSU status broadcast
         rsu_broadcast_timer = new cMessage("rsuBroadcast");
         scheduleAt(simTime() + uniform(0.0, rsu_broadcast_interval), rsu_broadcast_timer);  // Stagger initial broadcasts
-        
-        // Initialize decision checker
-        checkDecisionMsg = new cMessage("checkDecision");
+
+        // Initialize decision checker lazily when the first task metadata arrives.
+        checkDecisionMsg = nullptr;
         
         std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
                   << " initialized with edge resources:" << std::endl;
@@ -222,10 +263,12 @@ void MyRSUApp::initialize(int stage) {
         std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
         
         double interval = par("beaconInterval").doubleValue();
-        
-    // create and store the beacon self-message so we can cancel/delete it safely later
-    beaconMsg = new cMessage("sendMessage");
-    scheduleAt(simTime() + 2.0, beaconMsg);
+
+        if (par("sendBeacons").boolValue()) {
+            // create and store the beacon self-message so we can cancel/delete it safely later
+            beaconMsg = new cMessage("sendMessage");
+            scheduleAt(simTime() + 2.0, beaconMsg);
+        }
 
         std::cout << "=== CONSOLE: MyRSUApp INITIALIZED ===" << std::endl;
         std::cout << "CONSOLE: MyRSUApp - Beacon interval: " << interval << "s" << std::endl;
@@ -267,6 +310,10 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         // Reschedule next broadcast
         scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
     } 
+    else if (msg == secondary_cycle_timer) {
+        runSecondaryCycle();
+        scheduleAt(simTime() + secondary_cycle_interval_s, secondary_cycle_timer);
+    }
     else if (msg == checkDecisionMsg) {
         // Poll Redis first (fast), fallback to PostgreSQL if needed
         int decisions_found = 0;
@@ -522,6 +569,17 @@ void MyRSUApp::handleLowerMsg(cMessage* msg) {
     std::cout << "CONSOLE: MyRSUApp - handleLowerMsg() completed\n" << std::endl;
 }
 
+void MyRSUApp::initializeSecondaryPredictor() {
+    secondary_predictor = createFuturePositionPredictor(secondary_predictor_mode);
+    if (!secondary_predictor) {
+        throw cRuntimeError("Failed to initialize secondary predictor");
+    }
+
+    EV_INFO << "Secondary predictor initialized: mode=" << secondary_predictor->mode()
+            << " horizon=" << secondary_prediction_horizon_s
+            << "s step=" << secondary_prediction_step_s << "s" << endl;
+}
+
 void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     std::cout << "\n🔴 RSU SHADOW ANALYSIS - Message Reception at " << simTime() << std::endl;
     
@@ -629,6 +687,7 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     if(!dsm) {
         std::cout << "CONSOLE: MyRSUApp - ERROR: Message is NOT DemoSafetyMessage!" 
                   << std::endl;
+        delete wsm;
         return;
     }
     
@@ -705,6 +764,10 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // This onWSM() handler primarily receives regular beacons
     
     std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
+
+    // Explicit ownership model: onWSM path must release any frame that was
+    // handled locally and not forwarded via sendDown().
+    delete wsm;
 }
 
 void MyRSUApp::finish() {
@@ -784,6 +847,12 @@ void MyRSUApp::finish() {
     vehicle_coverage_records.clear();
     secondary_last_export_time.clear();
 
+    // Cancel and delete secondary cycle timer
+    if (secondary_cycle_timer) {
+        cancelAndDelete(secondary_cycle_timer);
+        secondary_cycle_timer = nullptr;
+    }
+
     // RSUHttpPoster disabled - using direct PostgreSQL insertion
     // poster.stop();
 
@@ -792,6 +861,880 @@ void MyRSUApp::finish() {
     EV << "MyRSUApp: RSUHttpPoster stopped\n";
 
     DemoBaseApplLayer::finish();
+}
+
+void MyRSUApp::initializeSecondaryCycleWorker() {
+    if (!secondary_link_context_export) {
+        return;
+    }
+
+    if (!secondary_cycle_timer) {
+        secondary_cycle_timer = new cMessage("secondaryCycle");
+    }
+    if (!secondary_cycle_timer->isScheduled()) {
+        scheduleAt(simTime() + secondary_cycle_interval_s, secondary_cycle_timer);
+    }
+
+    EV_INFO << "Secondary cycle worker started: interval=" << secondary_cycle_interval_s
+            << "s candidate_radius=" << secondary_candidate_radius_m << "m" << endl;
+}
+
+void MyRSUApp::loadObstaclePolygons() {
+    // Attenuation values match SimpleObstacleShadowing entries in config.xml
+    const std::map<std::string, std::pair<double, double>> type_att = {
+        {"building",            {2.0,  0.1}},
+        {"office_building",     {18.0, 0.9}},
+        {"apartment_complex",   {12.0, 0.6}},
+        {"single_house",        {8.0,  0.4}},
+        {"warehouse",           {6.0,  0.3}},
+        {"shopping_mall",       {15.0, 0.75}},
+        {"urban_park",          {4.0,  0.2}},
+        {"street_trees",        {2.0,  0.1}},
+        {"parking_garage",      {10.0, 0.5}},
+        {"road_infrastructure", {14.0, 0.7}},
+    };
+
+    cXMLElement* root = nullptr;
+    try {
+        root = getEnvir()->getXMLDocument("erlangen.poly.xml");
+    } catch (...) {
+        EV_WARN << "loadObstaclePolygons: could not open erlangen.poly.xml" << endl;
+        return;
+    }
+    if (!root) return;
+
+    cXMLElement* shapes = root->getFirstChildWithTag("shapes");
+    if (!shapes) shapes = root;
+
+    for (cXMLElement* poly = shapes->getFirstChildWithTag("poly");
+         poly; poly = poly->getNextSiblingWithTag("poly")) {
+        const char* type_c  = poly->getAttribute("type");
+        const char* shape_c = poly->getAttribute("shape");
+        if (!type_c || !shape_c) continue;
+
+        const auto it = type_att.find(type_c);
+        if (it == type_att.end()) continue;
+
+        ObstaclePolygon p;
+        p.db_per_cut   = it->second.first;
+        p.db_per_meter = it->second.second;
+        p.aabb_min_x = p.aabb_min_y =  1e18;
+        p.aabb_max_x = p.aabb_max_y = -1e18;
+
+        std::istringstream ss(shape_c);
+        std::string token;
+        while (ss >> token) {
+            const size_t comma = token.find(',');
+            if (comma == std::string::npos) continue;
+            const double x = std::stod(token.substr(0, comma));
+            const double y = std::stod(token.substr(comma + 1));
+            p.vertices.emplace_back(x, y);
+            p.aabb_min_x = std::min(p.aabb_min_x, x);
+            p.aabb_min_y = std::min(p.aabb_min_y, y);
+            p.aabb_max_x = std::max(p.aabb_max_x, x);
+            p.aabb_max_y = std::max(p.aabb_max_y, y);
+        }
+        if (p.vertices.size() >= 3) {
+            secondary_obstacle_polygons.push_back(std::move(p));
+        }
+    }
+    EV_INFO << "Loaded " << secondary_obstacle_polygons.size()
+            << " obstacle polygons for secondary SINR evaluation" << endl;
+}
+
+double MyRSUApp::computeObstacleLossDb(double tx_x, double tx_y, double rx_x, double rx_y) const {
+    const double dx = rx_x - tx_x;
+    const double dy = rx_y - tx_y;
+    const double ray_len = std::sqrt(dx * dx + dy * dy);
+    if (ray_len < 1e-9) return 0.0;
+
+    const double ray_min_x = std::min(tx_x, rx_x);
+    const double ray_max_x = std::max(tx_x, rx_x);
+    const double ray_min_y = std::min(tx_y, rx_y);
+    const double ray_max_y = std::max(tx_y, rx_y);
+
+    double total_loss = 0.0;
+    for (const auto& poly : secondary_obstacle_polygons) {
+        if (poly.aabb_max_x < ray_min_x || poly.aabb_min_x > ray_max_x) continue;
+        if (poly.aabb_max_y < ray_min_y || poly.aabb_min_y > ray_max_y) continue;
+
+        std::vector<double> ts;
+        const int n = static_cast<int>(poly.vertices.size());
+        for (int i = 0; i < n; ++i) {
+            const int j = (i + 1) % n;
+            const double ax = poly.vertices[i].first;
+            const double ay = poly.vertices[i].second;
+            const double ex = poly.vertices[j].first - ax;
+            const double ey = poly.vertices[j].second - ay;
+            // Cramer's rule: det = ex*dy - dx*ey
+            const double det = ex * dy - dx * ey;
+            if (std::abs(det) < 1e-12) continue;
+            const double fx = ax - tx_x;
+            const double fy = ay - tx_y;
+            const double t = (ex * fy - ey * fx) / det;
+            const double u = (dx * fy - dy * fx) / det;
+            if (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0) {
+                ts.push_back(t);
+            }
+        }
+        if (ts.size() < 2) continue;
+
+        std::sort(ts.begin(), ts.end());
+        const auto last = std::unique(ts.begin(), ts.end(),
+            [](double a, double b) { return std::abs(a - b) < 1e-9; });
+        ts.erase(last, ts.end());
+        if (ts.size() < 2) continue;
+
+        const int cuts = static_cast<int>(ts.size()) / 2;
+        const double inside_len = (ts.back() - ts.front()) * ray_len;
+        total_loss += cuts * poly.db_per_cut + inside_len * poly.db_per_meter;
+    }
+    return total_loss;
+}
+
+double MyRSUApp::estimateSinrDbWithObstacles(double tx_x, double tx_y, double rx_x, double rx_y, double dist,
+                                             double vehicle_shadow_loss_db,
+                                             double lognormal_shadow_db,
+                                             double nakagami_fading_db,
+                                             double interference_mw) const {
+    constexpr double tx_power_dbm    = 33.0;   // 2000 mW per omnetpp.ini txPower
+    constexpr double frequency_hz    = 5.89e9;
+    constexpr double pathloss_alpha  = 2.2;    // Matches config.xml SimplePathlossModel alpha
+    constexpr double noise_floor_dbm = -110.0;
+
+    const double d_m            = std::max(1.0, dist);
+    const double lambda         = 299792458.0 / frequency_hz;
+    const double path_loss_db   = 20.0 * std::log10(4.0 * M_PI / lambda)
+                                  + 10.0 * pathloss_alpha * std::log10(d_m);
+    const double obstacle_loss  = computeObstacleLossDb(tx_x, tx_y, rx_x, rx_y);
+    const double rx_power_dbm   = tx_power_dbm - path_loss_db - obstacle_loss
+                                  - std::max(0.0, vehicle_shadow_loss_db) - lognormal_shadow_db
+                                  + nakagami_fading_db;
+    const double signal_mw      = std::pow(10.0, rx_power_dbm / 10.0);
+    const double noise_mw       = std::pow(10.0, noise_floor_dbm / 10.0);
+    // Backward-compatible fallback when no explicit per-link interference is provided.
+    const double fallback_interference_mw = std::max(0.0, secondary_interference_mw) * noise_mw;
+    const double effective_interference_mw = (interference_mw >= 0.0)
+        ? interference_mw
+        : fallback_interference_mw;
+    const double sinr_linear    = signal_mw / std::max(1e-15, noise_mw + effective_interference_mw);
+    const double sinr_db        = 10.0 * std::log10(std::max(1e-15, sinr_linear));
+
+    return std::max(-30.0, std::min(80.0, sinr_db));
+}
+
+void MyRSUApp::runSecondaryCycle() {
+    if (!secondary_link_context_export) {
+        return;
+    }
+    if (!secondary_use_external_predictions && !secondary_predictor) {
+        return;
+    }
+
+    std::vector<PredictorInputState> inputs;
+    inputs.reserve(vehicle_twins.size());
+
+    if (secondary_use_external_predictions) {
+        if (redis_twin && use_redis) {
+            const int64_t latest_cycle = redis_twin->getLatestSecondaryPredictionCycle(secondary_run_id);
+            if (latest_cycle >= 0) {
+                const auto points = redis_twin->getSecondaryPredictedPoints(secondary_run_id, static_cast<uint64_t>(latest_cycle));
+                secondary_cycle_predictions.clear();
+                secondary_cycle_candidates.clear();
+
+                for (const auto& point : points) {
+                    PredictedVehicleState st;
+                    st.vehicle_id = point.vehicle_id;
+                    st.step_index = point.step_index;
+                    st.sim_time = point.predicted_time;
+                    st.pos_x = point.pos_x;
+                    st.pos_y = point.pos_y;
+                    st.speed = point.speed;
+                    st.heading_deg = point.heading;
+                    st.acceleration = point.acceleration;
+                    secondary_cycle_predictions[point.vehicle_id].push_back(st);
+                }
+
+                for (auto& kv : secondary_cycle_predictions) {
+                    auto& traj = kv.second;
+                    std::sort(traj.begin(), traj.end(), [](const PredictedVehicleState& a, const PredictedVehicleState& b) {
+                        return a.step_index < b.step_index;
+                    });
+                }
+            }
+        }
+
+        if (secondary_cycle_predictions.empty()) {
+            EV_WARN << "Secondary cycle skipped: no external predicted trajectories available in Redis" << endl;
+            return;
+        }
+    } else {
+        if (redis_twin && use_redis) {
+            const auto snapshots = redis_twin->getAllVehicles();
+            inputs.reserve(snapshots.size());
+            for (const auto& snap : snapshots) {
+                PredictorInputState in;
+                in.vehicle_id = snap.vehicle_id;
+                in.source_timestamp = snap.source_timestamp > 0.0 ? snap.source_timestamp : simTime().dbl();
+                in.pos_x = snap.pos_x;
+                in.pos_y = snap.pos_y;
+                in.speed = snap.speed;
+                in.heading_deg = snap.heading;
+                in.acceleration = snap.acceleration;
+                inputs.push_back(in);
+            }
+        }
+
+        if (inputs.empty()) {
+            for (const auto& kv : vehicle_twins) {
+                const auto& twin = kv.second;
+                PredictorInputState in;
+                in.vehicle_id = twin.vehicle_id;
+                in.source_timestamp = simTime().dbl();
+                in.pos_x = twin.pos_x;
+                in.pos_y = twin.pos_y;
+                in.speed = twin.speed;
+                in.heading_deg = twin.heading;
+                in.acceleration = 0.0;
+                inputs.push_back(in);
+            }
+        }
+    }
+
+    if (!secondary_use_external_predictions) {
+        secondary_cycle_predictions.clear();
+        secondary_cycle_candidates.clear();
+    }
+    std::map<std::string, PredictedVehicleState> first_step_state;
+
+    if (secondary_use_external_predictions) {
+        for (const auto& kv : secondary_cycle_predictions) {
+            if (!kv.second.empty()) {
+                first_step_state[kv.first] = kv.second.front();
+            }
+        }
+    } else {
+        for (const auto& input : inputs) {
+            std::vector<PredictedVehicleState> predicted;
+            predicted = secondary_predictor->predict(
+                input,
+                secondary_prediction_horizon_s,
+                secondary_prediction_step_s
+            );
+            if (predicted.empty()) {
+                continue;
+            }
+            first_step_state[input.vehicle_id] = predicted.front();
+            secondary_cycle_predictions.emplace(input.vehicle_id, std::move(predicted));
+        }
+    }
+
+    for (const auto& kv : first_step_state) {
+        const std::string& src_id = kv.first;
+        const auto& src = kv.second;
+
+        SecondaryCandidateSet set;
+        for (const auto& rsu : rsu_static_contexts) {
+            const double dx = src.pos_x - rsu.pos_x;
+            const double dy = src.pos_y - rsu.pos_y;
+            const double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist <= secondary_candidate_radius_m) {
+                set.rsu_ids.push_back(rsu.rsu_id);
+            }
+        }
+
+        for (const auto& other : first_step_state) {
+            if (other.first == src_id) {
+                continue;
+            }
+            const double dx = src.pos_x - other.second.pos_x;
+            const double dy = src.pos_y - other.second.pos_y;
+            const double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist <= secondary_candidate_radius_m) {
+                set.vehicle_ids.push_back(other.first);
+            }
+        }
+
+        secondary_cycle_candidates.emplace(src_id, std::move(set));
+    }
+
+    const uint64_t cycle_id = secondary_cycle_index + 1;
+    int q_entry_count = 0;
+    std::map<std::string, RsuStaticContext> rsu_by_id;
+    for (const auto& rsu : rsu_static_contexts) {
+        rsu_by_id[rsu.rsu_id] = rsu;
+    }
+
+    // Index predicted vehicle states by step to evaluate dynamic vehicle blocking per snapshot.
+    std::map<int, std::vector<const PredictedVehicleState*>> step_vehicle_states;
+    for (const auto& kv : secondary_cycle_predictions) {
+        for (const auto& st : kv.second) {
+            step_vehicle_states[st.step_index].push_back(&st);
+        }
+    }
+
+    struct VehicleDims {
+        double len_m = 4.8;
+        double wid_m = 1.9;
+        double hgt_m = 1.5;
+    };
+    std::map<std::string, VehicleDims> vehicle_dims_cache;
+
+    auto getVehicleDims = [&](const std::string& vehicle_id) {
+        auto it = vehicle_dims_cache.find(vehicle_id);
+        if (it != vehicle_dims_cache.end()) return it->second;
+
+        VehicleDims dims;
+        try {
+            auto* manager = TraCIScenarioManagerAccess().get();
+            if (manager && manager->isConnected() && manager->getCommandInterface()) {
+                auto veh = manager->getCommandInterface()->vehicle(vehicle_id);
+                const double l = veh.getLength();
+                const double w = veh.getWidth();
+                const double h = veh.getHeight();
+                if (std::isfinite(l) && l > 0.5) dims.len_m = l;
+                if (std::isfinite(w) && w > 0.3) dims.wid_m = w;
+                if (std::isfinite(h) && h > 0.5) dims.hgt_m = h;
+            }
+        }
+        catch (const cRuntimeError&) {
+            // Fallback to defaults when a vehicle disappears between snapshots.
+        }
+        catch (...) {
+            // Keep defaults on any TraCI lookup error.
+        }
+
+        vehicle_dims_cache[vehicle_id] = dims;
+        return dims;
+    };
+
+    auto estimateVehicleShadowLossDb = [&](double tx_x,
+                                           double tx_y,
+                                           double rx_x,
+                                           double rx_y,
+                                           int step_index,
+                                           const std::string& tx_id,
+                                           const std::string& rx_id) {
+        const auto it = step_vehicle_states.find(step_index);
+        if (it == step_vehicle_states.end()) return 0.0;
+
+        const double dx = rx_x - tx_x;
+        const double dy = rx_y - tx_y;
+        const double d = std::sqrt(dx * dx + dy * dy);
+        if (d < 1e-6) return 0.0;
+
+        constexpr double freq_hz = 5.89e9;
+        constexpr double c_mps = 299792458.0;
+        constexpr double lambda_m = c_mps / freq_hz;
+        constexpr double tx_h_m = 1.5;
+        constexpr double rx_h_m = 1.5;
+        constexpr double default_vehicle_h_m = 1.5;
+
+        struct BlockerInfo {
+            double d1 = 0.0;
+            double h = default_vehicle_h_m;
+            double len_m = 4.8;
+            double wid_m = 1.9;
+        };
+
+        auto cross2d = [](double ax, double ay, double bx, double by) {
+            return ax * by - ay * bx;
+        };
+
+        auto segIntersects = [&](double ax, double ay, double bx, double by,
+                                 double cx, double cy, double dx2, double dy2) {
+            const double r_x = bx - ax;
+            const double r_y = by - ay;
+            const double s_x = dx2 - cx;
+            const double s_y = dy2 - cy;
+            const double denom = cross2d(r_x, r_y, s_x, s_y);
+            if (std::fabs(denom) < 1e-12) return false;
+            const double qmp_x = cx - ax;
+            const double qmp_y = cy - ay;
+            const double t = cross2d(qmp_x, qmp_y, s_x, s_y) / denom;
+            const double u = cross2d(qmp_x, qmp_y, r_x, r_y) / denom;
+            return t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0;
+        };
+
+        auto lineIntersectsVehicleRect = [&](const PredictedVehicleState& st) {
+            const VehicleDims dims = getVehicleDims(st.vehicle_id);
+            const double heading_rad = st.heading_deg * M_PI / 180.0;
+            const double hx = std::cos(heading_rad);
+            const double hy = std::sin(heading_rad);
+            const double wx = -hy;
+            const double wy = hx;
+            const double hl = 0.5 * dims.len_m;
+            const double hw = 0.5 * dims.wid_m;
+
+            const double c0x = st.pos_x + hx * hl + wx * hw;
+            const double c0y = st.pos_y + hy * hl + wy * hw;
+            const double c1x = st.pos_x + hx * hl - wx * hw;
+            const double c1y = st.pos_y + hy * hl - wy * hw;
+            const double c2x = st.pos_x - hx * hl - wx * hw;
+            const double c2y = st.pos_y - hy * hl - wy * hw;
+            const double c3x = st.pos_x - hx * hl + wx * hw;
+            const double c3y = st.pos_y - hy * hl + wy * hw;
+
+            return segIntersects(tx_x, tx_y, rx_x, rx_y, c0x, c0y, c1x, c1y) ||
+                   segIntersects(tx_x, tx_y, rx_x, rx_y, c1x, c1y, c2x, c2y) ||
+                   segIntersects(tx_x, tx_y, rx_x, rx_y, c2x, c2y, c3x, c3y) ||
+                   segIntersects(tx_x, tx_y, rx_x, rx_y, c3x, c3y, c0x, c0y);
+        };
+
+        auto knifeEdgeLossDb = [&](double d1, double obs_h) {
+            if (d1 <= 1e-6 || d1 >= d - 1e-6) return 0.0;
+            const double d2 = d - d1;
+            const double y = ((rx_h_m - tx_h_m) / d) * d1 + tx_h_m;
+            const double H = obs_h - y;
+            const double r1 = std::sqrt(lambda_m * d1 * d2 / d);
+            if (r1 <= 1e-9) return 0.0;
+            const double nu = std::sqrt(2.0) * H / r1;
+            if (nu <= -0.7) return 0.0;
+            const double inside = std::sqrt((nu - 0.1) * (nu - 0.1) + 1.0) + nu - 0.1;
+            if (inside <= 1e-12) return 0.0;
+            return 6.9 + 20.0 * std::log10(inside);
+        };
+
+        std::vector<BlockerInfo> blockers;
+        blockers.reserve(it->second.size());
+        for (const auto* st : it->second) {
+            if (!st) continue;
+            if (st->vehicle_id == tx_id || st->vehicle_id == rx_id) continue;
+
+            const double px = st->pos_x - tx_x;
+            const double py = st->pos_y - tx_y;
+            const double t = (px * dx + py * dy) / (d * d);
+            if (t <= 0.01 || t >= 0.99) continue;
+            if (!lineIntersectsVehicleRect(*st)) continue;
+
+            BlockerInfo bi;
+            const VehicleDims dims = getVehicleDims(st->vehicle_id);
+            bi.d1 = t * d;
+            bi.h = dims.hgt_m;
+            bi.len_m = dims.len_m;
+            bi.wid_m = dims.wid_m;
+            blockers.push_back(bi);
+        }
+
+        if (blockers.empty()) return 0.0;
+
+        std::sort(blockers.begin(), blockers.end(), [](const BlockerInfo& a, const BlockerInfo& b) {
+            return a.d1 < b.d1;
+        });
+
+        // Veins-style diffraction trend: knife-edge loss per blocker.
+        double total_loss_db = 0.0;
+        for (const auto& b : blockers) {
+            total_loss_db += knifeEdgeLossDb(b.d1, b.h);
+        }
+
+        // Multi-obstacle correction term inspired by VehicleObstacleShadowing DZ model.
+        if (blockers.size() >= 2) {
+            std::vector<double> seg;
+            seg.reserve(blockers.size() + 1);
+            double prev = 0.0;
+            for (const auto& b : blockers) {
+                const double s = std::max(1e-6, b.d1 - prev);
+                seg.push_back(s);
+                prev = b.d1;
+            }
+            seg.push_back(std::max(1e-6, d - prev));
+
+            double prod_s = 1.0;
+            double sum_s = 0.0;
+            for (double s : seg) {
+                prod_s *= s;
+                sum_s += s;
+            }
+
+            double prod_pair = 1.0;
+            for (size_t i = 1; i < seg.size(); ++i) {
+                prod_pair *= (seg[i] + seg[i - 1]);
+            }
+
+            const double denom = prod_pair * seg.front() * seg.back();
+            const double numer = prod_s * sum_s;
+            if (numer > 1e-18 && denom > 1e-18) {
+                const double ratio = numer / denom;
+                if (ratio > 1e-12) {
+                    total_loss_db += std::max(0.0, -10.0 * std::log10(ratio));
+                }
+            }
+        }
+
+        return std::min(30.0, total_loss_db);
+    };
+
+    auto estimateLogNormalShadowDb = [&](double tx_x,
+                                         double tx_y,
+                                         double rx_x,
+                                         double rx_y,
+                                         int step_index,
+                                         const std::string& tx_id,
+                                         const std::string& rx_id) {
+        constexpr double sigma_db = 6.0;
+        constexpr double corr_distance_m = 50.0;
+        if (sigma_db <= 0.0) return 0.0;
+
+        const double mid_x = 0.5 * (tx_x + rx_x);
+        const double mid_y = 0.5 * (tx_y + rx_y);
+        const long long cell_x = static_cast<long long>(std::floor(mid_x / corr_distance_m));
+        const long long cell_y = static_cast<long long>(std::floor(mid_y / corr_distance_m));
+
+        const std::string a = (tx_id < rx_id) ? tx_id : rx_id;
+        const std::string b = (tx_id < rx_id) ? rx_id : tx_id;
+        uint64_t seed = static_cast<uint64_t>(std::hash<std::string>{}(a + "|" + b));
+        seed ^= static_cast<uint64_t>(cell_x) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(cell_y) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(step_index / 2) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+
+        auto splitmix64 = [](uint64_t& x) {
+            x += 0x9e3779b97f4a7c15ULL;
+            uint64_t z = x;
+            z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+            return z ^ (z >> 31);
+        };
+
+        const double u1 = std::max(1e-12, (splitmix64(seed) + 1.0) / 18446744073709551616.0);
+        const double u2 = (splitmix64(seed) + 1.0) / 18446744073709551616.0;
+        const double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(6.283185307179586 * u2);
+        return sigma_db * z;
+    };
+
+    auto estimateNakagamiFadingDb = [&](double tx_x,
+                                        double tx_y,
+                                        double rx_x,
+                                        double rx_y,
+                                        int step_index,
+                                        const std::string& tx_id,
+                                        const std::string& rx_id) {
+        if (!secondary_nakagami_enabled) return 0.0;
+        const double m = std::max(1e-3, secondary_nakagami_m);
+        const double cell_size_m = std::max(0.1, secondary_nakagami_cell_size_m);
+        if (m <= 0.0) return 0.0;
+
+        const std::string a = (tx_id < rx_id) ? tx_id : rx_id;
+        const std::string b = (tx_id < rx_id) ? rx_id : tx_id;
+
+        // Small-scale fading decorrelation cell size is runtime-configurable.
+        const double mid_x = 0.5 * (tx_x + rx_x);
+        const double mid_y = 0.5 * (tx_y + rx_y);
+        const long long cell_x = static_cast<long long>(std::floor(mid_x / cell_size_m));
+        const long long cell_y = static_cast<long long>(std::floor(mid_y / cell_size_m));
+
+        uint64_t seed = static_cast<uint64_t>(std::hash<std::string>{}(a + "|" + b + "|nakagami"));
+        seed ^= static_cast<uint64_t>(cell_x) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(cell_y) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<uint64_t>(step_index) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+
+        std::mt19937_64 rng(seed);
+        // Nakagami power gain follows Gamma(shape=m, scale=1/m), E[gain]=1.
+        std::gamma_distribution<double> gamma_dist(m, 1.0 / m);
+        const double gain_linear = std::max(1e-12, gamma_dist(rng));
+        const double fading_db = 10.0 * std::log10(std::max(1e-12, gain_linear));
+        return std::max(-30.0, std::min(30.0, fading_db));
+    };
+
+    auto estimateInterferenceMw = [&](double rx_x,
+                                      double rx_y,
+                                      int step_index,
+                                      const std::string& desired_tx_id,
+                                      const std::string& desired_rx_id) {
+        const auto it = step_vehicle_states.find(step_index);
+        if (it == step_vehicle_states.end()) return 0.0;
+
+        // secondary_interference_mw now acts as activity ratio (e.g. 0.09 => 9%).
+        const double activity_ratio = std::max(0.0, std::min(1.0, secondary_interference_mw));
+        if (activity_ratio <= 0.0) return 0.0;
+
+        constexpr double tx_power_dbm = 33.0;
+        constexpr double frequency_hz = 5.89e9;
+        constexpr double pathloss_alpha = 2.2;
+        const double lambda = 299792458.0 / frequency_hz;
+        double total_interference_mw = 0.0;
+
+        for (const auto* interferer : it->second) {
+            if (!interferer) continue;
+            const std::string& interferer_id = interferer->vehicle_id;
+            if (interferer_id == desired_tx_id || interferer_id == desired_rx_id) continue;
+
+            // "Cars in the area": only nearby interferers around the receiver are considered.
+            const double dx = interferer->pos_x - rx_x;
+            const double dy = interferer->pos_y - rx_y;
+            const double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist > secondary_candidate_radius_m) continue;
+
+            // Deterministic random activation per slot: pick ~9% (activity_ratio) of nearby cars.
+            const std::string sample_key = std::to_string(cycle_id) + "|" + std::to_string(step_index) +
+                                           "|" + desired_rx_id + "|" + interferer_id;
+            const uint64_t h = static_cast<uint64_t>(std::hash<std::string>{}(sample_key));
+            const double u = static_cast<double>(h & 0xffffffffULL) / 4294967295.0;
+            if (u >= activity_ratio) continue;
+
+            const double d_m = std::max(1.0, dist);
+            const double path_loss_db = 20.0 * std::log10(4.0 * M_PI / lambda)
+                                        + 10.0 * pathloss_alpha * std::log10(d_m);
+            const double obstacle_loss_db = computeObstacleLossDb(interferer->pos_x, interferer->pos_y, rx_x, rx_y);
+            const double veh_shadow_db = estimateVehicleShadowLossDb(
+                interferer->pos_x,
+                interferer->pos_y,
+                rx_x,
+                rx_y,
+                step_index,
+                interferer_id,
+                desired_rx_id
+            );
+            const double lognormal_db = estimateLogNormalShadowDb(
+                interferer->pos_x,
+                interferer->pos_y,
+                rx_x,
+                rx_y,
+                step_index,
+                interferer_id,
+                desired_rx_id
+            );
+            const double nakagami_db = estimateNakagamiFadingDb(
+                interferer->pos_x,
+                interferer->pos_y,
+                rx_x,
+                rx_y,
+                step_index,
+                interferer_id,
+                desired_rx_id
+            );
+
+            const double int_rx_dbm = tx_power_dbm - path_loss_db - obstacle_loss_db
+                                      - std::max(0.0, veh_shadow_db) - lognormal_db
+                                      + nakagami_db;
+            total_interference_mw += std::pow(10.0, int_rx_dbm / 10.0);
+        }
+
+        return total_interference_mw;
+    };
+
+    auto emitQEntry = [&](const std::string& link_type,
+                          const std::string& tx_id,
+                          const std::string& rx_id,
+                          int step_index,
+                          double predicted_time,
+                          double tx_x,
+                          double tx_y,
+                          double rx_x,
+                          double rx_y,
+                          double dist,
+                          double sinr_db) {
+        insertSecondaryQEntry(
+            cycle_id,
+            link_type,
+            tx_id,
+            rx_id,
+            step_index,
+            predicted_time,
+            tx_x,
+            tx_y,
+            rx_x,
+            rx_y,
+            dist,
+            sinr_db
+        );
+
+        if (secondary_q_publish_enabled && redis_twin && use_redis) {
+            redis_twin->pushSecondaryQEntry(
+                secondary_run_id,
+                cycle_id,
+                link_type,
+                tx_id,
+                rx_id,
+                step_index,
+                predicted_time,
+                tx_x,
+                tx_y,
+                rx_x,
+                rx_y,
+                dist,
+                sinr_db,
+                secondary_q_stream_maxlen
+            );
+        }
+        q_entry_count++;
+    };
+
+    for (const auto& kv : secondary_cycle_candidates) {
+        const std::string& src_id = kv.first;
+        const auto pred_it = secondary_cycle_predictions.find(src_id);
+        if (pred_it == secondary_cycle_predictions.end()) {
+            continue;
+        }
+
+        const auto& src_traj = pred_it->second;
+        const auto& candidates = kv.second;
+
+        for (const auto& rsu_id : candidates.rsu_ids) {
+            const auto rsu_it = rsu_by_id.find(rsu_id);
+            if (rsu_it == rsu_by_id.end()) {
+                continue;
+            }
+            const auto& rsu = rsu_it->second;
+
+            for (const auto& step : src_traj) {
+                const double dx = step.pos_x - rsu.pos_x;
+                const double dy = step.pos_y - rsu.pos_y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                const double veh_shadow_db = estimateVehicleShadowLossDb(
+                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double lognormal_db = estimateLogNormalShadowDb(
+                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double nakagami_db = estimateNakagamiFadingDb(
+                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double interference_mw = estimateInterferenceMw(
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    step.step_index,
+                    src_id,
+                    rsu_id
+                );
+                const double sinr_db = estimateSinrDbWithObstacles(
+                    step.pos_x,
+                    step.pos_y,
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    dist,
+                    veh_shadow_db,
+                    lognormal_db,
+                    nakagami_db,
+                    interference_mw
+                );
+                if (sinr_db < secondary_sinr_threshold_db) {
+                    continue;
+                }
+
+                emitQEntry(
+                    "V2RSU",
+                    src_id,
+                    rsu_id,
+                    step.step_index,
+                    step.sim_time,
+                    step.pos_x,
+                    step.pos_y,
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    dist,
+                    sinr_db
+                );
+                emitQEntry(
+                    "RSU2V",
+                    rsu_id,
+                    src_id,
+                    step.step_index,
+                    step.sim_time,
+                    rsu.pos_x,
+                    rsu.pos_y,
+                    step.pos_x,
+                    step.pos_y,
+                    dist,
+                    sinr_db
+                );
+            }
+        }
+
+        for (const auto& peer_id : candidates.vehicle_ids) {
+            const auto peer_it = secondary_cycle_predictions.find(peer_id);
+            if (peer_it == secondary_cycle_predictions.end()) {
+                continue;
+            }
+            const auto& peer_traj = peer_it->second;
+            const int common_steps = std::min(static_cast<int>(src_traj.size()), static_cast<int>(peer_traj.size()));
+
+            for (int i = 0; i < common_steps; ++i) {
+                const auto& src_step = src_traj[i];
+                const auto& peer_step = peer_traj[i];
+                const double dx = src_step.pos_x - peer_step.pos_x;
+                const double dy = src_step.pos_y - peer_step.pos_y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                const double veh_shadow_db = estimateVehicleShadowLossDb(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    src_step.step_index, src_id, peer_id);
+                const double lognormal_db = estimateLogNormalShadowDb(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    src_step.step_index, src_id, peer_id);
+                const double nakagami_db = estimateNakagamiFadingDb(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    src_step.step_index, src_id, peer_id);
+                const double interference_mw = estimateInterferenceMw(
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    src_step.step_index,
+                    src_id,
+                    peer_id
+                );
+                const double sinr_db = estimateSinrDbWithObstacles(
+                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                    dist,
+                    veh_shadow_db,
+                    lognormal_db,
+                    nakagami_db,
+                    interference_mw
+                );
+                if (sinr_db < secondary_sinr_threshold_db) {
+                    continue;
+                }
+
+                emitQEntry(
+                    "V2V",
+                    src_id,
+                    peer_id,
+                    src_step.step_index,
+                    src_step.sim_time,
+                    src_step.pos_x,
+                    src_step.pos_y,
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    dist,
+                    sinr_db
+                );
+                emitQEntry(
+                    "V2V",
+                    peer_id,
+                    src_id,
+                    src_step.step_index,
+                    src_step.sim_time,
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    src_step.pos_x,
+                    src_step.pos_y,
+                    dist,
+                    sinr_db
+                );
+            }
+        }
+    }
+
+    secondary_cycle_index = cycle_id;
+    insertSecondaryQCycle(
+        cycle_id,
+        simTime().dbl(),
+        static_cast<int>(secondary_cycle_predictions.size()),
+        static_cast<int>(secondary_cycle_candidates.size()),
+        q_entry_count
+    );
+    if (secondary_q_publish_enabled && redis_twin && use_redis) {
+        redis_twin->updateSecondaryQCycle(
+            secondary_run_id,
+            cycle_id,
+            simTime().dbl(),
+            secondary_prediction_horizon_s,
+            secondary_prediction_step_s,
+            secondary_sinr_threshold_db,
+            static_cast<int>(secondary_cycle_predictions.size()),
+            q_entry_count,
+            secondary_q_ttl_s
+        );
+    }
+    EV_INFO << "Secondary cycle #" << secondary_cycle_index
+            << " generated " << secondary_cycle_predictions.size() << " trajectories and "
+            << secondary_cycle_candidates.size() << " candidate sets, published "
+            << q_entry_count << " directional q entries" << endl;
 }
 
 void MyRSUApp::handleMessage(cMessage* msg) {
@@ -955,6 +1898,10 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     if (!checkDecisionMsg->isScheduled()) {
         scheduleAt(simTime() + 0.1, checkDecisionMsg);
     }
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
@@ -1011,6 +1958,10 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
@@ -1068,6 +2019,10 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
     }
     
     updateDigitalTwinStatistics();
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
@@ -1127,6 +2082,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     // Update Redis Digital Twin (instant, for ML queries)
     if (redis_twin && use_redis) {
+        const double source_timestamp = msg->getCreationTime().dbl();
         redis_twin->updateVehicleState(
             vehicle_id,
             twin.pos_x, twin.pos_y, twin.speed, twin.heading,
@@ -1136,7 +2092,9 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
             twin.battery_capacity_mAh,
             twin.energy_task_j_total, twin.energy_task_j_last,
             twin.current_queue_length, twin.current_processing_count,
-            simTime().dbl()
+            simTime().dbl(),
+            msg->getAcceleration(),
+            source_timestamp
         );
     }
     
@@ -1158,6 +2116,10 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     
     std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
               << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+
+    // Ownership: this message came from the air and onWSM's caller does not delete it,
+    // so we must delete here.
+    delete msg;
 }
 
 void MyRSUApp::initializeRsuStaticContexts() {
@@ -1216,6 +2178,12 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
             sourceTwin.speed,
             sourceTwin.heading,
             msg->getAcceleration(),
+            sourceTwin.cpu_available,
+            sourceTwin.cpu_utilization,
+            sourceTwin.mem_available,
+            sourceTwin.mem_utilization,
+            static_cast<int>(sourceTwin.current_queue_length),
+            static_cast<int>(sourceTwin.current_processing_count),
             secondary_redis_max_series_len
         );
     }
@@ -2054,6 +3022,111 @@ void MyRSUApp::insertSecondaryLinkSample(const std::string& link_type,
     PQclear(res);
 }
 
+void MyRSUApp::insertSecondaryQCycle(uint64_t cycle_id,
+                                     double sim_time,
+                                     int trajectory_count,
+                                     int candidate_count,
+                                     int entry_count) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    const char* paramValues[11];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string cycle_id_str = std::to_string(cycle_id);
+    std::string sim_time_str = std::to_string(sim_time);
+    std::string horizon_s = std::to_string(secondary_prediction_horizon_s);
+    std::string step_s = std::to_string(secondary_prediction_step_s);
+    std::string sinr_threshold = std::to_string(secondary_sinr_threshold_db);
+    std::string traj_count = std::to_string(trajectory_count);
+    std::string cand_count = std::to_string(candidate_count);
+    std::string ent_count = std::to_string(entry_count);
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = cycle_id_str.c_str();
+    paramValues[3] = sim_time_str.c_str();
+    paramValues[4] = horizon_s.c_str();
+    paramValues[5] = step_s.c_str();
+    paramValues[6] = sinr_threshold.c_str();
+    paramValues[7] = traj_count.c_str();
+    paramValues[8] = cand_count.c_str();
+    paramValues[9] = ent_count.c_str();
+    paramValues[10] = ent_count.c_str();
+
+    const char* query =
+        "INSERT INTO dt_secondary_q_cycles "
+        "(run_id, rsu_id, cycle_id, sim_time, prediction_horizon_s, prediction_step_s, sinr_threshold_db, trajectory_count, candidate_count, entry_count) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+        "ON CONFLICT (run_id, rsu_id, cycle_id) DO UPDATE SET "
+        "sim_time = EXCLUDED.sim_time, "
+        "prediction_horizon_s = EXCLUDED.prediction_horizon_s, "
+        "prediction_step_s = EXCLUDED.prediction_step_s, "
+        "sinr_threshold_db = EXCLUDED.sinr_threshold_db, "
+        "trajectory_count = EXCLUDED.trajectory_count, "
+        "candidate_count = EXCLUDED.candidate_count, "
+        "entry_count = EXCLUDED.entry_count";
+
+    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
+
+void MyRSUApp::insertSecondaryQEntry(uint64_t cycle_id,
+                                     const std::string& link_type,
+                                     const std::string& tx_entity_id,
+                                     const std::string& rx_entity_id,
+                                     int step_index,
+                                     double predicted_time,
+                                     double tx_pos_x,
+                                     double tx_pos_y,
+                                     double rx_pos_x,
+                                     double rx_pos_y,
+                                     double distance_m,
+                                     double sinr_db) {
+    PGconn* conn = getDBConnection();
+    if (!conn) return;
+
+    const char* paramValues[13];
+    std::string run_id = secondary_run_id;
+    std::string rsu_id_str = std::to_string(rsu_id);
+    std::string cycle_id_str = std::to_string(cycle_id);
+    std::string step_str = std::to_string(step_index);
+    std::string pred_time = std::to_string(predicted_time);
+    std::string tx_x = std::to_string(tx_pos_x);
+    std::string tx_y = std::to_string(tx_pos_y);
+    std::string rx_x = std::to_string(rx_pos_x);
+    std::string rx_y = std::to_string(rx_pos_y);
+    std::string dist = std::to_string(distance_m);
+    std::string sinr = std::to_string(sinr_db);
+
+    paramValues[0] = run_id.c_str();
+    paramValues[1] = rsu_id_str.c_str();
+    paramValues[2] = cycle_id_str.c_str();
+    paramValues[3] = link_type.c_str();
+    paramValues[4] = tx_entity_id.c_str();
+    paramValues[5] = rx_entity_id.c_str();
+    paramValues[6] = step_str.c_str();
+    paramValues[7] = pred_time.c_str();
+    paramValues[8] = tx_x.c_str();
+    paramValues[9] = tx_y.c_str();
+    paramValues[10] = rx_x.c_str();
+    paramValues[11] = rx_y.c_str();
+    paramValues[12] = dist.c_str();
+
+    const char* query =
+        "INSERT INTO dt_secondary_q_entries "
+        "(run_id, rsu_id, cycle_id, link_type, tx_entity_id, rx_entity_id, step_index, predicted_time, tx_pos_x, tx_pos_y, rx_pos_x, rx_pos_y, distance_m, sinr_db) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)";
+
+    const char* extendedParamValues[14] = {
+        paramValues[0], paramValues[1], paramValues[2], paramValues[3], paramValues[4], paramValues[5],
+        paramValues[6], paramValues[7], paramValues[8], paramValues[9], paramValues[10], paramValues[11],
+        paramValues[12], sinr.c_str()
+    };
+
+    PGresult* res = PQexecParams(conn, query, 14, nullptr, extendedParamValues, nullptr, nullptr, 0);
+    PQclear(res);
+}
 // ============================================================================
 // OFFLOADING DATABASE INSERTIONS
 // ============================================================================
@@ -2402,7 +3475,7 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     EV_INFO << "  Vehicle CPU Available: " << request.vehicle_cpu_available << " GHz" << endl;
     EV_INFO << "  Vehicle CPU Utilization: " << (request.vehicle_cpu_utilization * 100) << "%" << endl;
     EV_INFO << "  Vehicle Queue Length: " << request.vehicle_queue_length << endl;
-    
+
     // When using Redis/DRL, decisions come from the checkDecisionMsg timer
     // (which reads multi-agent decisions from Redis with agentDecisions payload).
     // The legacy heuristic path is only used when Redis is not available.
@@ -2475,11 +3548,40 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                 decisionType = "SERVICE_VEHICLE";
                 target_service_vehicle_id  = sv_id;
                 target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
+
+                double sv_tau_total = request.deadline_seconds * 0.7;
+                auto svIt = vehicle_twins.find(sv_id);
+                if (svIt != vehicle_twins.end()) {
+                    const VehicleDigitalTwin& sv = svIt->second;
+                    const double tv_sv_dist = std::sqrt(
+                        (request.pos_x - sv.pos_x) * (request.pos_x - sv.pos_x) +
+                        (request.pos_y - sv.pos_y) * (request.pos_y - sv.pos_y)
+                    );
+                    const double tv_sv_sinr_db = estimateSinrDbWithObstacles(
+                        request.pos_x, request.pos_y, sv.pos_x, sv.pos_y, tv_sv_dist);
+                    const double tv_sv_rate_bps = LinkRateModel::effectiveRateBps(
+                        tv_sv_sinr_db,
+                        offload_link_bandwidth_hz,
+                        offload_rate_efficiency,
+                        offload_rate_cap_bps
+                    );
+                    const double tau_up = LinkRateModel::transferDelaySeconds(
+                        static_cast<double>(request.mem_footprint_bytes),
+                        tv_sv_rate_bps
+                    );
+                    const double tau_down = LinkRateModel::transferDelaySeconds(
+                        static_cast<double>(request.mem_footprint_bytes) * std::max(0.01, offload_response_ratio),
+                        tv_sv_rate_bps
+                    );
+                    const double sv_cpu_hz = std::max(1.0, sv.cpu_available * 1e9);
+                    const double tau_comp = static_cast<double>(request.cpu_cycles) / sv_cpu_hz;
+                    sv_tau_total = tau_up + tau_comp + tau_down;
+                }
                 reason = "Round-robin placeholder: delegating to service vehicle " + sv_id
                          + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
                              vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
                 confidence = 0.75;
-                estimated_completion_time = request.deadline_seconds * 0.7;
+                estimated_completion_time = sv_tau_total;
                 std::cout << "SV_DECISION: Task " << request.task_id
                           << " routed to service vehicle " << sv_id
                           << " MAC=" << target_service_vehicle_mac << std::endl;
@@ -2506,7 +3608,30 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
                 decisionType = "RSU";
                 reason = "RSU offloading (round-robin placeholder)";
                 confidence = 0.8;
-                estimated_completion_time = request.deadline_seconds * 0.6;
+
+                const double tv_rsu_dist = std::sqrt(
+                    (request.pos_x - curPosition.x) * (request.pos_x - curPosition.x) +
+                    (request.pos_y - curPosition.y) * (request.pos_y - curPosition.y)
+                );
+                const double tv_rsu_sinr_db = estimateSinrDbWithObstacles(
+                    request.pos_x, request.pos_y, curPosition.x, curPosition.y, tv_rsu_dist);
+                const double tv_rsu_rate_bps = LinkRateModel::effectiveRateBps(
+                    tv_rsu_sinr_db,
+                    offload_link_bandwidth_hz,
+                    offload_rate_efficiency,
+                    offload_rate_cap_bps
+                );
+                const double tau_up = LinkRateModel::transferDelaySeconds(
+                    static_cast<double>(request.mem_footprint_bytes),
+                    tv_rsu_rate_bps
+                );
+                const double tau_down = LinkRateModel::transferDelaySeconds(
+                    static_cast<double>(request.mem_footprint_bytes) * std::max(0.01, offload_response_ratio),
+                    tv_rsu_rate_bps
+                );
+                const double rsu_cpu_hz = std::max(1.0, rsu_cpu_available * 1e9);
+                const double tau_comp = static_cast<double>(request.cpu_cycles) / rsu_cpu_hz;
+                estimated_completion_time = tau_up + tau_comp + tau_down;
             }
         }
     } else {
@@ -2943,6 +4068,29 @@ void MyRSUApp::reallocateRSUTasks() {
     }
 }
 
+void MyRSUApp::reallocateRSUTasks(double new_cpu_per_task_Hz) {
+    if (rsuPendingTasks.empty() || new_cpu_per_task_Hz <= 0.0) {
+        return;
+    }
+
+    double now = simTime().dbl();
+    for (auto& kv : rsuPendingTasks) {
+        PendingRSUTask& t = kv.second;
+        double elapsed = now - t.last_reschedule_time;
+        double cycles_burned = t.cpu_allocated_hz * elapsed;
+        t.cycles_remaining = std::max(0.0, t.cycles_remaining - cycles_burned);
+        t.last_reschedule_time = now;
+        t.cpu_allocated_hz = new_cpu_per_task_Hz;
+
+        if (t.completion_event && t.completion_event->isScheduled()) {
+            cancelEvent(t.completion_event);
+        }
+        double new_exec = t.cycles_remaining / new_cpu_per_task_Hz;
+        t.exec_time_s = new_exec;
+        scheduleAt(simTime() + new_exec, t.completion_event);
+    }
+}
+
 bool MyRSUApp::canReserveRSUMemory(uint64_t bytes) const {
     const double required_gb = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
     return required_gb <= (getEffectiveRSUMemoryAvailable() + 1e-12);
@@ -3100,7 +4248,6 @@ void MyRSUApp::tryStartQueuedRSUTasks() {
                 << " (remaining queue=" << rsuWaitingQueue.size() << ")" << endl;
     }
 }
-
 void MyRSUApp::sendTaskResultToVehicle(const std::string& task_id, const std::string& vehicle_id,
                                         LAddress::L2Type vehicle_mac, LAddress::L2Type ingress_rsu_mac,
                                         bool success,
@@ -3204,7 +4351,6 @@ void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
         delete msg;
         return;
     }
-
     auto macIt = vehicle_macs.find(vehicle_id);
     if (macIt == vehicle_macs.end()) {
         EV_WARN << "RSU relay received task result but vehicle MAC is unknown for " << vehicle_id << endl;
@@ -3272,7 +4418,6 @@ void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress:
         delete msg;
         return;
     }
-
     if (targetRsuMac != 0 && targetRsuMac != myId) {
         populateWSM(msg, targetRsuMac);
         sendDown(msg);
@@ -3829,6 +4974,7 @@ void MyRSUApp::broadcastRSUStatus() {
     // Coverage information with full vehicle details
     // Include only vehicles currently owned by self range, limit list size to avoid huge packets
     std::vector<VehicleDetailInBroadcast> vehicle_details_list;
+    std::vector<std::string> vehicle_list;
     int count = 0;
     for (const auto& pair : vehicle_twins) {
         if (count >= max_vehicles_in_broadcast) break;
@@ -3850,6 +4996,7 @@ void MyRSUApp::broadcastRSUStatus() {
             detail.setQueue_length(vdt.current_queue_length);
 
             vehicle_details_list.push_back(detail);
+            vehicle_list.push_back(pair.first);
             count++;
         }
     }
@@ -3857,6 +5004,10 @@ void MyRSUApp::broadcastRSUStatus() {
     msg->setVehicle_details_in_coverageArraySize(vehicle_details_list.size());
     for (size_t i = 0; i < vehicle_details_list.size(); i++) {
         msg->setVehicle_details_in_coverage(i, vehicle_details_list[i]);
+    }
+    msg->setVehicle_ids_in_coverageArraySize(vehicle_list.size());
+    for (size_t i = 0; i < vehicle_list.size(); i++) {
+        msg->setVehicle_ids_in_coverage(i, vehicle_list[i].c_str());
     }
     msg->setVehicle_count(vehicle_twins.size());
     
@@ -3926,6 +5077,10 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
         vd.queue_length = detail.getQueue_length();
         state.vehicle_details_in_coverage.push_back(vd);
     }
+    state.vehicle_ids_in_coverage.clear();
+    for (size_t i = 0; i < msg->getVehicle_ids_in_coverageArraySize(); i++) {
+        state.vehicle_ids_in_coverage.push_back(msg->getVehicle_ids_in_coverage(i));
+    }
     
     state.pos_x = msg->getPos_x();
     state.pos_y = msg->getPos_y();
@@ -3964,7 +5119,9 @@ void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {
     for (const auto& v : state.vehicle_details_in_coverage) {
         refreshVehicleCoverageRecord(v.vehicle_id);
     }
-
+    for (const auto& v : state.vehicle_ids_in_coverage) {
+        refreshVehicleCoverageRecord(v);
+    }
     EV_DEBUG << "  Neighbor " << neighbor_rsu_id << ": "
              << "Q=" << state.queue_length << "/" << state.max_concurrent_tasks
              << ", CPU=" << state.cpu_available_ghz << "/" << state.cpu_total_ghz << " GHz"

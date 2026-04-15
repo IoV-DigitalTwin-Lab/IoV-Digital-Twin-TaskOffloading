@@ -11,6 +11,7 @@
 #include "TaskOffloadingDecision.h"
 #include "EnergyModel.h"
 #include "MetricsManager.h"
+#include "RedisDigitalTwin.h"
 #include <queue>
 #include <set>
 #include <vector>
@@ -22,15 +23,16 @@ namespace complex_network {
 class PayloadVehicleApp : public veins::DemoBaseApplLayer {
 protected:
     virtual void initialize(int stage) override;
+    virtual void finish() override;
     virtual void onWSM(veins::BaseFrame1609_4* wsm) override;
     virtual void handleMessage(cMessage* msg) override;
     virtual void handleSelfMsg(cMessage* msg) override;
     virtual void receiveSignal(cComponent* src, simsignal_t id, cObject* obj, cObject* details) override;
-    virtual void finish() override;
 
 private:
     veins::LAddress::L2Type myMacAddress;  // Store our own MAC address
     bool messageSent = false;              // To send only once
+    bool motionChannelOnly = false;        // Secondary DT mode: mobility + channel only
     
     // Vehicle data members (similar to VehicleApp)
     double flocHz_max = 0.0;         // Maximum CPU capacity (Hz)
@@ -100,6 +102,10 @@ private:
     uint32_t tasks_rejected = 0;
     
     double total_completion_time = 0.0;       // Sum for average calculation
+
+    // Recurring self-messages owned by this module
+    cMessage* sendPayloadEvent = nullptr;
+    cMessage* monitorPositionEvent = nullptr;
     
     // Self-messages for task generation (one per task type)
     cMessage* localObjDetEvent = nullptr;
@@ -145,6 +151,14 @@ private:
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
     void applyTaskEnergyDrain(double energy_joules, const std::string& source);
+    void exportRouteProgressToRedis();       // Export minimal route anchor for external predictor
+
+    // Route-progress Redis export (separate from heartbeat)
+    bool routeProgressRedisEnabled = false;
+    std::string routeProgressRedisHost = "127.0.0.1";
+    int routeProgressRedisPort = 6379;
+    int routeProgressRedisDb = 0;
+    RedisDigitalTwin* routeProgressRedisClient = nullptr;
     
     // ============================================================================
     // MODERN RSU SELECTION SYSTEM
@@ -220,9 +234,6 @@ private:
     double getRSUDistance();                          // Get distance to selected RSU
     double getEstimatedRSSI();                        // Get estimated RSSI to RSU
     double estimateTransmissionTime(Task* task);     // Estimate network transmission time
-
-    // Secondary Digital Twin mode: mobility + channel only, no task generation.
-    bool motionChannelOnly = false;
     
     // Offloading request/response handlers
     void sendOffloadingRequestToRSU(Task* task, OffloadingDecision localDecision, const GateBDecisionResult& gateResult);

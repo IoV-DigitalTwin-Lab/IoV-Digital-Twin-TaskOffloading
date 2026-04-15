@@ -51,19 +51,37 @@ simple MyRSUApp like IBaseApplLayer
         double overloadQueueThreshold = default(0.8);                 // Queue load threshold (80% of max)
         double overloadCpuHeadroom = default(0.1);                    // Min CPU headroom to maintain (10%)
         int maxConcurrentProcessing = default(10);                    // Max concurrent tasks being processed
-        
+
         // Queue Management
         int rsuQueueCapacity = default(5);                           // Max tasks in waiting queue before hard rejection
-        
+
         // Offloading Decision Parameters
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
+        double offloadLinkBandwidthHz = default(10e6);                // Link bandwidth for SINR->rate model
+        double offloadRateEfficiency = default(0.8);                  // PHY/MAC efficiency factor
+        double offloadRateCapBps = default(-1);                       // <=0 means uncapped
+        double offloadResponseRatio = default(0.2);                   // Response size ratio to request size
 
         // Secondary DT context export (motion + channel context only)
         bool secondaryLinkContextExport = default(false);
         string secondaryRunId = default("dt2_default");
         double secondaryLinkSampleInterval @unit(s) = default(0.1s);
         int secondaryRedisMaxSeriesLen = default(6000);
+        string secondaryPredictorMode = default("placeholder");
+        bool secondaryUseExternalPredictions = default(true);
+        double secondaryPredictionHorizon @unit(s) = default(0.5s);
+        double secondaryPredictionStep @unit(s) = default(0.02s);
+        double secondaryCycleInterval @unit(s) = default(0.1s);
+        double secondaryCandidateRadius @unit(m) = default(1500m);
+        bool secondaryQPublishEnabled = default(true);
+        double secondarySinrThresholdDb = default(3);
+        double secondaryInterferenceMw = default(0.09);
+        int secondaryQTTLSec = default(2);
+        int secondaryQStreamMaxLen = default(200000);
+        bool secondaryNakagamiEnabled = default(true);
+        double secondaryNakagamiM = default(1.0);
+        double secondaryNakagamiCellSize @unit(m) = default(5m);
 
     gates:
         input lowerLayerIn;
