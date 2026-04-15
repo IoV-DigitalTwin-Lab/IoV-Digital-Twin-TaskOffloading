@@ -87,3 +87,4 @@ logs/*
 # Python cache artifacts
 __pycache__/
 *.pyc
+README_SINR_IMPLEMENTATION_PHASES.md

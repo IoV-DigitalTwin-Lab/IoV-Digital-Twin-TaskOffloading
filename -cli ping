@@ -1,0 +1,164 @@
+[33m3beb40c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32msinr-calc-updated[m[33m, [m[1;31morigin/sinr-calc-updated[m[33m)[m Ignore Python cache artifacts
+[33m10064ae[m Merge branch 'merge-sinr-into-main' into premerge-main-sync
+[33ma39cfb4[m[33m ([m[1;31morigin/merge-sinr-into-main[m[33m)[m Improve secondary DT/controller orchestration and event-driven prediction triggering
+[33m18816f6[m Merge sinr-calulation into merge-sinr-into-main
+[33m0e51347[m[33m ([m[1;31morigin/sinr-calulation[m[33m)[m Add SINR calculation enhancements: interference integration, dt2/RSU priority chain, benchmarking tools
+[33m069c424[m Restore route progress export and Redis APIs
+[33m27d5d06[m Restore files lost after rebase abort
+[33m94ca970[m Add pending local files after rebase abort
+[33m3ba520d[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m Merge pull request #35 from IoV-DigitalTwin-Lab/task-cycle
+[33m4f3eb06[m[33m ([m[1;31morigin/task-cycle[m[33m)[m CPU and Memory allocation in resources for realistic utilization.
+[33m33d4576[m Energy State Update on Redis
+[33m25e35d0[m Merge pull request #34 from IoV-DigitalTwin-Lab/task-cycle
+[33mac033d4[m Task Status Logging added to Redis
+[33m5cf58bd[m[33m ([m[1;31morigin/task-validation[m[33m, [m[1;32mtask-validation[m[33m)[m Merge pull request #33 from IoV-DigitalTwin-Lab/feature/drl-redis-integration
+[33mc78a4fb[m[33m ([m[1;31morigin/feature/drl-redis-integration[m[33m)[m Add logs directory to .gitignore to prevent log files from being tracked
+[33m23a8985[m Fix end-to-end multi-agent decision pipeline (Bugs 10-13)
+[33m5168322[m Add fail_reason field to writeTaskResults for DRL failure diagnostics
+[33m9abc855[m feat: add VehicleDetailInBroadcast class for enhanced RSU status broadcasts
+[33meff4c42[m Add VehicleDetailInBroadcast class and update RSUStatusBroadcastMessage
+[33m599bdda[m Add SINR calculation changes
+[33m513b0d6[m Merge branch 'main' into feature/drl-redis-integration
+[33m47a1616[m Merge pull request #31 from IoV-DigitalTwin-Lab/task-validation
+[33m7911447[m Enhance RSU decision timeout handling for offloading tasks and improve fallback logic
+[33mf4dba9e[m Refactor offloading decision handling to integrate Gate B results and enhance decision context
+[33m1fa0124[m Move Metadata Transmission After Gate B Decision
+[33m3af22d8[m Enforce Stage 2 Override Rules
+[33mf60048e[m Add forced execution and offloading tags to Task and update decision logic
+[33maf847ca[m Implement Gate B decision-making parameters and enhance HeuristicDecisionMaker logic
+[33m1cf1f85[m Add offloading rule tags to TaskProfile for Gate B staged policy
+[33ma966a52[m Add Gate B Result Types and Data Contract
+[33mfd74545[m Edited .gitignore
+[33m82ad1e9[m Add queue entry time tracking for deferred tasks in PayloadVehicleApp
+[33m08cef00[m Refactor task statistics in MyRSUApp to improve tracking of task arrivals and admissions
+[33m31dd600[m Implement task event cleanup in PayloadVehicleApp for better resource management
+[33m9b9a9ff[m Refactor CPU resource allocation logic in PayloadVehicleApp for improved accuracy and safety
+[33m4b60d87[m Enhance task queue management by implementing utility based task replacement in PayloadVehicleApp
+[33maa7c192[m[33m ([m[1;32msecondary-dt-launch[m[33m)[m Implement weighted CPU sharing and queue management in MyRSUApp for improved task handling
+[33m162ed8b[m feat(sim): reduce task generation periods to ease RSU load
+[33m9c8973f[m feat: write neighbor RSU states to local Redis DB on broadcast receipt
+[33m2ee6957[m feat: multi-agent true execution and Redis results integration
+[33m7ae5ca5[m Merge pull request #30 from IoV-DigitalTwin-Lab/secondary-dt-launch
+[33m8cc5e12[m[33m ([m[1;31morigin/secondary-dt-launch[m[33m)[m Refactor logging levels and add dual simulation launcher script
+[33m430414c[m Merge pull request #29 from IoV-DigitalTwin-Lab/task-cycle
+[33m3cef497[m TraCIScenarioManagerForker instead of TraCIScenarioManager for bg simulation.
+[33m2ea5693[m Task status update fixed, DT-Secondary-MotionalChannel Config added
+[33m0e710dd[m Merge pull request #28 from IoV-DigitalTwin-Lab/i2i-communication
+[33m115059f[m Update parameter definitions
+[33mba1cdec[m Add service vehicle routing and result relay handling in RSU application
+[33m861787e[m Enhance RSU task processing for improved task offloading and vehicle coverage management
+[33mbd56605[m Refactor energy calculation methods in EnergyModel for improved accuracy and clarity
+[33m305fb62[m Enhance Redis integration by adding logical DB selection for RSUs and updating heartbeat interval for improved synchronization
+[33mc6504f6[m Revert "Merge Task-Modelling-Javin: Integrate task modelling and RSU2RSU communications"
+[33m497247a[m[33m ([m[1;31morigin/backup/main-before-rollback-20260318[m[33m)[m Merge Task-Modelling-Javin: Integrate task modelling and RSU2RSU communications
+[33ma0d8ee9[m[33m ([m[1;31morigin/Task-Modelling-Javin[m[33m)[m rsu2rsu update
+[33mf1ad844[m Disable RSU-to-RSU wireless broadcasts to reduce network clutter
+[33m722f955[m Fix: Restore vehicle heartbeat to 100ms, disable PostgreSQL init hang, fix task scheduling
+[33m84cc35d[m wired lile wireless medium between rsus
+[33md7fc18a[m Fix: Use headless sumo for reliable TraCI connection
+[33m969c278[m error fixes
+[33m02d923f[m Implementation of rsu2rsu comms and changes to task porcessing
+[33ma5f435f[m Task modelling
+[33me615236[m Task LifeCycle Adjustments
+[33me4ecf43[m feat: Enhance Task Metadata and Object Detection Messaging
+[33m3ad6f66[m Add TaskProfile and TaskProfileDatabase classes for task management
+[33m007c5af[m Add installation requirements and database setup script
+[33m5cbdd61[m Fix the issues in configuring the simulation working in the remote server
+[33m9de529f[m Fix the issues in configuring the simulation working in the remote server
+[33mbd18e53[m Merge pull request #27 from IoV-DigitalTwin-Lab/i2i-communication
+[33m7833576[m Refactor task processing methods and remove unused object detection data handling
+[33mc186e64[m Refactor ComplexNetwork configuration and update logging settings for improved simulation management
+[33ma9746cd[m Add launch script for OMNeT++ simulation and initial Qtenv output log
+[33md68b6f3[m Enhance database connection handling and add simulation launch configuration
+[33m109cbdb[m Merged RSU-to-RSU Communication Features
+[33mf3cb9d3[m gitignore updated
+[33m29e2db1[m[33m ([m[1;31morigin/Task-Modelling-Updated[m[33m)[m Merge pull request #26 from IoV-DigitalTwin-Lab/task-cycle
+[33m79ea0d9[m Fix thresholds related to Task LifeCycle.
+[33mca9670e[m Added Task Events for offloading and local execution cycles.
+[33mb24a206[m Changed Task Lifecycle parameters
+[33m1de29cb[m Merge pull request #25 from IoV-DigitalTwin-Lab/task-cycle
+[33m295671f[m Task LifeCycle Adjustments
+[33mee6b17d[m Implementation of rsu2rsu comms and changes to task porcessing
+[33mf93cb39[m Merge pull request #24 from IoV-DigitalTwin-Lab/Digital-Twin-Storage
+[33m4199331[m[33m ([m[1;31morigin/Digital-Twin-Storage[m[33m, [m[1;32mDigital-Twin-Storage[m[33m)[m feat: Enhance Task Metadata and Object Detection Messaging
+[33m669c4cc[m Add TaskProfile and TaskProfileDatabase classes for task management
+[33m747adf0[m Merge pull request #23 from IoV-DigitalTwin-Lab/Digital-Twin-Storage
+[33m12631da[m Add installation requirements and database setup script
+[33m58b321d[m Task parameters and model updated
+[33m5a6b6d9[m Merge pull request #22 from IoV-DigitalTwin-Lab/fix/simulation-config
+[33mdab636a[m[33m ([m[1;31morigin/fix/simulation-config[m[33m, [m[1;32mfix/simulation-config[m[33m)[m Fix the issues in configuring the simulation working in the remote server
+[33m76b94f7[m Fix the issues in configuring the simulation working in the remote server
+[33m1463728[m task modelling phase 1
+[33m45e3705[m Task modelling
+[33m6c8dd38[m[33m ([m[1;31morigin/check-codes-Dinuka1[m[33m)[m Merge pull request #20 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33m8b7ec36[m Merge pull request #19 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33mda451f6[m[33m ([m[1;31morigin/dt-task-offloading[m[33m)[m Implement Redis-based decision polling and offloading request handling
+[33m3ed7a92[m Integrate Redis Digital Twin for real-time vehicle and task state management
+[33m85d820e[m Merge pull request #18 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33m715df68[m sample commit
+[33m830125e[m Merge pull request #17 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33ma95c15c[m Add realistic random vehicle distribution and route generation
+[33m37c3555[m feat: Enhance RSU and Vehicle Communication with ML Decision Integration - Added decision polling mechanism in MyRSUApp to fetch ML decisions from the database. - Implemented a new self-message for periodic decision checks. - Updated VehicleResourceStatusMessage to include acceleration and heading attributes. - Enhanced PayloadVehicleApp to calculate and send vehicle acceleration and heading. - Modified database interaction to handle new fields and ensure proper decision tracking. - Increased simulation time limit in omnetpp.ini for extended testing. - Updated .gitignore to include new documentation files.
+[33mbd749b4[m Merge pull request #16 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33m401b2fc[m Moved database to cloud
+[33m613d3f5[m Merge pull request #15 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33mfeb5d8c[m feat: implement RSU resource tracking and status updates with database integration
+[33m9342634[m feat: implement task completion tracking and latency metrics in database
+[33m08a34e1[m feat: extend OffloadingRequest structure with additional vehicle parameters and update database insertion logic
+[33m6c069f3[m Merge pull request #14 from IoV-DigitalTwin-Lab/dt-task-offloading
+[33mb723872[m fixed: enhance offloading request logging and adjust vehicle queue length type
+[33m7133aa8[m feat: implement offloading request, decision, and event database insertions
+[33m94523c1[m Service Vehicle Implementation Completed
+[33mc107393[m feat: add offloading message classes and extend offloading decision framework
+[33m5a7aef6[m Organized the vehicle status data properly
+[33me69b99d[m Fix: Fix the issues after merge
+[33m8977b13[m Merge pull request #13 from IoV-DigitalTwin-Lab/task-offload
+[33m8ccbe9d[m[33m ([m[1;31morigin/task-offload[m[33m)[m V2RSU - RSU selection logic improved.
+[33mb96e748[m Merge pull request #12 from IoV-DigitalTwin-Lab/communication-parameters-2
+[33m5781b80[m[33m ([m[1;31morigin/communication-parameters-2[m[33m)[m Merge remote-tracking branch 'origin/main' into communication-parameters-2
+[33ma1abf83[m Disable RSUHttpPoster and implement direct PostgreSQL telemetry insertion
+[33me452299[m Task metadata saved in the database
+[33mfcb3252[m fix: Added undefine parameters and fixed minor issues
+[33m215689a[m Merge pull request #11 from IoV-DigitalTwin-Lab/MIHIRAJA-KURUPPU-patch-1
+[33m5341263[m[33m ([m[1;31morigin/MIHIRAJA-KURUPPU-patch-1[m[33m)[m Delete rsu_poster.log
+[33mbea9331[m Implementation of task generating and processing
+[33m2d354e5[m Merge pull request #10 from IoV-DigitalTwin-Lab/digital-twin
+[33m8225ca8[m Merge remote-tracking branch 'origin/digital-twin' into communication-parameters-2
+[33m1831946[m Battery cap. Memory cap params of vehicle and static params of RSU.
+[33m5093001[m Configured transmit power
+[33m3254d0a[m Merge remote-tracking branch 'origin/main' into communication-parameters-2
+[33mb33fece[m Edited gitignore
+[33me42a998[m Merge pull request #9 from IoV-DigitalTwin-Lab/digital-twin
+[33mf9e1108[m Merge remote-tracking branch 'origin/main' into digital-twin
+[33m582c6c2[m Vehicle Dynamic Movement, RSU placement, CPU capacity dynamics
+[33mbd3be69[m Merge pull request #8 from IoV-DigitalTwin-Lab/communication-parameters-2
+[33m95199d0[m Ensure proper signal flow for fading
+[33m90f5d0d[m Remove Circles
+[33mecf8dc8[m Integrated Realistic Map into Current Implementation.
+[33m495f31b[m Fixed the errors
+[33mff3c576[m Nakagami Model implemented
+[33m33e4a34[m Updated the logs to show the shadowing effects
+[33m4a137fe[m Introducing Communication Parameters
+[33m04c5c26[m[33m ([m[1;31morigin/vehicular-network[m[33m)[m Updated gitignore
+[33m22ad87a[m Python endpoint connected with OMNetpp
+[33md5b7d63[m Python End Point Function Implemented
+[33ma0f2a46[m Updated the code
+[33m2320f15[m Database added
+[33md933f2f[m Dynamic payload included in the message
+[33m27f3efe[m Merge pull request #3 from IoV-DigitalTwin-Lab/vehicle-param
+[33m7f050b8[m fix
+[33m6c103a5[m Added Vehicle Parameters
+[33md7a82f9[m Delete out/gcc-release directory
+[33m0d35bf2[m Delete .settings directory
+[33md6e68c1[m Delete results directory
+[33mb14483b[m Merge pull request #2 from IoV-DigitalTwin-Lab/vehicular-network
+[33m4d02c5e[m Communication between with dummy messages between vehicle and RSU
+[33m9af1764[m Merge pull request #1 from IoV-DigitalTwin-Lab/vehicular-network
+[33mc907484[m Modified and added some comments
+[33m2ab8dfa[m Implemented Unicast filtering at receiver
+[33mc600d2f[m Vehicle to RSU communication
+[33m8a29ebb[m Singular vehicular node receiving the RSU messages
+[33m2192147[m RSU communication with a single vehicular node
+[33me046333[m Simple vehicular network with RSU communication including obstacles
+[33ma40fbeb[m Simple vehicular network with RSU communication
+[33mf59f67f[m Initial commit with simple vehicular network with grid

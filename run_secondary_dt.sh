@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Keep launcher display and controller runtime default aligned (100 ms).
+export DT2_POLL_INTERVAL_S="${DT2_POLL_INTERVAL_S:-0.1}"
+
 # Locate Python (prefer .venv alongside OMNeT++ tree).
 PYTHON="${PYTHON:-python}"
 for candidate in \
@@ -29,7 +32,7 @@ trap cleanup EXIT INT TERM
 # Start the external controller in the background.
 # It publishes dt2:pred:* predictions that the secondary simulation reads
 # each Q-cycle to compute SINR values and write dt2:q:*:entries.
-echo "[run_secondary_dt] Starting external controller (poll interval: ${DT2_POLL_INTERVAL_S:-0.02}s)..."
+echo "[run_secondary_dt] Starting external controller (poll interval: ${DT2_POLL_INTERVAL_S}s)..."
 "$PYTHON" "$SCRIPT_DIR/external_controller.py" &
 CTRL_PID=$!
 echo "[run_secondary_dt] External controller PID=$CTRL_PID"
