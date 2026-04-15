@@ -59,6 +59,13 @@ class ExternalController:
         self.prediction_step_s = float(os.getenv("DT2_PRED_STEP_S", "0.02"))
         self.prediction_ttl_s = int(os.getenv("DT2_PRED_TTL_S", "2"))
         self.q_cycle_scan_limit = int(os.getenv("DT2_Q_SCAN_LIMIT", "50000"))
+        # Poll interval (seconds, wall-clock) used for fallback polling and short waits.
+        # Heartbeat cadence is typically 0.1s, so default to that to avoid redundant scans.
+        self.poll_interval_s = float(os.getenv("DT2_POLL_INTERVAL_S", "0.1"))
+        # Event-driven mode triggers prediction publishing immediately on vehicle-state writes.
+        self.event_driven_predictions = os.getenv("DT2_EVENT_DRIVEN_PRED", "1") == "1"
+        self._pubsub = None
+        self._keyspace_pattern = ""
         self.last_prediction_source_ts = -1.0
         self.prediction_cycle_id = 0
 
@@ -68,6 +75,65 @@ class ExternalController:
         self.edge_lengths: Dict[str, float] = {}
         self.vehicle_route_cursor: Dict[str, int] = {}
         self._load_static_route_knowledge()
+        self._init_prediction_triggering()
+
+    def _init_prediction_triggering(self) -> None:
+        if not self.event_driven_predictions:
+            logger.info("Prediction trigger mode: polling every %.3fs", self.poll_interval_s)
+            return
+
+        try:
+            cfg = self.redis.config_get("notify-keyspace-events")
+            flags = cfg.get("notify-keyspace-events", "") if isinstance(cfg, dict) else ""
+            if isinstance(flags, bytes):
+                flags = flags.decode(errors="ignore")
+
+            # Need keyspace events + hash events to react to HSET/HMSET on vehicle latest keys.
+            has_keyspace = "K" in flags
+            has_hash = "h" in flags
+            if not (has_keyspace and has_hash):
+                merged = "".join(sorted(set((flags or "") + "Kh")))
+                self.redis.config_set("notify-keyspace-events", merged)
+                logger.info("Enabled Redis keyspace notifications: %s", merged)
+
+            self._pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+            self._keyspace_pattern = f"__keyspace@{self.redis.connection_pool.connection_kwargs.get('db', 0)}__:dt2:vehicle:{self.run_id}:*:latest"
+            self._pubsub.psubscribe(self._keyspace_pattern)
+            logger.info("Prediction trigger mode: event-driven via %s", self._keyspace_pattern)
+        except Exception as exc:
+            # Fallback to polling if Redis permissions/config block keyspace notifications.
+            logger.warning("Event-driven prediction trigger unavailable (%s), falling back to polling", exc)
+            self.event_driven_predictions = False
+            self._pubsub = None
+
+    def _wait_for_vehicle_update_event(self, timeout_s: float) -> bool:
+        if not self.event_driven_predictions or self._pubsub is None:
+            return False
+
+        deadline = time.time() + max(0.0, timeout_s)
+        while time.time() <= deadline:
+            msg = self._pubsub.get_message(timeout=0.05)
+            if not msg:
+                continue
+
+            channel = msg.get("channel", b"")
+            data = msg.get("data", b"")
+            if isinstance(channel, bytes):
+                channel = channel.decode(errors="ignore")
+            if isinstance(data, bytes):
+                data = data.decode(errors="ignore")
+
+            if not isinstance(channel, str) or not isinstance(data, str):
+                continue
+            if not channel.startswith(f"__keyspace@"):
+                continue
+            if ":dt2:vehicle:" not in channel:
+                continue
+            if data.lower() not in {"hset", "hmset", "hincrby", "expire", "set"}:
+                continue
+            return True
+
+        return False
 
     def sinr_to_rate_bps(self, sinr_db: float) -> float:
         """Convert SINR (dB) to effective data rate (bps) using Shannon formula."""
@@ -765,11 +831,16 @@ class ExternalController:
 
         while True:
             try:
-                self.maybe_publish_prediction_cycle()
+                # Publish predictions immediately when fresh heartbeat/vehicle state arrives.
+                if self.event_driven_predictions:
+                    if self._wait_for_vehicle_update_event(self.poll_interval_s):
+                        self.maybe_publish_prediction_cycle()
+                else:
+                    self.maybe_publish_prediction_cycle()
 
                 task_id_raw = self.redis.lpop("offloading_requests:queue")
                 if not task_id_raw:
-                    time.sleep(0.05)
+                    time.sleep(self.poll_interval_s)
                     continue
 
                 task_id = task_id_raw.decode(errors='ignore')
@@ -777,14 +848,18 @@ class ExternalController:
                 if latest_cycle is None:
                     # Re-queue for retry when Q cycle arrives.
                     self.redis.rpush("offloading_requests:queue", task_id)
-                    time.sleep(0.2)
+                    if not self.event_driven_predictions:
+                        self.maybe_publish_prediction_cycle()
+                    time.sleep(self.poll_interval_s)
                     continue
 
                 tau_pack = self.compute_tau_candidates(task_id, latest_cycle)
                 if not tau_pack:
                     # Re-queue if inputs are not ready yet.
                     self.redis.rpush("offloading_requests:queue", task_id)
-                    time.sleep(0.1)
+                    if not self.event_driven_predictions:
+                        self.maybe_publish_prediction_cycle()
+                    time.sleep(self.poll_interval_s)
                     continue
 
                 self.write_tau_candidates(

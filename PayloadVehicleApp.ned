@@ -55,7 +55,6 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         
         // Offloading Control
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
-        bool motionChannelOnly = default(false);              // Secondary DT mode: disable task generation/offloading
         bool force_offload = default(false);                  // Force all tasks to be offloaded
         double gateAlpha = default(0.6);                      // Gate-B latency weight
         double gateBeta = default(0.4);                       // Gate-B energy weight
@@ -87,11 +86,6 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         // ---- Legacy task parameters (kept for compatibility) ----
         double taskGenIntervalS @unit(s) = default(2.0s);     // mean cadence for task arrivals
         double paramJitterFactor = default(0.0);              // optional slow drift of Floc/TxP (0 = off)
-        int maxCandidateRsus = default(3);                    // compatibility knob for legacy RSU candidate config
-        int maxRedirectHops = default(2);                     // compatibility knob for legacy redirect limits
-        int candidateBlacklistThreshold = default(2);         // compatibility knob for legacy RSU blacklist threshold
-        double candidateBlacklistDuration @unit(s) = default(5s); // compatibility knob for legacy candidate blacklist
-        double rssiThreshold_dBm = default(-90);              // compatibility knob for legacy RSU threshold
         double taskSizeB_min = default(1e5);
         double taskSizeB_max = default(1.5e5);
         double cpuPerByte_min = default(2e6);
