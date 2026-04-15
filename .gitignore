@@ -83,3 +83,7 @@ README_GATE_B_RSU_TIMEOUT_IMPLEMENTATION.md
 README_GATES.md
 README_GATES_IMPLEMENTATION_PLAN.md
 logs/*
+
+# Python cache artifacts
+__pycache__/
+*.pyc
