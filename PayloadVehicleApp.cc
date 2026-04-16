@@ -122,11 +122,11 @@ void PayloadVehicleApp::initialize(int stage) {
         motionChannelOnly = par("motionChannelOnly").boolValue();
         initializeTaskSystem();
 
-        // Schedule first periodic vehicle status update
-        // Allow configuration; default is t=0 so Redis sees vehicles immediately
+        // Schedule first periodic vehicle status update — store in heartbeatMsg
+        // so finish() can cancel it if SUMO removes this vehicle mid-simulation.
         double firstStatusDelay = par("firstStatusDelayS").doubleValue();
-        cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
-        scheduleAt(simTime() + firstStatusDelay, sendMsgEvent);
+        heartbeatMsg = new cMessage("sendPayloadMessage");
+        scheduleAt(simTime() + firstStatusDelay, heartbeatMsg);
 
         // Schedule periodic position monitoring for shadowing analysis
         cMessage* monitorEvent = new cMessage("monitorPosition");
@@ -291,10 +291,12 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         // This includes position, speed, CPU, memory, and task statistics
         sendVehicleResourceStatus();
 
-        // Schedule next periodic update using heartbeatIntervalS parameter
+        // Schedule next periodic update — store in heartbeatMsg so finish() can
+        // cancel it if SUMO removes this vehicle before the next fire.
         double heartbeatInterval = par("heartbeatIntervalS").doubleValue();
-        scheduleAt(simTime() + heartbeatInterval, new cMessage("sendPayloadMessage"));
-        
+        heartbeatMsg = new cMessage("sendPayloadMessage");
+        scheduleAt(simTime() + heartbeatInterval, heartbeatMsg);
+
         delete msg;
     } 
     else if (strcmp(msg->getName(), "monitorPosition") == 0) {
@@ -1336,6 +1338,18 @@ void PayloadVehicleApp::finish() {
     // to use them), delete our own heap objects (Tasks), then let deleteModule()
     // handle the actual FES/message cleanup.
     // -------------------------------------------------------------------------
+
+    // Cancel the heartbeat explicitly — unlike other timers this one is created
+    // fresh with new cMessage() on every fire (not from a single pre-allocated
+    // cMessage).  When SUMO removes a vehicle mid-simulation, Veins may not call
+    // the standard deleteModule() FES cleanup, leaving the timer in the FES and
+    // causing a SIGSEGV when it fires against the freed module vtable.
+    // cancelAndDelete() is safe here because no Veins signal has touched the
+    // ownership of this plain cMessage timer before finish() is called.
+    if (heartbeatMsg) {
+        cancelAndDelete(heartbeatMsg);
+        heartbeatMsg = nullptr;
+    }
 
     // Null recurring generation timers (deleteModule will remove them from FES).
     localObjDetEvent  = nullptr;

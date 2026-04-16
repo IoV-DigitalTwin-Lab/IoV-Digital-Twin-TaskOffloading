@@ -2395,16 +2395,6 @@ void VehicleResourceStatusMessage::setSenderAddress(const LAddress::L2Type& send
     this->senderAddress = senderAddress;
 }
 
-const LAddress::L2Type& VehicleResourceStatusMessage::getSenderAddress() const
-{
-    return this->senderAddress;
-}
-
-void VehicleResourceStatusMessage::setSenderAddress(const LAddress::L2Type& senderAddress)
-{
-    this->senderAddress = senderAddress;
-}
-
 const char * VehicleResourceStatusMessage::getVehicle_id() const
 {
     return this->vehicle_id.c_str();

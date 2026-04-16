@@ -11,6 +11,7 @@
 #include <deque>
 #include <string>
 #include <set>
+#include <unordered_set>
 #include <cstdint>
 #include <libpq-fe.h>
 
@@ -212,6 +213,10 @@ private:
     // Decision polling timer (for reading ML decisions from database)
     cMessage* checkDecisionMsg = nullptr;
 
+    // Set true at the start of finish() to prevent handleTaskMetadata() from
+    // rescheduling checkDecisionMsg while the module is being torn down.
+    bool isFinishing = false;
+
     // Periodic terminal progress printer
     cMessage* progressMsg_ = nullptr;
     static constexpr double kProgressIntervalS = 30.0;
@@ -294,6 +299,15 @@ private:
     std::map<std::string, VehicleDigitalTwin> vehicle_twins;  // vehicle_id -> twin
     std::map<std::string, TaskRecord> task_records;           // task_id -> record
     std::map<std::string, VehicleCoverageRecord> vehicle_coverage_records; // vehicle_id -> coverage owner
+
+    // Task IDs awaiting an offloading decision from the DRL agent (written to Redis).
+    // The checkDecisionMsg handler iterates THIS set (O(N_pending)) instead of scanning
+    // all of task_records (which grows unboundedly and would become O(N_total_tasks)).
+    // Entries are removed as soon as a decision is dispatched to the vehicle.
+    std::unordered_set<std::string> pending_decision_ids_;
+
+    // Counter used by the periodic task_records cleanup inside checkDecisionMsg.
+    int cleanup_tick_ = 0;
 
     // Pending SV agent subtasks: sub_id (orig::agent) → simtime of dispatch.
     // Written when an agent subtask is sent to a service vehicle; erased when the result

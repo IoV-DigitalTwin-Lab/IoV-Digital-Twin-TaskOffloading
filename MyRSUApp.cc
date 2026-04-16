@@ -244,27 +244,27 @@ void MyRSUApp::initialize(int stage) {
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
         EV << "MyRSUApp: Direct PostgreSQL insertion enabled\n";
     }
+}
 
-    double MyRSUApp::estimateDirectLinkRssiDbm(double distanceMeters) const {
-        const double c = 3.0e8;
-        const double d = std::max(1.0, distanceMeters);
-        const double frequencyHz = std::max(1.0, directLinkCarrierFrequency_Hz);
-        const double lambda = c / frequencyHz;
-        const double antennaHeightM = std::max(0.1, directLinkAntennaHeight_m);
-        const double txPowerDbm = 10.0 * std::log10(std::max(1e-12, directLinkTxPower_mW));
-        const double breakpointDistance = (4.0 * M_PI * antennaHeightM * antennaHeightM) / lambda;
+double MyRSUApp::estimateDirectLinkRssiDbm(double distanceMeters) const {
+    const double c = 3.0e8;
+    const double d = std::max(1.0, distanceMeters);
+    const double frequencyHz = std::max(1.0, directLinkCarrierFrequency_Hz);
+    const double lambda = c / frequencyHz;
+    const double antennaHeightM = std::max(0.1, directLinkAntennaHeight_m);
+    const double txPowerDbm = 10.0 * std::log10(std::max(1e-12, directLinkTxPower_mW));
+    const double breakpointDistance = (4.0 * M_PI * antennaHeightM * antennaHeightM) / lambda;
 
-        double pathLossDb = 0.0;
-        if (d <= breakpointDistance) {
-            pathLossDb = 20.0 * std::log10((4.0 * M_PI * d) / lambda);
-        } else {
-            pathLossDb = 40.0 * std::log10(d)
-                       - 20.0 * std::log10(antennaHeightM)
-                       - 20.0 * std::log10(antennaHeightM);
-        }
-
-        return txPowerDbm - pathLossDb;
+    double pathLossDb = 0.0;
+    if (d <= breakpointDistance) {
+        pathLossDb = 20.0 * std::log10((4.0 * M_PI * d) / lambda);
+    } else {
+        pathLossDb = 40.0 * std::log10(d)
+                   - 20.0 * std::log10(antennaHeightM)
+                   - 20.0 * std::log10(antennaHeightM);
     }
+
+    return txPowerDbm - pathLossDb;
 }
 
 void MyRSUApp::handleSelfMsg(cMessage* msg) {
@@ -314,17 +314,31 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         scheduleAt(simTime() + kProgressIntervalS, progressMsg_);
     }
     else if (msg == checkDecisionMsg) {
-        // Poll Redis first (fast), fallback to PostgreSQL if needed
+        // Poll Redis for DRL decisions.
+        // Iterates only pending_decision_ids_ (O(N_pending)) instead of all task_records
+        // (O(N_total)).  N_pending is bounded by rsuDecisionTimeout × generation_rate and
+        // stays constant regardless of simulation length — critical for long training runs.
         int decisions_found = 0;
         int decisions_sent = 0;
-        
-        for (auto& pair : task_records) {
-            TaskRecord& record = pair.second;
-            
-            // Only check for tasks that:
-            // 1. Are not completed/failed
-            // 2. Haven't had a decision sent yet
-            if (!record.completed && !record.failed && !record.decision_sent) {
+
+        // Collect IDs whose decision has been sent (or whose record is already done).
+        std::vector<std::string> decided;
+
+        for (const auto& tid : pending_decision_ids_) {
+            auto it = task_records.find(tid);
+            if (it == task_records.end()) {
+                decided.push_back(tid);  // record was cleaned up — drop from pending
+                continue;
+            }
+            TaskRecord& record = it->second;
+
+            // Already decided / completed / failed on a previous cycle — skip
+            if (record.completed || record.failed || record.decision_sent) {
+                decided.push_back(tid);
+                continue;
+            }
+
+            {  // scoped block mirrors the original per-task decision logic
                 std::string decision_type;
                 std::string target_id;
                 double confidence = 0.8;  // Default confidence
@@ -399,24 +413,51 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         sendDown(dMsg);
                         
                         record.decision_sent = true;
+                        decided.push_back(tid);  // remove from pending after decision sent
                         decisions_sent++;
-                        
+
                         EV_INFO << "✓ Sent ML decision to vehicle " << record.vehicle_id << endl;
-                        std::cout << "RSU_SEND: Decision sent to " << record.vehicle_id 
+                        std::cout << "RSU_SEND: Decision sent to " << record.vehicle_id
                                   << " for task " << record.task_id << std::endl;
                     } else {
                         EV_WARN << "⚠ Vehicle " << record.vehicle_id << " MAC not found, cannot send decision" << endl;
                         delete dMsg;
+                        // MAC not found — drop from pending so we don't retry forever
+                        decided.push_back(tid);
                     }
                 }
+            }  // end scoped decision-logic block
+        }  // end for (const auto& tid : pending_decision_ids_)
+
+        // Remove sent/resolved IDs from the pending set in one pass.
+        for (const auto& id : decided) pending_decision_ids_.erase(id);
+
+        // Periodic task_records GC — runs every 100 sim-seconds (10 000 timer fires).
+        // Removes records that are old enough for their task lifecycle to be certainly
+        // over, preventing unbounded RAM growth during arbitrarily long training runs.
+        // Tasks decided LOCAL/REJECT never generate an RSU completion callback, so
+        // they would otherwise accumulate indefinitely in task_records.
+        if (++cleanup_tick_ >= 10000) {
+            cleanup_tick_ = 0;
+            const double cutoff = simTime().dbl() - 120.0;  // 120 sim-s grace window
+            std::vector<std::string> to_erase;
+            for (const auto& pr : task_records) {
+                if (pr.second.decision_sent && pr.second.created_time < cutoff) {
+                    to_erase.push_back(pr.first);
+                }
+            }
+            for (const auto& k : to_erase) task_records.erase(k);
+            if (!to_erase.empty()) {
+                EV_INFO << "[GC] Pruned " << to_erase.size()
+                        << " old task records; remaining=" << task_records.size() << endl;
             }
         }
-        
+
         if (decisions_found > 0) {
-            EV_INFO << "📊 Decision poll: " << decisions_found << " found, " 
+            EV_INFO << "📊 Decision poll: " << decisions_found << " found, "
                     << decisions_sent << " sent" << endl;
         }
-        
+
         // Reschedule next check
         scheduleAt(simTime() + 0.01, checkDecisionMsg);
     }
@@ -615,6 +656,9 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
 }
 
 void MyRSUApp::finish() {
+    // Block handleTaskMetadata() from rescheduling checkDecisionMsg during teardown.
+    isFinishing = true;
+
     // Log final Digital Twin statistics
     logDigitalTwinState();
 
@@ -629,53 +673,27 @@ void MyRSUApp::finish() {
     closeDatabase();
     
     EV << "MyRSUApp: stopping RSUHttpPoster...\n";
-    // cancel and delete our beacon self-message if still scheduled
-    if (beaconMsg) {
-        cancelAndDelete(beaconMsg);
-        beaconMsg = nullptr;
-    }
-    
-    // Cancel and delete RSU status update timer
-    if (rsu_status_update_timer) {
-        cancelAndDelete(rsu_status_update_timer);
-        rsu_status_update_timer = nullptr;
-    }
-    
-    // Cancel and delete RSU broadcast timer
-    if (rsu_broadcast_timer) {
-        cancelAndDelete(rsu_broadcast_timer);
-        rsu_broadcast_timer = nullptr;
-    }
-    
-    // Cancel and delete decision checker timer
-    if (checkDecisionMsg) {
-        cancelAndDelete(checkDecisionMsg);
-        checkDecisionMsg = nullptr;
-    }
+    // Null self-message pointers — deleteModule() handles FES cleanup.
+    // Calling cancelAndDelete/cancelEvent here risks crashing in
+    // cSoftOwner::yieldOwnership if ownership was disturbed by prior signal
+    // emissions (traciModuleRemovedSignal).  Same safe pattern as PayloadVehicleApp.
+    beaconMsg               = nullptr;
+    rsu_status_update_timer = nullptr;
+    rsu_broadcast_timer     = nullptr;
+    checkDecisionMsg        = nullptr;
+    progressMsg_            = nullptr;
 
-    // Cancel completion events for in-flight RSU tasks and clear queue state.
+    // Null completion_event pointers for in-flight RSU tasks — deleteModule()
+    // will drain the FES, so calling cancelEvent here is unsafe.
     for (auto& kv : rsuPendingTasks) {
-        cMessage* ev = kv.second.completion_event;
-        if (ev) {
-            if (ev->isScheduled()) {
-                cancelEvent(ev);
-            }
-            delete ev;
-            kv.second.completion_event = nullptr;
-        }
+        kv.second.completion_event = nullptr;
     }
     rsuPendingTasks.clear();
     rsuWaitingQueue.clear();
 
-    // Legacy task structures (kept for compatibility): ensure completion msgs are freed.
+    // Legacy task structures: null completion_msg pointers (deleteModule handles FES).
     for (auto& kv : active_tasks) {
-        if (kv.second.completion_msg) {
-            if (kv.second.completion_msg->isScheduled()) {
-                cancelEvent(kv.second.completion_msg);
-            }
-            delete kv.second.completion_msg;
-            kv.second.completion_msg = nullptr;
-        }
+        kv.second.completion_msg = nullptr;
     }
     active_tasks.clear();
     task_queue.clear();
@@ -684,6 +702,7 @@ void MyRSUApp::finish() {
     pending_offloading_requests.clear();
     neighbor_rsus.clear();
     vehicle_twins.clear();
+    pending_decision_ids_.clear();
     task_records.clear();
     vehicle_coverage_records.clear();
     secondary_last_export_time.clear();
@@ -773,8 +792,9 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     record.is_safety_critical = msg->getIs_safety_critical();
     record.priority_level = msg->getPriority_level();
     
-    // Store in task records
+    // Store in task records and mark as awaiting a DRL decision.
     task_records[task_id] = record;
+    pending_decision_ids_.insert(task_id);
     
     // Update vehicle digital twin
     VehicleDigitalTwin& twin = getOrCreateVehicleTwin(vehicle_id);
@@ -839,15 +859,14 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
     std::cout << "DT_TASK: RSU received metadata for task " << task_id 
               << " from vehicle " << vehicle_id << std::endl;
 
-    // Schedule a check for decision
-    if (!checkDecisionMsg) {
-        checkDecisionMsg = new cMessage("checkDecision");
-    }
-    // Schedule if not already scheduled (or schedule a new one for this task specifically?)
-    // Better to have a periodic checker or one per task. 
-    // For simplicity, let's just ensure the checker is running.
-    if (!checkDecisionMsg->isScheduled()) {
-        scheduleAt(simTime() + 0.01, checkDecisionMsg);
+    // Schedule a check for decision (skip if module is being torn down).
+    if (!isFinishing) {
+        if (!checkDecisionMsg) {
+            checkDecisionMsg = new cMessage("checkDecision");
+        }
+        if (!checkDecisionMsg->isScheduled()) {
+            scheduleAt(simTime() + 0.01, checkDecisionMsg);
+        }
     }
 }
 

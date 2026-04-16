@@ -111,6 +111,11 @@ private:
     cMessage* fleetForecastEvent = nullptr;
     cMessage* voiceCommandEvent = nullptr;
     cMessage* sensorHealthEvent = nullptr;
+    // Periodic heartbeat (resource-status broadcast) timer.
+    // Must be tracked so finish() can cancel it when SUMO removes this vehicle
+    // mid-simulation; an untracked anonymous new cMessage() left in the FES
+    // causes a SIGSEGV (vtable dispatch on freed module) during executeEvent.
+    cMessage* heartbeatMsg = nullptr;
     
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
