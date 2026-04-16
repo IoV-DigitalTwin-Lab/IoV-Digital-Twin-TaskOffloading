@@ -2,13 +2,9 @@
 """
 External Controller Service for IoV Digital Twin Task Offloading
 
-This service has two responsibilities:
-1. Generate route-aware vehicle trajectory predictions from live Redis state
-    plus predefined SUMO routes, and publish them to dt2:pred:* for the
-    secondary simulation.
-2. Read SINR sequences from Redis, convert them to data rates, compute task
-    completion times (tau_up, tau_comp, tau_down, tau_total), and write
-    per-link tau candidates back to Redis for DRL consumption.
+This service is responsible for generating route-aware vehicle trajectory
+predictions from live Redis state plus predefined SUMO routes, and publishing
+them to dt2:pred:* for the secondary simulation.
 
 Prediction inputs:
 - vehicle:{vehicle_id}:state
@@ -18,6 +14,9 @@ Prediction inputs:
 Prediction outputs:
 - dt2:pred:{run_id}:latest
 - dt2:pred:{run_id}:cycle:{cycle_id}:entries
+
+Note:
+- Tau computation is owned by Task-Offloading-Algorithm (Phase 2 architecture).
 """
 
 import redis
@@ -135,37 +134,6 @@ class ExternalController:
 
         return False
 
-    def sinr_to_rate_bps(self, sinr_db: float) -> float:
-        """Convert SINR (dB) to effective data rate (bps) using Shannon formula."""
-        if sinr_db <= 0:
-            return 0.0
-
-        gamma = 10 ** (sinr_db / 10.0)  # Linear SINR
-        rate_bps = self.bandwidth_hz * math.log2(1 + gamma) * self.rate_efficiency
-        return min(rate_bps, 100e6)  # Cap at 100 Mbps
-
-    def accumulate_transmission_time(self, sinr_sequence: List[float], data_bits: int) -> float:
-        """Accumulate transmission time across SINR sequence until data_bits are sent."""
-        total_time = 0.0
-        slot_duration = 0.02  # 20ms slots (match OMNeT++)
-
-        for sinr_db in sinr_sequence:
-            rate_bps = self.sinr_to_rate_bps(sinr_db)
-            if rate_bps <= 0:
-                continue
-
-            bits_per_slot = rate_bps * slot_duration
-            if bits_per_slot >= data_bits:
-                # Last slot completes transmission
-                remaining_time = data_bits / rate_bps
-                total_time += remaining_time
-                break
-            else:
-                # Full slot used
-                data_bits -= bits_per_slot
-                total_time += slot_duration
-
-        return total_time
 
     def _decode_hash(self, data: Dict[bytes, bytes]) -> Dict[str, str]:
         return {
@@ -507,326 +475,20 @@ class ExternalController:
             )
             self.last_prediction_source_ts = latest_source_ts
 
-    def get_task_metadata(self, task_id: str) -> Optional[Dict]:
-        """Retrieve task metadata from Redis using simulation key contract."""
-        request_key = self.key_task_request.format(task_id=task_id)
-        state_key = self.key_task_state.format(task_id=task_id)
-
-        request_raw = self.redis.hgetall(request_key)
-        state_raw = self.redis.hgetall(state_key)
-
-        if not request_raw and not state_raw:
-            return None
-
-        request = self._decode_hash(request_raw) if request_raw else {}
-        state = self._decode_hash(state_raw) if state_raw else {}
-
-        source_vehicle = request.get('vehicle_id', '') or state.get('vehicle_id', '')
-
-        d_in_bytes = self._to_float(request.get('input_size_bytes'), 0.0)
-        d_out_bytes = self._to_float(request.get('output_size_bytes'), 0.0)
-        c_cycles = self._to_float(request.get('cpu_cycles'), 0.0)
-
-        if d_in_bytes <= 0.0:
-            d_in_bytes = self._to_float(state.get('input_size_bytes'), 0.0)
-        if d_out_bytes <= 0.0:
-            d_out_bytes = self._to_float(state.get('output_size_bytes'), 0.0)
-        if c_cycles <= 0.0:
-            c_cycles = self._to_float(state.get('cpu_cycles'), 0.0)
-
-        # Backward compatibility for old schema where d_in/d_out were in MB.
-        if d_in_bytes <= 0.0 and 'd_in' in state:
-            d_in_bytes = self._to_float(state.get('d_in'), 0.0) * 1e6
-        if d_out_bytes <= 0.0 and 'd_out' in state:
-            d_out_bytes = self._to_float(state.get('d_out'), 0.0) * 1e6
-        if c_cycles <= 0.0 and 'c_cycles' in state:
-            c_cycles = self._to_float(state.get('c_cycles'), 0.0)
-
-        return {
-            'd_in_bytes': d_in_bytes,
-            'd_out_bytes': d_out_bytes,
-            'c_cycles': c_cycles,
-            'source_vehicle': source_vehicle,
-        }
-
-    def _normalize_cpu_hz(self, cpu_value: float, default_hz: float = 1e9) -> float:
-        """Normalize CPU availability values to Hz.
-
-        Some producers store CPU in GHz while others store in Hz.
-        """
-        if cpu_value <= 0.0:
-            return default_hz
-        if cpu_value < 1e6:
-            return cpu_value * 1e9
-        return cpu_value
-
-    def get_compute_capacity_hz(self, target_id: str) -> float:
-        """Get available compute capacity in Hz for a vehicle or RSU target."""
-        # RSU resources are stored in a dedicated keyspace.
-        if target_id.startswith("RSU_"):
-            rsu_key = f"rsu:{target_id}:resources"
-            rsu_raw = self.redis.hgetall(rsu_key)
-            if rsu_raw:
-                rsu = self._decode_hash(rsu_raw)
-                cpu_available = self._to_float(rsu.get('cpu_available'), 0.0)
-                return max(self._normalize_cpu_hz(cpu_available), 1.0)
-
-        # Primary source: dt2 vehicle latest state for this run.
-        dt2_key = f"dt2:vehicle:{self.run_id}:{target_id}:latest"
-        dt2_raw = self.redis.hgetall(dt2_key)
-        if dt2_raw:
-            dt2_state = self._decode_hash(dt2_raw)
-            cpu_available = self._to_float(dt2_state.get('cpu_available'), 0.0)
-            if cpu_available > 0.0:
-                return max(self._normalize_cpu_hz(cpu_available), 1.0)
-
-        # Legacy fallback: vehicle:<id>:state.
-        key = self.key_vehicle_state.format(vehicle_id=target_id)
-        raw = self.redis.hgetall(key)
-        if raw:
-            data = self._decode_hash(raw)
-            cpu_available = self._to_float(data.get('cpu_available'), 0.0)
-            if cpu_available > 0.0:
-                return max(self._normalize_cpu_hz(cpu_available), 1.0)
-
-        return 1e9  # Conservative default
-
-    def process_q_entries(self, cycle_id: int) -> Dict[str, Dict]:
-        """Process Q entries for a cycle, group by link."""
-        stream_key = f"dt2:q:{self.run_id}:entries"
-        entries = self.redis.xrevrange(stream_key, max='+', min='-', count=self.q_cycle_scan_limit)
-
-        links = {}  # link_key -> {'sinr_sequence': [], 'metadata': {}}
-
-        seen_target_cycle = False
-        for entry_id, fields in entries:
-            entry_cycle = int(fields.get(b'cycle_index', 0))
-            if entry_cycle > cycle_id:
-                continue
-            if entry_cycle < cycle_id:
-                if seen_target_cycle:
-                    break
-                continue
-            seen_target_cycle = True
-
-            # Parse entry
-            link_type = fields.get(b'link_type', b'').decode()
-            tx_id = fields.get(b'tx_id', b'').decode()
-            rx_id = fields.get(b'rx_id', b'').decode()
-            step_index = int(fields.get(b'step_index', 0))
-            sinr_db = float(fields.get(b'sinr_db', -100))
-            predicted_time = float(fields.get(b'predicted_time', 0))
-
-            link_key = f"{link_type}:{tx_id}:{rx_id}"
-
-            if link_key not in links:
-                links[link_key] = {
-                    'link_type': link_type,
-                    'tx_id': tx_id,
-                    'rx_id': rx_id,
-                    'sinr_sequence': [],
-                    'predicted_times': []
-                }
-
-            # Store SINR in sequence (assume steps are in order)
-            links[link_key]['sinr_sequence'].append(sinr_db)
-            links[link_key]['predicted_times'].append(predicted_time)
-
-        # xrevrange returns newest-first; sort each link sequence by predicted time.
-        for link in links.values():
-            combined = sorted(zip(link['predicted_times'], link['sinr_sequence']))
-            link['sinr_sequence'] = [sinr for _, sinr in combined]
-            link['predicted_times'] = [ts for ts, _ in combined]
-
-        return links
-
-    def get_latest_q_cycle(self) -> Optional[int]:
-        """Read latest published secondary Q cycle index."""
-        latest_key = f"dt2:q:{self.run_id}:latest"
-        raw = self.redis.hget(latest_key, "cycle_index")
-        if raw is not None:
-            try:
-                return int(raw)
-            except (TypeError, ValueError):
-                pass
-
-        # Fallback: derive latest cycle from newest stream entry.
-        stream_key = f"dt2:q:{self.run_id}:entries"
-        tail = self.redis.xrevrange(stream_key, count=1)
-        if not tail:
-            return None
-        _, fields = tail[0]
-        try:
-            return int(fields.get(b'cycle_index', 0))
-        except (TypeError, ValueError):
-            return None
-
-    def write_tau_candidates(self, task_id: str, cycle_id: int,
-                             source_vehicle: str,
-                             candidates: List[Dict]) -> None:
-        """Persist all per-link tau candidates for DRL policy input."""
-        key = f"task:{task_id}:tau_candidates"
-        payload = {
-            'task_id': task_id,
-            'cycle_id': str(int(cycle_id)),
-            'source_vehicle': source_vehicle,
-            'candidate_count': str(len(candidates)),
-            'controller_ts': f"{time.time():.6f}",
-            'candidates_json': json.dumps(candidates),
-        }
-        self.redis.hset(key, mapping=payload)
-
-        # Append immutable audit log entry for debugging and training replay.
-        self.redis.xadd(
-            "controller:tau_candidates:log",
-            {
-                'task_id': task_id,
-                'cycle_id': str(int(cycle_id)),
-                'source_vehicle': source_vehicle,
-                'candidate_count': str(len(candidates)),
-                'controller_ts': f"{time.time():.6f}",
-                'candidates_json': json.dumps(candidates),
-            },
-            maxlen=50000,
-            approximate=True,
-        )
-
-    def _slice_from_offset(self, sinr_sequence: List[float],
-                           predicted_times: List[float],
-                           t_start: float) -> List[float]:
-        """Return the sub-sequence of SINR values whose predicted_time >= t_start.
-
-        This implements the downlink slot-offset offset: the downlink window
-        starts at t_start = t0 + tau_up + tau_comp, so we skip all slots that
-        have already elapsed before the return transmission begins.
-        """
-        if not predicted_times:
-            return sinr_sequence  # No timing info — fall back to full sequence.
-
-        t0 = predicted_times[0]
-        sliced = [
-            sinr
-            for predicted_time, sinr in zip(predicted_times, sinr_sequence)
-            if predicted_time >= t0 + t_start
-        ]
-        # If offset is beyond the end of the window, use the last available slot
-        # as a best-effort estimate (channel is assumed stationary at tail).
-        return sliced if sliced else sinr_sequence[-1:]
-
-    def compute_tau_candidates(self, task_id: str, cycle_id: int) -> Optional[Dict]:
-        """Compute per-link tau candidates for a task using latest Q cycle.
-
-        Tau timeline per candidate:
-          tau_up   — time to upload d_in bits over the UL link (V2V or V2RSU)
-          tau_comp — time to execute c_cycles on the service node
-          tau_down — time to download d_out bits over the DL link, starting
-                     at slot-offset t_start = tau_up + tau_comp into the
-                     predicted window (so we use the correct future SINR slots)
-        """
-        # Get task metadata
-        task = self.get_task_metadata(task_id)
-        if not task:
-            logger.warning(f"No task metadata for {task_id}")
-            return None
-
-        d_in_bits = task['d_in_bytes'] * 8.0
-        d_out_bits = task['d_out_bytes'] * 8.0
-        c_cycles = task['c_cycles']
-        source_vehicle = task['source_vehicle']
-
-        # Get Q entries for this cycle
-        links = self.process_q_entries(cycle_id)
-        if not links:
-            logger.warning(f"No Q entries for cycle {cycle_id}")
-            return None
-
-        candidates = []
-
-        # Evaluate each potential uplink (source_vehicle is the transmitter)
-        for link_key, link_data in links.items():
-            link_type = link_data['link_type']
-            tx_id = link_data['tx_id']
-            rx_id = link_data['rx_id']
-            ul_sinr_seq = link_data['sinr_sequence']
-            ul_pred_times = link_data['predicted_times']
-
-            if link_type == 'V2V' and tx_id == source_vehicle:
-                service_vehicle = rx_id
-
-                # --- Upload ---
-                tau_up = self.accumulate_transmission_time(ul_sinr_seq, d_in_bits)
-
-                # --- Compute ---
-                f_avail_hz = self.get_compute_capacity_hz(service_vehicle)
-                tau_comp = c_cycles / f_avail_hz
-
-                # --- Download: find reverse V2V link (service -> source) ---
-                dl_key = f"V2V:{service_vehicle}:{source_vehicle}"
-                dl_data = links.get(dl_key)
-                if dl_data:
-                    dl_sinr_seq = self._slice_from_offset(
-                        dl_data['sinr_sequence'],
-                        dl_data['predicted_times'],
-                        tau_up + tau_comp,
-                    )
-                else:
-                    # No explicit reverse-link prediction, skip this candidate.
-                    continue
-                tau_down = self.accumulate_transmission_time(dl_sinr_seq, d_out_bits)
-
-            elif link_type == 'V2RSU' and tx_id == source_vehicle:
-                service_vehicle = rx_id  # RSU id
-
-                # --- Upload ---
-                tau_up = self.accumulate_transmission_time(ul_sinr_seq, d_in_bits)
-
-                # --- Compute (RSU has higher capacity; read from vehicle state or default) ---
-                f_avail_hz = self.get_compute_capacity_hz(service_vehicle)
-                tau_comp = c_cycles / f_avail_hz
-
-                # --- Download: RSU -> Vehicle (RSU2V reverse link) ---
-                dl_key = f"RSU2V:{service_vehicle}:{source_vehicle}"
-                dl_data = links.get(dl_key)
-                if dl_data:
-                    dl_sinr_seq = self._slice_from_offset(
-                        dl_data['sinr_sequence'],
-                        dl_data['predicted_times'],
-                        tau_up + tau_comp,
-                    )
-                else:
-                    # No explicit reverse-link prediction, skip this candidate.
-                    continue
-                tau_down = self.accumulate_transmission_time(dl_sinr_seq, d_out_bits)
-
-            else:
-                continue
-
-            tau_total = tau_up + tau_comp + tau_down
-
-            candidates.append({
-                'link_type': link_type,
-                'tx_id': tx_id,
-                'target_id': service_vehicle,
-                'tau_up': tau_up,
-                'tau_comp': tau_comp,
-                'tau_down': tau_down,
-                'tau_total': tau_total,
-                'f_avail_hz': f_avail_hz,
-            })
-
-        if not candidates:
-            return None
-
-        return {
-            'task_id': task_id,
-            'cycle_id': cycle_id,
-            'source_vehicle': source_vehicle,
-            'candidates': sorted(candidates, key=lambda x: x['tau_total']),
-            'timestamp': time.time(),
-        }
 
     def run(self):
-        """Main service loop."""
+        """Main service loop.
+        
+        Phase 1: Publish SINR sequences from secondary DT
+        Phase 2: (Disabled) Task-Offloading-Algorithm now owns tau computation
+        
+        OLD FLOW (now disabled):
+          offloading_requests:queue → [compute tau] → write tau_candidates → drl_pending:queue
+        
+        NEW FLOW:
+          offloading_requests:queue ← [Task-Offloading-Algorithm consumes directly]
+          dt2:q:*:entries ← [SINR from secondary DT] ← [Task-Offloading-Algorithm reads for tau]
+        """
         logger.info("External Controller started (run_id=%s)", self.run_id)
 
         while True:
@@ -838,48 +500,9 @@ class ExternalController:
                 else:
                     self.maybe_publish_prediction_cycle()
 
-                task_id_raw = self.redis.lpop("offloading_requests:queue")
-                if not task_id_raw:
-                    time.sleep(self.poll_interval_s)
-                    continue
-
-                task_id = task_id_raw.decode(errors='ignore')
-                latest_cycle = self.get_latest_q_cycle()
-                if latest_cycle is None:
-                    # Re-queue for retry when Q cycle arrives.
-                    self.redis.rpush("offloading_requests:queue", task_id)
-                    if not self.event_driven_predictions:
-                        self.maybe_publish_prediction_cycle()
-                    time.sleep(self.poll_interval_s)
-                    continue
-
-                tau_pack = self.compute_tau_candidates(task_id, latest_cycle)
-                if not tau_pack:
-                    # Re-queue if inputs are not ready yet.
-                    self.redis.rpush("offloading_requests:queue", task_id)
-                    if not self.event_driven_predictions:
-                        self.maybe_publish_prediction_cycle()
-                    time.sleep(self.poll_interval_s)
-                    continue
-
-                self.write_tau_candidates(
-                    task_id=task_id,
-                    cycle_id=int(tau_pack.get('cycle_id', latest_cycle)),
-                    source_vehicle=str(tau_pack.get('source_vehicle', '')),
-                    candidates=tau_pack.get('candidates', []),
-                )
-
-                # Notify DRL agent that tau candidates are ready for this task.
-                self.redis.rpush("drl_pending:queue", task_id)
-
-                best_tau = float(tau_pack['candidates'][0]['tau_total']) if tau_pack['candidates'] else -1.0
-                logger.info(
-                    "tau-candidates task=%s cycle=%s candidates=%s best_tau=%.6f → queued for DRL",
-                    task_id,
-                    tau_pack.get('cycle_id', latest_cycle),
-                    len(tau_pack.get('candidates', [])),
-                    best_tau,
-                )
+                # NOTE: Do NOT consume offloading_requests:queue here.
+                # Task-Offloading-Algorithm now owns that queue and tau computation.
+                time.sleep(self.poll_interval_s)
 
             except Exception as e:
                 logger.error(f"Controller error: {e}")
