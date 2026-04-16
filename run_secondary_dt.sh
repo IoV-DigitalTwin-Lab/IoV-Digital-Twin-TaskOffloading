@@ -7,18 +7,6 @@ cd "$SCRIPT_DIR"
 # Keep launcher display and controller runtime default aligned (100 ms).
 export DT2_POLL_INTERVAL_S="${DT2_POLL_INTERVAL_S:-0.1}"
 
-# Locate Python (prefer .venv alongside OMNeT++ tree).
-PYTHON="${PYTHON:-python}"
-for candidate in \
-    "$(dirname "$SCRIPT_DIR")/../.venv/bin/python" \
-    "/opt/omnet/omnetpp-6.1/.venv/bin/python" \
-    python3 python; do
-    if command -v "$candidate" &>/dev/null 2>&1; then
-        PYTHON="$candidate"
-        break
-    fi
-done
-
 CTRL_PID=""
 cleanup() {
     if [[ -n "$CTRL_PID" ]] && kill -0 "$CTRL_PID" 2>/dev/null; then
@@ -29,13 +17,30 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Start the external controller in the background.
-# It publishes dt2:pred:* predictions that the secondary simulation reads
-# each Q-cycle to compute SINR values and write dt2:q:*:entries.
+# Build C++ external controller.
+CTRL_BIN="$SCRIPT_DIR/external_controller_cpp"
+CTRL_SRC="$SCRIPT_DIR/external_controller.cpp"
+build_cpp_controller() {
+    local cxx="${CXX:-g++}"
+    local cflags="-std=c++17 -O2"
+    local libs
+    local fallback_inc="-I/home/mihiraja/.local/include"
+    local fallback_lib="-L/home/mihiraja/.local/lib"
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists hiredis; then
+        libs="$(pkg-config --libs hiredis)"
+        cflags="$cflags $(pkg-config --cflags hiredis)"
+    else
+        libs="$fallback_lib -lhiredis"
+        cflags="$cflags $fallback_inc"
+    fi
+    "$cxx" $cflags "$CTRL_SRC" -o "$CTRL_BIN" $libs
+}
+
 echo "[run_secondary_dt] Starting external controller (poll interval: ${DT2_POLL_INTERVAL_S}s)..."
-"$PYTHON" "$SCRIPT_DIR/external_controller.py" &
+build_cpp_controller
+"$CTRL_BIN" "$SCRIPT_DIR" &
 CTRL_PID=$!
-echo "[run_secondary_dt] External controller PID=$CTRL_PID"
+echo "[run_secondary_dt] External controller C++ PID=$CTRL_PID"
 
 # Give the controller one poll cycle to publish initial predictions before
 # the simulation starts issuing Q-cycles.
