@@ -58,10 +58,20 @@ simple MyRSUApp like IBaseApplLayer
         // Offloading Decision Parameters
         bool mlModelEnabled = default(false);                         // Enable ML-based decision (DRL)
         string decisionStrategy = default("LOAD_AWARE");              // Strategy: LOAD_AWARE, ROUND_ROBIN, DRL
+        string offloadMode = default("heuristic");                    // "heuristic" | "allOffload" | "allLocal"
+
+        // Direct V2V RSSI model parameters. These are configured centrally in
+        // omnetpp.ini and read once during initialization.
+        double directLinkTxPower_mW;
+        double directLinkCarrierFrequency_Hz;
+        double directLinkAntennaHeight_m;
+        double directLinkRssiThreshold_dBm;
+
         double offloadLinkBandwidthHz = default(10e6);                // Link bandwidth for SINR->rate model
         double offloadRateEfficiency = default(0.8);                  // PHY/MAC efficiency factor
         double offloadRateCapBps = default(-1);                       // <=0 means uncapped
         double offloadResponseRatio = default(0.2);                   // Response size ratio to request size
+
 
         // Secondary DT context export (motion + channel context only)
         bool secondaryLinkContextExport = default(false);

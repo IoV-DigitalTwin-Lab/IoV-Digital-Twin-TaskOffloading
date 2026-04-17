@@ -58,29 +58,14 @@ results/
 
 
 rsu_poster.log
-PROPAGATION_MODELS_EQUATIONS.md
-SIGNAL_FILTERING_DECIDER.md
-analytics_queries.sql
-SYSTEM_DOCUMENTATION.md
-ML_DECISION_INTEGRATION.md
-APPENDIX_REAL_DATA.md
-REDIS_DIGITAL_TWIN.md
-REDIS_GUIDE.md
-INSTALLATION_REQUIREMENTS.md
-QUICKSTART.md
-RUNTIME_FIXES.md
 /.metadata/
 .metadata/.plugins/
 .metadata/.lock
 .metadata/.log
 .metadata/version.ini
 inet4.5/
-TASK_PROCESSING_IMPLEMENTATION.md
-README_BEST_RSU_SELECTION.md
-README_TASK_OFFLOADING_CRITERIA_PHASES.md
-README_TASK_PROCESSING_QUEUE_FIXES.md
-README_GATE_B_RSU_TIMEOUT_IMPLEMENTATION.md
-README_GATES.md
+logs/*
+
 README_GATES_IMPLEMENTATION_PLAN.md
 logs/*
 
@@ -101,3 +86,8 @@ sinr_prediction_flowchart.svg
 -cli ping
 README_TAU_TO_TASK_OFFLOADING_ALGO_INTEGRATION.md
 external_controller_cpp
+
+logs/sim_output_single_agent_Heuristic_ddqn.log
+results/*
+out/*
+INSTALLATION_REQUIREMENTS.md

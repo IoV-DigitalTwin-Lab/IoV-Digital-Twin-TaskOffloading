@@ -55,7 +55,9 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         
         // Offloading Control
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
-        bool force_offload = default(false);                  // Force all tasks to be offloaded
+        bool motionChannelOnly = default(false);              // Secondary DT mode: disable task generation/offloading
+        string offloadMode = default("heuristic");             // "heuristic" | "allOffload" | "allLocal"
+        bool force_offload = default(false);
         double gateAlpha = default(0.6);                      // Gate-B latency weight
         double gateBeta = default(0.4);                       // Gate-B energy weight
         double gateSafetyMarginSec @unit(s) = default(0.05s); // Safety margin subtracted from remaining deadline
@@ -69,7 +71,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         int maxConcurrentServiceTasks = default(3);           // Max tasks to process for others
         double serviceCpuReservation = default(0.3);          // CPU reserved for service (30%)
         double serviceMemoryReservation = default(512e6);     // Memory reserved for service (512 MB)
-        double serviceDirectRssiThresholdDbm = default(-72);  // Direct V2V threshold for TV<->SV and SV<->TV
+        double serviceDirectRssiThresholdDbm = default(-85);  // Direct V2V threshold for TV<->SV and SV<->TV (IEEE 802.11p typical: -85 to -90 dBm)
         
         // ============================================================================
         // MULTI-RSU CANDIDATE SELECTION & REDIRECT PARAMETERS

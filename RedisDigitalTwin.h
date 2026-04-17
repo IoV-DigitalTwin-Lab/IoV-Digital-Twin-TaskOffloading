@@ -30,7 +30,7 @@ public:
     bool isConnected() const { return is_connected; }
     
     // Vehicle State Management
-    void updateVehicleState(const std::string& vehicle_id, 
+    void updateVehicleState(const std::string& vehicle_id,
                            double pos_x, double pos_y, double speed, double heading,
                            double cpu_available, double cpu_utilization,
                            double mem_available, double mem_utilization,
@@ -98,8 +98,43 @@ public:
     std::map<std::string, std::string> getDecision(const std::string& task_id);
 
     // Get all agents' decisions from task:{task_id}:decisions (multi-agent key written by DRL)
+    // DEPRECATED: use getSingleDecision() for single-agent runs.
     std::map<std::string, std::string> getMultiAgentDecisions(const std::string& task_id);
 
+    // ── Single-agent API (replaces multi-agent API) ──────────────────────────
+
+    // Read single-agent decision from task:{task_id}:decision
+    // Returns map with keys: "agent", "type" ("RSU"|"SERVICE_VEHICLE"), "target"
+    // Returns empty map if key not found.
+    std::map<std::string, std::string> getSingleDecision(const std::string& task_id);
+
+    // Write single-agent execution result to task:{task_id}:result
+    // status: "COMPLETED_ON_TIME" | "FAILED"
+    // fail_reason: "NONE" | "DEADLINE_MISSED" | "RSU_QUEUE_FULL" |
+    //              "SV_MAC_UNKNOWN" | "NEIGHBOR_RSU_UNKNOWN" | "UNKNOWN_TARGET" | "EXECUTION_FAILED"
+    void writeSingleResult(const std::string& task_id,
+                           const std::string& status,
+                           double total_latency,
+                           double energy_joules,
+                           const std::string& fail_reason = "NONE");
+
+    // Write locally-executed task result to task:{task_id}:local_result + push task_id to local_results:queue
+    // task_type_name / qos_value / deadline_s are embedded here because task:{id}:request is NOT written
+    // for locally-executed tasks (they bypass the offloading pipeline).
+    void writeLocalResult(const std::string& task_id,
+                          const std::string& task_type_name,
+                          double qos_value,
+                          double deadline_s,
+                          const std::string& status,
+                          double total_latency,
+                          double energy_joules,
+                          const std::string& fail_reason = "NONE");
+
+    // Write simulation offload-mode config so Python can label results correctly
+    // Key: sim:offload_mode  Value: "heuristic" | "allOffload" | "allLocal"
+    void writeSimConfig(const std::string& offload_mode);
+
+    // ── Legacy per-agent result writer (kept for backward compat during transition) ──
     // Write per-agent execution result to task:{task_id}:results (read by DRL for reward calculation)
     // fail_reason values: "NONE" | "DEADLINE_MISSED" | "RSU_QUEUE_FULL" |
     //                     "SV_MAC_UNKNOWN" | "NEIGHBOR_RSU_UNKNOWN" | "UNKNOWN_TARGET" | "EXECUTION_FAILED"
@@ -131,6 +166,7 @@ public:
         int queue_length, processing_count;
         double source_timestamp;
         double last_update;
+        double acceleration;
     };
     
     std::vector<VehicleSnapshot> getNearbyVehicles(double center_x, double center_y, 
