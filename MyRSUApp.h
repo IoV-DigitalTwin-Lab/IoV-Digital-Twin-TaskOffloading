@@ -380,6 +380,7 @@ private:
     
     // ML-based decision engine
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
+    std::string selectBestServiceVehicle(const OffloadingRequest& request) const;
     double estimateDirectLinkRssiDbm(double distanceMeters) const;
     
     // RSU task processing (edge server)

@@ -40,6 +40,11 @@ find_veins_path() {
     return 0
   fi
 
+  if [ -d "/opt/omnet/veins/src/veins" ]; then
+    echo "/opt/omnet/veins"
+    return 0
+  fi
+
   local base
   for base in "$SCRIPT_DIR/.." "$SCRIPT_DIR/../.." "$HOME"; do
     for cand in "$base"/veins*; do

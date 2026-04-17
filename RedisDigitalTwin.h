@@ -166,7 +166,6 @@ public:
         int queue_length, processing_count;
         double source_timestamp;
         double last_update;
-        double acceleration;
     };
     
     std::vector<VehicleSnapshot> getNearbyVehicles(double center_x, double center_y, 
