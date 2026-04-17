@@ -74,9 +74,9 @@ void RedisDigitalTwin::updateVehicleState(
     double source_timestamp)
 {
     if (!redis_ctx || !is_connected) return;
-    
+
     std::string key = "vehicle:" + vehicle_id + ":state";
-    
+
     // Use HSET to store as hash
     redisReply* reply = (redisReply*)redisCommand(redis_ctx,
         "HMSET %s pos_x %f pos_y %f speed %f heading %f "
@@ -463,6 +463,10 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
 {
     if (!redis_ctx || !is_connected) return;
 
+    // Ensure fail_reason is never blank for failures — default to UNKNOWN
+    const std::string& effective_reason = (!fail_reason.empty()) ? fail_reason
+        : (status != "COMPLETED_ON_TIME" ? "UNKNOWN" : "NONE");
+
     std::string key = "task:" + task_id + ":results";
 
     // Write four per-agent fields atomically: status, latency, energy, fail_reason
@@ -477,7 +481,7 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
         status_field.c_str(),  status.c_str(),
         latency_field.c_str(), total_latency,
         energy_field.c_str(),  energy_joules,
-        reason_field.c_str(),  fail_reason.c_str()
+        reason_field.c_str(),  effective_reason.c_str()
     );
 
     if (reply) {
@@ -492,9 +496,115 @@ void RedisDigitalTwin::writeTaskResults(const std::string& task_id,
     if (reply) freeReplyObject(reply);
 
     EV_INFO << "✓ writeTaskResults: task=" << task_id << " agent=" << agent_name
-            << " status=" << status << " reason=" << fail_reason
+            << " status=" << status << " reason=" << effective_reason
             << " latency=" << total_latency << "s energy=" << energy_joules << "J" << std::endl;
 }
+
+// ── Single-agent API implementations ─────────────────────────────────────────
+
+std::map<std::string, std::string> RedisDigitalTwin::getSingleDecision(const std::string& task_id)
+{
+    std::map<std::string, std::string> decision;
+    if (!redis_ctx || !is_connected) return decision;
+
+    std::string key = "task:" + task_id + ":decision";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGETALL %s", key.c_str());
+
+    if (reply && reply->type == REDIS_REPLY_ARRAY) {
+        for (size_t i = 0; i + 1 < reply->elements; i += 2) {
+            if (reply->element[i]->str && reply->element[i+1]->str) {
+                decision[reply->element[i]->str] = reply->element[i+1]->str;
+            }
+        }
+    }
+    if (reply) freeReplyObject(reply);
+    return decision;
+}
+
+void RedisDigitalTwin::writeSingleResult(const std::string& task_id,
+                                         const std::string& status,
+                                         double total_latency,
+                                         double energy_joules,
+                                         const std::string& fail_reason)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string effective_reason = (!fail_reason.empty()) ? fail_reason
+        : (status != "COMPLETED_ON_TIME" ? "UNKNOWN" : "NONE");
+
+    std::string key = "task:" + task_id + ":result";
+
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HSET %s status %s latency %f energy %f reason %s",
+        key.c_str(),
+        status.c_str(),
+        total_latency,
+        energy_joules,
+        effective_reason.c_str()
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR)
+            EV_ERROR << "Redis writeSingleResult error: " << reply->str << std::endl;
+        freeReplyObject(reply);
+    }
+
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s 300", key.c_str());
+    if (reply) freeReplyObject(reply);
+}
+
+void RedisDigitalTwin::writeLocalResult(const std::string& task_id,
+                                         const std::string& task_type_name,
+                                         double qos_value,
+                                         double deadline_s,
+                                         const std::string& status,
+                                         double total_latency,
+                                         double energy_joules,
+                                         const std::string& fail_reason)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    const std::string effective_reason = (!fail_reason.empty()) ? fail_reason
+        : (status != "COMPLETED_ON_TIME" ? "UNKNOWN" : "NONE");
+
+    std::string key = "task:" + task_id + ":local_result";
+
+    // Embed task metadata so Python can read everything from one hash (no request hash needed)
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "HSET %s task_type %s qos_value %f deadline_s %f "
+        "status %s latency %f energy %f reason %s",
+        key.c_str(),
+        task_type_name.empty() ? "UNKNOWN" : task_type_name.c_str(),
+        qos_value,
+        deadline_s,
+        status.c_str(),
+        total_latency,
+        energy_joules,
+        effective_reason.c_str()
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR)
+            EV_ERROR << "Redis writeLocalResult error: " << reply->str << std::endl;
+        freeReplyObject(reply);
+    }
+
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s 300", key.c_str());
+    if (reply) freeReplyObject(reply);
+
+    // Push task_id so Python can consume results via LPOP on local_results:queue
+    reply = (redisReply*)redisCommand(redis_ctx, "RPUSH local_results:queue %s", task_id.c_str());
+    if (reply) freeReplyObject(reply);
+}
+
+void RedisDigitalTwin::writeSimConfig(const std::string& offload_mode)
+{
+    if (!redis_ctx || !is_connected) return;
+
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx,
+        "SET sim:offload_mode %s", offload_mode.c_str());
+    if (reply) freeReplyObject(reply);
+}
+
+// ── End single-agent API ──────────────────────────────────────────────────────
 
 void RedisDigitalTwin::updateRSUResources(const std::string& rsu_id,
                                          double cpu_available, double memory_available,

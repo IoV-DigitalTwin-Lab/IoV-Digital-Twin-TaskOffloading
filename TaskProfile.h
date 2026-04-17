@@ -143,18 +143,19 @@ private:
 // ============================================================================
 
 // Periodic task generation intervals (seconds)
-// Chosen for practical IoV load: 51 vehicles × rates below ≈ RSU near-saturation.
+// Tuned for DRL training density: more offloadable tasks reach RSU/DRL per sim-second.
+// LOCAL_OBJECT_DETECTION kept non-offloadable but slowed to 2s to reduce log noise.
 namespace TaskPeriods {
-    constexpr double LOCAL_OBJECT_DETECTION = 0.100;      // 100ms (10 Hz) — on-board sensing, NOT offloaded
-    constexpr double COOPERATIVE_PERCEPTION = 5.000;      // 5s (0.2 Hz)  — V2V fusion, offloaded (reduced from 2s to ease RSU load)
-    constexpr double ROUTE_OPTIMIZATION     = 12.000;     // 12s (~0.08 Hz) — path planning, offloaded (reduced from 5s)
-    constexpr double SENSOR_HEALTH_CHECK    = 25.0;       // 25s          — background, offloaded (reduced from 10s)
-    constexpr double FLEET_TRAFFIC_BATCH    = 60.0;       // 60s          — batch ML, offloaded
+    constexpr double LOCAL_OBJECT_DETECTION = 2.000;      // 2s — on-board sensing, NOT offloaded (was 0.1s)
+    constexpr double COOPERATIVE_PERCEPTION = 1.000;      // 1s — V2V fusion, offloaded (was 5s)
+    constexpr double ROUTE_OPTIMIZATION     = 3.000;      // 3s — path planning, offloaded (was 12s)
+    constexpr double SENSOR_HEALTH_CHECK    = 8.0;        // 8s — background, offloaded (was 25s)
+    constexpr double FLEET_TRAFFIC_BATCH    = 10.0;       // 10s — batch ML, offloaded (was 60s)
 }
 
 // Poisson task rates (tasks/second, lambda parameter)
 namespace TaskRates {
-    constexpr double VOICE_COMMAND_PROCESSING = 0.2;      // 1 task per 5 seconds
+    constexpr double VOICE_COMMAND_PROCESSING = 0.333;    // 1 task per 3 seconds (was 0.2 = 1/5s)
 }
 
 // Task priorities (mapped to QoS values)

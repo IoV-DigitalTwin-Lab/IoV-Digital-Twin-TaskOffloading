@@ -1,21 +1,10 @@
-#!/bin/bash
-# Run simulation with correct library paths and NED paths
+#!/usr/bin/env bash
+# Compatibility launcher: delegate to the portable runner that auto-detects
+# OMNeT++/INET/Veins paths and avoids stale hard-coded NED roots.
 
-# Add local hiredis library to library path
-export LD_LIBRARY_PATH=/home/mihiraja/.local/lib:$LD_LIBRARY_PATH
+set -euo pipefail
 
-# Set display if not set (get from IDE process if available)
-if [ -z "$DISPLAY" ]; then
-    IDE_DISPLAY=$(ps e -p $(pgrep -f omnetpp | head -1) 2>/dev/null | grep -o "DISPLAY=[^ ]*" | head -1 | cut -d= -f2)
-    if [ -n "$IDE_DISPLAY" ]; then
-        export DISPLAY=$IDE_DISPLAY
-    fi
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Set Qt platform plugin for X11
-export QT_QPA_PLATFORM=xcb
-
-# Run the simulation  
-exec ./out/gcc-release/IoV-Digital-Twin-TaskOffloading \
-    -n .:../inet4.5/src:../veins/src/veins \
-    "$@"
+exec ./run_sim_portable.sh "$@"

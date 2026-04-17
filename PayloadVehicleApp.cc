@@ -4,6 +4,8 @@
 #include <iomanip>
 #include <cstdlib>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <string>
 
 using namespace veins;
@@ -11,6 +13,25 @@ using namespace veins;
 namespace complex_network {
 
 namespace {
+constexpr double kDefaultV2xLinkBandwidthMbps = 6.0;
+constexpr int64_t kPacketHeaderBytes = 256;
+constexpr int64_t kResultMinPayloadBytes = 512;
+
+int64_t clampPacketBytes(uint64_t payloadBytes) {
+    const int64_t maxSafe = static_cast<int64_t>(std::numeric_limits<int32_t>::max() - kPacketHeaderBytes);
+    const int64_t payload = static_cast<int64_t>(std::min<uint64_t>(payloadBytes, static_cast<uint64_t>(maxSafe)));
+    return std::max<int64_t>(1, kPacketHeaderBytes + payload);
+}
+
+void setOffloadPacketSize(veins::TaskOffloadPacket* packet, uint64_t payloadBytes) {
+    packet->setByteLength(clampPacketBytes(payloadBytes));
+}
+
+void setResultPacketSize(veins::TaskResultMessage* packet, uint64_t outputBytes) {
+    const uint64_t payload = std::max<uint64_t>(outputBytes, static_cast<uint64_t>(kResultMinPayloadBytes));
+    packet->setByteLength(clampPacketBytes(payload));
+}
+
 std::string buildRouteHint(veins::LAddress::L2Type ingressRsuMac, veins::LAddress::L2Type processorRsuMac) {
     std::ostringstream oss;
     oss << "ROUTE|ingress=" << ingressRsuMac << "|processor=" << processorRsuMac << "|";
@@ -37,6 +58,22 @@ std::string buildServiceResultRelayHint(veins::LAddress::L2Type targetRsuMac,
 double computeQueueUtility(const Task* task, simtime_t now) {
     const double remaining = std::max((task->deadline - now).dbl(), 0.001);
     return task->qos_value / remaining;
+}
+
+double estimateQueuedTaskServiceTime(const Task* task, double default_service_time_sec,
+                                      const std::map<TaskType, double>& ewma_by_type,
+                                      double cpu_allocable_hz, size_t max_concurrent_tasks) {
+    auto it = ewma_by_type.find(task->type);
+    if (it != ewma_by_type.end() && it->second > 0.0) {
+        return it->second;
+    }
+
+    const double per_task_cpu_hz = std::max(cpu_allocable_hz / std::max<size_t>(1, max_concurrent_tasks), 1.0e6);
+    const double fallback = static_cast<double>(task->cpu_cycles) / per_task_cpu_hz;
+    if (std::isfinite(fallback) && fallback > 0.0) {
+        return fallback;
+    }
+    return default_service_time_sec;
 }
 }
 
@@ -81,9 +118,6 @@ void PayloadVehicleApp::initialize(int stage) {
         }
 
         EV_INFO << "PayloadVehicleApp: Initialized with vehicle data" << endl;
-        std::cout << "CONSOLE: PayloadVehicleApp initialized at " << simTime() << std::endl;
-        std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data initialized" << std::endl;
-        std::cout << "SHADOW: Vehicle starting signal monitoring for shadowing analysis" << std::endl;
 
         motionChannelOnly = par("motionChannelOnly").boolValue();
 
@@ -125,7 +159,6 @@ void PayloadVehicleApp::initialize(int stage) {
             monitorPositionEvent = new cMessage("monitorPosition");
         }
         scheduleAt(simTime() + 1, monitorPositionEvent);
-        std::cout << "SHADOW: Position monitoring started - checking for obstacle effects" << std::endl;
     }
     else if (stage == 1) {
         // Get MAC address in stage 1
@@ -134,10 +167,8 @@ void PayloadVehicleApp::initialize(int stage) {
 
         if (macInterface) {
             myMacAddress = macInterface->getMACAddress();
-            std::cout << "CONSOLE: PayloadVehicleApp MAC address: " << myMacAddress << std::endl;
             EV_INFO << "PayloadVehicleApp MAC address: " << myMacAddress << endl;
         } else {
-            std::cout << "CONSOLE: ERROR - PayloadVehicleApp MAC interface NOT found!" << std::endl;
             myMacAddress = 0;
         }
     }
@@ -235,7 +266,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                         allocateResourcesAndStart(task);
                     } else {
                         task->state = QUEUED;
-                        task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                        markTaskQueued(task);
                         pending_tasks.push(task);
                     }
                 } else {
@@ -254,6 +285,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         Task* task = (Task*)msg->getContextPointer();
         auto it = offloadedTasks.find(task->task_id);
         if (it != offloadedTasks.end()) {
+            offloadedTaskTimeouts.erase(task->task_id);
             offloadedTasks.erase(it);
             offloadedTaskTargets.erase(task->task_id);
 
@@ -265,7 +297,12 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                 MetricsManager::getInstance().recordTaskFailed(task->type, latency);
             }
 
-            sendTaskFailureToRSU(task, "OFFLOADED_TIMEOUT");
+            // Distinguish timeout reason: SV left range vs RSU handover failure
+            auto targetIt = offloadedTaskTargets.find(task->task_id);
+            std::string target = (targetIt != offloadedTaskTargets.end()) ? targetIt->second : "";
+            std::string failReason = (target == "RSU") ? "HANDOVER_FAIL" : "SV_OUT_OF_RANGE";
+
+            sendTaskFailureToRSU(task, failReason);
             cleanupTaskEvents(task);
             delete task;
         }
@@ -273,7 +310,6 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "sendPayloadMessage") == 0) {
-        std::cout << "CONSOLE: PayloadVehicleApp - Sending periodic vehicle status update..." << std::endl;
         EV << "PayloadVehicleApp: Sending periodic vehicle status update..." << endl;
 
         // Update vehicle data before sending
@@ -308,27 +344,9 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                     if (phyModule->hasPar("thermalNoise")) {
                         thermalNoise = phyModule->par("thermalNoise").doubleValue();
                     }
-                    
-                    std::cout << "SHADOW: Vehicle at (" << currentPos.x << "," << currentPos.y << ")" << std::endl;
-                    std::cout << "SHADOW: Current sensitivity: " << currentSensitivity << " dBm" << std::endl;
-                    std::cout << "SHADOW: Thermal noise floor: " << thermalNoise << " dBm" << std::endl;
-                    
-                    // Check if near obstacles for context with detailed analysis
-                    bool nearOfficeT = (currentPos.x >= 240 && currentPos.x <= 320 && currentPos.y >= 10 && currentPos.y <= 90);
-                    bool nearOfficeC = (currentPos.x >= 110 && currentPos.x <= 190 && currentPos.y >= 10 && currentPos.y <= 90);
-                    
-                    if (nearOfficeT) {
-                        std::cout << "SHADOW: ⚠️ NEAR Office Tower - EXPECT 18dB obstacle loss + 8dB shadowing!" << std::endl;
-                        std::cout << "SHADOW: Vehicle ID " << myMacAddress << " in HIGH attenuation zone" << std::endl;
-                        std::cout << "SHADOW: Next message reception will show signal degradation effects" << std::endl;
-                    } else if (nearOfficeC) {
-                        std::cout << "SHADOW: ⚠️ NEAR Office Complex - EXPECT 18dB obstacle loss + 8dB shadowing!" << std::endl;
-                        std::cout << "SHADOW: Vehicle ID " << myMacAddress << " in HIGH attenuation zone" << std::endl;
-                        std::cout << "SHADOW: Next message reception will show signal degradation effects" << std::endl;
-                    } else {
-                        std::cout << "SHADOW: ✅ CLEAR AREA - baseline signal conditions (2-4dB environmental only)" << std::endl;
-                        std::cout << "SHADOW: Vehicle ID " << myMacAddress << " in LOW attenuation zone" << std::endl;
-                    }
+
+                    // Shadowing diagnostics intentionally muted to avoid frequent
+                    // per-vehicle console spam during normal simulation runs.
                 }
             }
             
@@ -362,93 +380,17 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
 }
 
 void PayloadVehicleApp::onWSM(BaseFrame1609_4* wsm) {
-    std::cout << "\n🔵 SHADOW ANALYSIS - Vehicle ID " << myMacAddress << " RECEIVING MESSAGE" << std::endl;
-    
-    // Get current position for analysis
-    Coord currentPos = mobility ? mobility->getPositionAt(simTime()) : Coord(0,0,0);
-    std::cout << "SHADOW: 📍 Reception at position (" << currentPos.x << "," << currentPos.y << ")" << std::endl;
-    
-    // Determine expected shadowing based on position
-    bool nearOfficeT = (currentPos.x >= 240 && currentPos.x <= 320 && currentPos.y >= 10 && currentPos.y <= 90);
-    bool nearOfficeC = (currentPos.x >= 110 && currentPos.x <= 190 && currentPos.y >= 10 && currentPos.y <= 90);
-    
-    if (nearOfficeT || nearOfficeC) {
-        std::string obstacleType = nearOfficeT ? "Office Tower" : "Office Complex";
-        std::cout << "SHADOW: 🏢 MESSAGE RECEIVED THROUGH " << obstacleType << "!" << std::endl;
-        std::cout << "SHADOW: Expected attenuation: 18dB (obstacle) + up to 8dB (shadowing) = 26dB MAX" << std::endl;
-        std::cout << "SHADOW: ✅ Signal SURVIVED " << obstacleType << " - Strong enough for decode!" << std::endl;
-        std::cout << "SHADOW: Actual signal strength > sensitivity threshold despite obstacles" << std::endl;
-    } else {
-        std::cout << "SHADOW: 🌐 CLEAR PATH MESSAGE RECEPTION!" << std::endl;
-        std::cout << "SHADOW: Expected attenuation: 2-4dB (environmental + path loss only)" << std::endl;
-        std::cout << "SHADOW: ✅ Optimal reception conditions - no major obstacles" << std::endl;
-    }
-    
-    // Extract REAL signal data from the received frame
-    if (mobility) {
-        // Try to access actual received signal strength from the frame
-        cModule* nicModule = getParentModule()->getSubmodule("nic");
-        if (nicModule) {
-            cModule* phyModule = nicModule->getSubmodule("phy80211p");
-            
-            // Look for signal power information in the control info
-            if (wsm->getControlInfo()) {
-                std::cout << "SHADOW: 📡 Frame control info type: " << wsm->getControlInfo()->getClassName() << std::endl;
-                
-                // Try to access Veins-specific signal data
-                std::string controlInfoType = wsm->getControlInfo()->getClassName();
-                if (controlInfoType.find("PhyToMac") != std::string::npos) {
-                    std::cout << "SHADOW: ✅ PHY-to-MAC control info available - real signal processed" << std::endl;
-                    std::cout << "SHADOW: Signal passed all propagation models (TwoRay+LogNormal+Obstacles)" << std::endl;
-                } else {
-                    std::cout << "SHADOW: Control info type: " << controlInfoType << std::endl;
-                }
-            }
-            
-            // Access the actual radio statistics if available
-            if (phyModule) {
-                // Check if we can access any recorded statistics or parameters
-                if (phyModule->hasPar("sensitivity")) {
-                    double sens = phyModule->par("sensitivity").doubleValue();
-                    std::cout << "SHADOW: 📊 PHY sensitivity threshold: " << sens << " dBm" << std::endl;
-                }
-                
-                if (phyModule->hasPar("thermalNoise")) {
-                    double noise = phyModule->par("thermalNoise").doubleValue();
-                    std::cout << "SHADOW: 📊 Thermal noise floor: " << noise << " dBm" << std::endl;
-                }
-                
-                // Log successful reception confirmation
-                std::cout << "SHADOW: ✅ Real PHY layer confirms successful frame decode" << std::endl;
-                std::cout << "SHADOW: All propagation effects (including obstacles) accounted for" << std::endl;
-            }
-        }
-    }
-    
-    std::cout << "🔵 END SHADOW ANALYSIS for Vehicle " << myMacAddress << "\n" << std::endl;
-    
+    // Verbose shadowing traces are disabled to keep runtime logs readable.
     EV << "PayloadVehicleApp: Received WSM message!" << endl;
 
     // Check if this is a response from RSU
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if (dsm) {
-        std::string receivedPayload = dsm->getName(); // Use getName instead of getPayload
-        
-        std::cout << "CONSOLE: PayloadVehicleApp - DEBUG - Received message: '" << receivedPayload << "'" << std::endl;
-
-        if (!receivedPayload.empty() && 
-            (receivedPayload.find("RSU_RESPONSE") != std::string::npos || 
+        std::string receivedPayload = dsm->getName();
+        if (!receivedPayload.empty() &&
+            (receivedPayload.find("RSU_RESPONSE") != std::string::npos ||
              receivedPayload.find("RSU Response") != std::string::npos)) {
-            std::cout << "CONSOLE: =========================================" << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - RECEIVED PAYLOAD FROM RSU:" << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - Payload: " << receivedPayload << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - Received at time: " << simTime() << std::endl;
-            std::cout << "CONSOLE: PayloadVehicleApp - Sender Module: " << wsm->getSenderModule()->getFullName() << std::endl;
-            std::cout << "CONSOLE: =========================================" << std::endl;
-
             EV << "PayloadVehicleApp: RECEIVED PAYLOAD: " << receivedPayload << endl;
-        } else {
-            std::cout << "CONSOLE: PayloadVehicleApp - DEBUG - Message is not an RSU response" << std::endl;
         }
     }
 
@@ -456,7 +398,6 @@ void PayloadVehicleApp::onWSM(BaseFrame1609_4* wsm) {
 }
 
 void PayloadVehicleApp::handleMessage(cMessage* msg) {
-    std::cout << "CONSOLE: PayloadVehicleApp handleMessage() called with: " << msg->getName() << std::endl;
     EV << "PayloadVehicleApp: handleMessage() called with " << msg->getName() << endl;
 
     // ========================================================================
@@ -517,18 +458,15 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
 }
 
 LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
-    std::cout << "CONSOLE: PayloadVehicleApp - Looking for closest RSU MAC address..." << std::endl;
-
     // Get the network module
     cModule* networkModule = getModuleByPath("^.^");
     if (!networkModule) {
-        std::cout << "CONSOLE: PayloadVehicleApp ERROR - Network module not found!" << std::endl;
         return 0;
     }
 
     // Get current vehicle position
     Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
-    
+
     double minDistance = 999999.0;
     int closestRSUIndex = -1;
     LAddress::L2Type closestRSUMac = 0;
@@ -537,30 +475,22 @@ LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
     for (int i = 0; i < 3; i++) {
         cModule* rsuModule = networkModule->getSubmodule("rsu", i);
         if (rsuModule) {
-            // Get RSU mobility module to access position
             cModule* rsuMobilityModule = rsuModule->getSubmodule("mobility");
             if (rsuMobilityModule) {
-                // Get RSU position from mobility parameters
                 double rsuX = rsuMobilityModule->par("x").doubleValue();
                 double rsuY = rsuMobilityModule->par("y").doubleValue();
-                
-                // Calculate Euclidean distance
+
                 double dx = vehiclePos.x - rsuX;
                 double dy = vehiclePos.y - rsuY;
                 double distance = sqrt(dx * dx + dy * dy);
-                
-                std::cout << "CONSOLE: PayloadVehicleApp - RSU[" << i << "] at (" << rsuX << "," << rsuY 
-                          << ") distance: " << distance << "m" << std::endl;
-                
-                // Track closest RSU
+
                 if (distance < minDistance) {
                     minDistance = distance;
                     closestRSUIndex = i;
-                    
-                    // Get the MAC address of this RSU
+
                     DemoBaseApplLayerToMac1609_4Interface* rsuMacInterface =
                         FindModule<DemoBaseApplLayerToMac1609_4Interface*>::findSubModule(rsuModule);
-                    
+
                     if (rsuMacInterface) {
                         closestRSUMac = rsuMacInterface->getMACAddress();
                     }
@@ -570,12 +500,9 @@ LAddress::L2Type PayloadVehicleApp::findRSUMacAddress() {
     }
 
     if (closestRSUIndex >= 0 && closestRSUMac != 0) {
-        std::cout << "CONSOLE: PayloadVehicleApp - Selected CLOSEST RSU[" << closestRSUIndex 
-                  << "] at distance " << minDistance << "m, MAC: " << closestRSUMac << std::endl;
         return closestRSUMac;
     }
 
-    std::cout << "CONSOLE: PayloadVehicleApp ERROR - No valid RSU MAC address found!" << std::endl;
     return 0;
 }
 
@@ -660,12 +587,6 @@ void PayloadVehicleApp::updateVehicleData() {
     // Calculate battery percentage
     double battery_pct = (battery_mAh_current / battery_mAh_max) * 100.0;
     
-    std::cout << "CONSOLE: PayloadVehicleApp - Updated vehicle data: pos=(" << pos.x << "," << pos.y 
-              << ") speed=" << speed << " CPU_max=" << flocHz_max/1e9 << "GHz"
-              << " CPU_avail=" << flocHz_available/1e9 << "GHz (load=" << (cpuLoadFactor*100) << "%)" 
-              << " Battery=" << battery_pct << "% (" << battery_mAh_current << "/" << battery_mAh_max << "mAh)"
-              << " Memory=" << memory_MB_available << "/" << memory_MB_max << "MB"
-              << " txPower_mW=" << txPower_mW << std::endl;
 }
 
 std::string PayloadVehicleApp::createVehicleDataPayload() {
@@ -864,12 +785,10 @@ void PayloadVehicleApp::initializeTaskSystem() {
     
     // Check if offloading is enabled
     offloadingEnabled = par("offloadingEnabled").boolValue();
-    forceOffload = par("force_offload").boolValue();
-    if (forceOffload) {
-        EV_INFO << "⚡ Force-offload mode ENABLED - all tasks will be sent to RSU/SV" << endl;
-        std::cout << "OFFLOADING: Force-offload mode ON for vehicle "
-                  << getParentModule()->getIndex() << std::endl;
-    }
+    offloadMode = par("offloadMode").stringValue();
+    EV_INFO << "⚡ Offload mode: " << offloadMode << endl;
+    std::cout << "OFFLOADING: mode=" << offloadMode << " for vehicle "
+              << getParentModule()->getIndex() << std::endl;
     
     if (offloadingEnabled) {
         // Initialize decision maker
@@ -905,7 +824,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
         try {
             serviceDirectRssiThresholdDbm = par("serviceDirectRssiThresholdDbm").doubleValue();
         } catch (...) {
-            serviceDirectRssiThresholdDbm = -72.0;
+            serviceDirectRssiThresholdDbm = -85.0;  // IEEE 802.11p typical: -85 to -90 dBm
         }
         EV_INFO << "✓ Service vehicle mode ENABLED (can process tasks for others)" << endl;
         std::cout << "SERVICE_VEHICLE: Vehicle " << getParentModule()->getIndex() 
@@ -1047,6 +966,34 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     // OFFLOADING DECISION INTEGRATION
     // ============================================================================
     
+    // ── allLocal mode: all tasks execute locally, bypass RSU entirely ──────────
+    if (offloadMode == "allLocal") {
+        sendTaskOffloadingEvent(task->task_id, "DECISION_LOCAL",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+            "{\"reason\":\"ALL_LOCAL_MODE\"}");
+        if (!canAcceptTask(task)) {
+            EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
+            task->state = REJECTED;
+            tasks_rejected++;
+            sendTaskFailureToRSU(task, "REJECTED");
+            cleanupTaskEvents(task);
+            delete task;
+            logTaskStatistics();
+            return;
+        }
+        if (canStartProcessing(task)) {
+            EV_INFO << "✓ allLocal: starting immediately" << endl;
+            allocateResourcesAndStart(task);
+        } else {
+            EV_INFO << "⏸ allLocal: resources busy, queuing" << endl;
+            task->state = QUEUED;
+            markTaskQueued(task);
+            pending_tasks.push(task);
+        }
+        logResourceState("After task generation (allLocal)");
+        return;
+    }
+
     if (!task->is_offloadable) {
         // Task is marked as local-only (e.g. LOCAL_OBJECT_DETECTION).
         // Do NOT send metadata over the air — saves wireless bandwidth.
@@ -1057,7 +1004,28 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
             "{\"reason\":\"NON_OFFLOADABLE\"}");
     }
-    
+
+    // ── allOffload mode: offloadable tasks skip Gate-A/B, always go to RSU ──
+    if (offloadMode == "allOffload" && task->is_offloadable) {
+        sendTaskMetadataToRSU(task);
+        task->state = METADATA_SENT;
+        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
+            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+            "{\"reason\":\"ALL_OFFLOAD_MODE\"}");
+        GateBDecisionResult gateResult;
+        gateResult.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        gateResult.classification = GateBClassification::MUST_OFFLOAD;
+        gateResult.reason = "ALL_OFFLOAD_MODE";
+        gateResult.t_local_seconds = 0.0;
+        sendOffloadingRequestToRSU(task, OffloadingDecision::OFFLOAD_TO_RSU, gateResult);
+        cMessage* toMsg = new cMessage("rsuDecisionTimeout");
+        toMsg->setContextPointer(task);
+        scheduleAt(simTime() + rsuDecisionTimeout.dbl(), toMsg);
+        pendingDecisionTimeouts[task->task_id] = toMsg;
+        logResourceState("After task generation (allOffload)");
+        return;
+    }
+
     if (offloadingEnabled && decisionMaker && task->is_offloadable) {
         // Step 6: metadata transmission is deferred until offload is actually committed.
         EV_INFO << "🤖 Offloading enabled - building decision context..." << endl;
@@ -1067,6 +1035,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         
         // Task characteristics
         context.task_size_kb = task->mem_footprint_bytes / 1024.0;
+        context.output_size_kb = task->output_size_bytes / 1024.0;
         context.cpu_cycles_required = task->cpu_cycles;
         context.qos_value = task->qos_value;
         context.deadline_seconds = task->relative_deadline;
@@ -1081,6 +1050,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.local_mem_available = memory_available / 1e6;  // Convert bytes to MB
         context.local_queue_length = pending_tasks.size();
         context.local_processing_count = processing_tasks.size();
+        context.local_queue_wait_seconds = estimateLocalQueueWait(task);
         
         // RSU availability and channel conditions
         LAddress::L2Type rsu = selectBestRSU();
@@ -1088,12 +1058,15 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.rsu_distance = getRSUDistance();
         context.estimated_rsu_rssi = getEstimatedRSSI();
         context.estimated_transmission_time = estimateTransmissionTime(task);
+        context.estimated_downlink_bandwidth_mbps = kDefaultV2xLinkBandwidthMbps;
+        context.rsu_cpu_available_ghz = EnergyConstants::FREQ_RSU_NOMINAL / 1e9; // fallback when RSU load metrics are unavailable
         
         // RSU edge-compute load — look up the selected RSU in our metrics map
         for (auto& kv : rsuMetrics) {
             if (kv.second.macAddress == rsu) {
                 context.rsu_processing_count = kv.second.rsu_processing_count;
                 context.rsu_max_concurrent   = kv.second.rsu_max_concurrent;
+                context.rsu_cpu_available_ghz = kv.second.rsu_cpu_available_ghz;
                 break;
             }
         }
@@ -1104,6 +1077,8 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         EV_INFO << "Decision context: LocalCPU=" << context.local_cpu_available << "GHz, "
                 << "Utilization=" << (context.local_cpu_utilization*100) << "%, "
                 << "Queue=" << context.local_queue_length << ", "
+            << "QueueWait=" << context.local_queue_wait_seconds << "s, "
+                << "RSU_CPU=" << context.rsu_cpu_available_ghz << "GHz, "
                 << "RSU_dist=" << context.rsu_distance << "m, "
                 << "RSSI=" << context.estimated_rsu_rssi << "dBm" << endl;
         
@@ -1201,7 +1176,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             } else {
                 EV_INFO << "⏸ Resources busy - queuing task" << endl;
                 task->state = QUEUED;
-                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                markTaskQueued(task);
                 pending_tasks.push(task);
                 sendTaskOffloadingEvent(task->task_id, "QUEUED",
                     "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1282,7 +1257,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     } else {
         EV_INFO << "⏸ Resources busy - queuing task" << endl;
         task->state = QUEUED;
-        task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+            markTaskQueued(task);
         pending_tasks.push(task);
         sendTaskOffloadingEvent(task->task_id, "QUEUED",
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1294,43 +1269,65 @@ void PayloadVehicleApp::generateTask(TaskType type) {
 }
 
 void PayloadVehicleApp::finish() {
-    auto cleanupTimer = [this](cMessage*& timer) {
-        if (timer) {
-            cancelAndDelete(timer);
-            timer = nullptr;
-        }
-    };
+    // -------------------------------------------------------------------------
+    // Message cleanup strategy: do NOT call cancelEvent/cancelAndDelete here.
+    // When deleteManagedModule() calls callFinish() then deleteModule(), OMNeT++
+    // removes all pending messages from the FES in deleteModule() without
+    // delivering them. Calling cancelEvent() in finish() on messages whose
+    // internal owner state may have been disturbed by prior signal emissions
+    // (traciModuleRemovedSignal etc.) crashes in cSoftOwner::yieldOwnership.
+    //
+    // Safe approach: null all cMessage* pointers we own (so nothing else tries
+    // to use them), delete our own heap objects (Tasks), then let deleteModule()
+    // handle the actual FES/message cleanup.
+    // -------------------------------------------------------------------------
 
-    cleanupTimer(sendPayloadEvent);
-    cleanupTimer(monitorPositionEvent);
-    cleanupTimer(localObjDetEvent);
-    cleanupTimer(coopPercepEvent);
-    cleanupTimer(routeOptEvent);
-    cleanupTimer(fleetForecastEvent);
-    cleanupTimer(voiceCommandEvent);
-    cleanupTimer(sensorHealthEvent);
+    // Cancel the heartbeat explicitly — unlike other timers this one is created
+    // fresh with new cMessage() on every fire (not from a single pre-allocated
+    // cMessage).  When SUMO removes a vehicle mid-simulation, Veins may not call
+    // the standard deleteModule() FES cleanup, leaving the timer in the FES and
+    // causing a SIGSEGV when it fires against the freed module vtable.
+    // cancelAndDelete() is safe here because no Veins signal has touched the
+    // ownership of this plain cMessage timer before finish() is called.
+    if (heartbeatMsg) {
+        cancelAndDelete(heartbeatMsg);
+        heartbeatMsg = nullptr;
+    }
 
-    // Stop recurring generation timers.
-    if (localObjDetEvent) { cancelAndDelete(localObjDetEvent); localObjDetEvent = nullptr; }
-    if (coopPercepEvent) { cancelAndDelete(coopPercepEvent); coopPercepEvent = nullptr; }
-    if (routeOptEvent) { cancelAndDelete(routeOptEvent); routeOptEvent = nullptr; }
-    if (fleetForecastEvent) { cancelAndDelete(fleetForecastEvent); fleetForecastEvent = nullptr; }
-    if (voiceCommandEvent) { cancelAndDelete(voiceCommandEvent); voiceCommandEvent = nullptr; }
-    if (sensorHealthEvent) { cancelAndDelete(sensorHealthEvent); sensorHealthEvent = nullptr; }
+    // Reused recurring timers must also be canceled explicitly to avoid stale
+    // FES entries when a vehicle is removed by TraCI before full module teardown.
+    if (sendPayloadEvent) {
+        cancelAndDelete(sendPayloadEvent);
+        sendPayloadEvent = nullptr;
+    }
+    if (monitorPositionEvent) {
+        cancelAndDelete(monitorPositionEvent);
+        monitorPositionEvent = nullptr;
+    }
 
-    // Cancel pending RSU decision timeout messages.
+    // Null recurring generation timers (deleteModule will remove them from FES).
+    localObjDetEvent  = nullptr;
+    coopPercepEvent   = nullptr;
+    routeOptEvent     = nullptr;
+    fleetForecastEvent = nullptr;
+    voiceCommandEvent = nullptr;
+    sensorHealthEvent = nullptr;
+
+    // Null pending RSU decision timeout messages (deleteModule handles FES).
     for (auto& kv : pendingDecisionTimeouts) {
-        cMessage* timeoutMsg = kv.second;
-        if (timeoutMsg) {
-            if (timeoutMsg->isScheduled()) {
-                cancelEvent(timeoutMsg);
-            }
-            delete timeoutMsg;
-        }
+        kv.second = nullptr;
     }
     pendingDecisionTimeouts.clear();
 
-    // Collect unique task pointers from all ownership containers and delete once.
+    // Null pending offloaded-task timeout messages.
+    for (auto& kv : offloadedTaskTimeouts) {
+        kv.second = nullptr;
+    }
+    offloadedTaskTimeouts.clear();
+
+    // Collect unique Task* pointers and delete them (Tasks are our heap objects,
+    // not cOwnedObjects, so OMNeT++ does not manage them).
+    // Null the task's cMessage pointers first so nothing can follow them.
     std::set<Task*> tasksToDelete;
     while (!pending_tasks.empty()) {
         tasksToDelete.insert(pending_tasks.top());
@@ -1361,7 +1358,12 @@ void PayloadVehicleApp::finish() {
     offloadedTasks.clear();
 
     for (Task* task : tasksToDelete) {
-        cleanupTaskEvents(task);
+        // Null event pointers — the cMessage objects are owned by FES and will
+        // be freed by deleteModule(); do NOT cancel/delete them here.
+        if (task) {
+            task->completion_event = nullptr;
+            task->deadline_event   = nullptr;
+        }
         delete task;
     }
 
@@ -1395,18 +1397,12 @@ void PayloadVehicleApp::cleanupTaskEvents(Task* task) {
     }
 
     if (task->completion_event) {
-        if (task->completion_event->isScheduled()) {
-            cancelEvent(task->completion_event);
-        }
-        delete task->completion_event;
+        cancelAndDelete(task->completion_event);
         task->completion_event = nullptr;
     }
 
     if (task->deadline_event) {
-        if (task->deadline_event->isScheduled()) {
-            cancelEvent(task->deadline_event);
-        }
-        delete task->deadline_event;
+        cancelAndDelete(task->deadline_event);
         task->deadline_event = nullptr;
     }
 }
@@ -1542,6 +1538,12 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     // Track start time for latency calculation
     if (taskTimings.find(task->task_id) != taskTimings.end()) {
         taskTimings[task->task_id].start_time = simTime().dbl();
+        if (taskTimings[task->task_id].predicted_service_time <= 0.0) {
+            taskTimings[task->task_id].predicted_service_time =
+                (task->predicted_service_time_sec > 0.0)
+                    ? task->predicted_service_time_sec
+                    : estimateLocalServiceTime(task);
+        }
         EV_INFO << "Start time tracked for task " << task->task_id << endl;
     }
     
@@ -1589,6 +1591,77 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     
     std::cout << "TASK_EXEC: Vehicle " << getParentModule()->getIndex() << " started task " 
               << task->task_id << " with " << (task->cpu_allocated/1e9) << " GHz" << std::endl;
+}
+
+void PayloadVehicleApp::markTaskQueued(Task* task) {
+    task->queue_entry_time = simTime();
+    if (task->predicted_service_time_sec <= 0.0) {
+        task->predicted_service_time_sec = estimateLocalServiceTime(task);
+    }
+
+    TaskTimingInfo& timing = taskTimings[task->task_id];
+    if (timing.predicted_service_time <= 0.0) {
+        timing.predicted_service_time = task->predicted_service_time_sec;
+    }
+}
+
+double PayloadVehicleApp::estimateLocalServiceTime(Task* task) const {
+    return estimateQueuedTaskServiceTime(task, local_service_time_default_sec,
+                                         local_service_time_ewma,
+                                         cpu_allocable, max_concurrent_tasks);
+}
+
+double PayloadVehicleApp::estimateLocalQueueWait(Task* task) const {
+    if (pending_tasks.empty()) {
+        return 0.0;
+    }
+
+    std::priority_queue<Task*, std::vector<Task*>, TaskComparator> snapshot = pending_tasks;
+    double queue_wait = 0.0;
+
+    const double task_deadline = std::max((task->deadline - task->created_time).dbl(), 1e-6);
+    const double task_urgency = std::min(1.0, TaskComparator::DEADLINE_MIN_REF_SEC / task_deadline);
+    const double task_qos = std::max(0.0, std::min(task->qos_value / TaskComparator::QOS_MAX, 1.0));
+    const double task_score = TaskComparator::ALPHA_QOS * task_qos
+                            + TaskComparator::BETA_DEADLINE * task_urgency;
+
+    while (!snapshot.empty()) {
+        Task* queued = snapshot.top();
+        snapshot.pop();
+
+        const double queued_deadline = std::max((queued->deadline - queued->created_time).dbl(), 1e-6);
+        const double queued_urgency = std::min(1.0, TaskComparator::DEADLINE_MIN_REF_SEC / queued_deadline);
+        const double queued_qos = std::max(0.0, std::min(queued->qos_value / TaskComparator::QOS_MAX, 1.0));
+        const double queued_base_score = TaskComparator::ALPHA_QOS * queued_qos
+                                       + TaskComparator::BETA_DEADLINE * queued_urgency;
+        const double queued_wait = std::max(0.0, (simTime() - queued->queue_entry_time).dbl());
+        const double queued_score = queued_base_score
+                                  + std::min(TaskComparator::MAX_AGING_BOOST,
+                                             TaskComparator::AGING_FACTOR_PER_SEC * queued_wait);
+
+        if (queued_score > task_score ||
+            (std::abs(queued_score - task_score) <= 1e-12 && queued->task_id < task->task_id)) {
+            queue_wait += estimateQueuedTaskServiceTime(queued, local_service_time_default_sec,
+                                                        local_service_time_ewma,
+                                                        cpu_allocable, max_concurrent_tasks);
+        }
+    }
+
+    return queue_wait;
+}
+
+void PayloadVehicleApp::updateLocalServiceTimeEstimate(Task* task, double actual_service_time_sec) {
+    if (!(actual_service_time_sec > 0.0) || !std::isfinite(actual_service_time_sec)) {
+        return;
+    }
+
+    double& ewma = local_service_time_ewma[task->type];
+    if (!(ewma > 0.0) || !std::isfinite(ewma)) {
+        ewma = actual_service_time_sec;
+    } else {
+        ewma = local_service_time_ewma_alpha * actual_service_time_sec
+             + (1.0 - local_service_time_ewma_alpha) * ewma;
+    }
 }
 
 double PayloadVehicleApp::calculateCPUAllocation(Task* task) {
@@ -1737,7 +1810,7 @@ void PayloadVehicleApp::processQueuedTasks() {
     }
 
     for (Task* task : deferred_tasks) {
-        task->queue_entry_time = simTime();
+        markTaskQueued(task);
         pending_tasks.push(task);
     }
 
@@ -1793,6 +1866,11 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     total_completion_time += completion_time_elapsed;
 
     double exec_time = (task->completion_time - task->processing_start_time).dbl();
+    if (taskTimings.find(task->task_id) != taskTimings.end()) {
+        taskTimings[task->task_id].finish_time = task->completion_time.dbl();
+        taskTimings[task->task_id].actual_service_time = exec_time;
+    }
+    updateLocalServiceTimeEstimate(task, exec_time);
     double energy_joules = energyCalculator.calcLocalExecutionEnergy(
             task->cpu_cycles,
             static_cast<uint32_t>(task->input_size_bytes),
@@ -1825,12 +1903,9 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     }
     task->logTaskInfo("Task completed");
 
-    // Send completion notification to RSU with timing data
-    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
-                            true, on_time, 
-                            task->mem_footprint_bytes, task->cpu_cycles, 
-                            task->qos_value, "completed");
-    
+    // Send local completion notification to RSU (writes local_result to Redis)
+    sendTaskCompletionToRSU(task);
+
     // Reallocate CPU to remaining tasks
     reallocateCPUResources();
     
@@ -1902,12 +1977,9 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     
     task->logTaskInfo("Task failed - deadline expired");
     
-    // Send completion report for failed task (for completion rate calculation)
-    sendTaskCompletionToRSU(task->task_id, task->completion_time.dbl(), 
-                            false, false, 
-                            task->mem_footprint_bytes, task->cpu_cycles, 
-                            task->qos_value, "deadline_missed");
-    
+    // Send local completion report for failed task (writes local_result to Redis)
+    sendTaskCompletionToRSU(task);
+
     // Send failure notification to RSU
     sendTaskFailureToRSU(task, "DEADLINE_MISSED");
     
@@ -1965,16 +2037,32 @@ void PayloadVehicleApp::sendTaskMetadataToRSU(Task* task) {
 }
 
 void PayloadVehicleApp::sendTaskCompletionToRSU(Task* task) {
-    EV_INFO << "📤 Sending task completion notification to RSU" << endl;
-    
+    EV_INFO << "📤 Sending local task completion to RSU: " << task->task_id << endl;
+
+    bool on_time = (task->state == COMPLETED_ON_TIME);
+    bool success = (task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
+    // Use on_time (not success) so COMPLETED_LATE correctly reports "DEADLINE_MISSED"
+    // instead of "NONE". The RSU uses this to set the Redis reason field.
+    std::string fail_reason = on_time ? "NONE" : "DEADLINE_MISSED";
+
     TaskCompletionMessage* msg = new TaskCompletionMessage();
     msg->setTask_id(task->task_id.c_str());
     msg->setVehicle_id(task->vehicle_id.c_str());
     msg->setCompletion_time(task->completion_time.dbl());
     msg->setProcessing_time((task->completion_time - task->processing_start_time).dbl());
-    msg->setCompleted_on_time(task->state == COMPLETED_ON_TIME);
+    msg->setCompleted_on_time(on_time);
     msg->setCpu_allocated(task->cpu_allocated);
-    
+
+    // Local-execution metadata so RSU can write task:{id}:local_result to Redis
+    msg->setIs_local_execution(true);
+    msg->setTask_type_name(TaskProfileDatabase::getTaskTypeName(task->type).c_str());
+    msg->setQos_value(task->qos_value);
+    msg->setDeadline_seconds(task->relative_deadline);
+    msg->setFailure_reason(fail_reason.c_str());
+
+    // Clean up any timing entry that was created for this task
+    taskTimings.erase(task->task_id);
+
     LAddress::L2Type rsuMacAddress = selectBestRSU();
     if (rsuMacAddress != 0) {
         populateWSM((BaseFrame1609_4*)msg, rsuMacAddress);
@@ -2431,13 +2519,10 @@ uint32_t PayloadVehicleApp::countFreshNeighborDetections() {
 // ============================================================================
 
 LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
-    std::cout << "\n🎯 RSU_SELECTION: Starting modern multi-criteria selection..." << std::endl;
-    
     // Get vehicle position
     Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
     cModule* networkModule = getModuleByPath("^.^");
     if (!networkModule) {
-        std::cout << "RSU_SELECTION: ERROR - Network module not found!" << std::endl;
         return 0;
     }
     
@@ -2465,7 +2550,18 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
                 }
                 
                 rsuMetrics[i].distance = distance;
-                
+
+                // Derive available RSU CPU from current load estimate.
+                // When load telemetry is unavailable, defaults keep this at nominal RSU CPU (from EnergyModel).
+                const double nominal_rsu_cpu_ghz = EnergyConstants::FREQ_RSU_NOMINAL / 1e9;
+                double load_ratio = 0.0;
+                if (rsuMetrics[i].rsu_max_concurrent > 0) {
+                    load_ratio = static_cast<double>(rsuMetrics[i].rsu_processing_count) /
+                                 static_cast<double>(rsuMetrics[i].rsu_max_concurrent);
+                }
+                load_ratio = std::max(0.0, std::min(1.0, load_ratio));
+                rsuMetrics[i].rsu_cpu_available_ghz = std::max(0.1, nominal_rsu_cpu_ghz * (1.0 - load_ratio));
+
                 // RSSI estimation: TwoRay Ground Reflection (matches omnetpp.ini pathLoss config)
                 // RSU TX = 2000mW = 33 dBm; antenna heights ht=hr=1.5m; carrier=5.89GHz
                 const double RSU_TX_dBm = 33.0;
@@ -2490,9 +2586,6 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
                 } else {
                     rsuMetrics[i].lastRSSI = 0.7 * rsuMetrics[i].lastRSSI + 0.3 * estimatedRSSI;
                 }
-                
-                std::cout << "RSU_SELECTION: RSU[" << i << "] dist=" << distance 
-                          << "m, estRSSI=" << estimatedRSSI << " dBm" << std::endl;
             }
         }
     }
@@ -2510,36 +2603,26 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
         if (metrics.consecutiveFailures >= failure_blacklist_threshold) {
             simtime_t timeSinceLastFailure = simTime() - metrics.lastContactTime;
             if (timeSinceLastFailure < blacklist_duration) {
-                std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] BLACKLISTED (failures=" 
-                          << metrics.consecutiveFailures << ")" << std::endl;
                 continue;  // Skip blacklisted RSU
             } else {
                 // Reset blacklist after timeout
                 metrics.consecutiveFailures = 0;
-                std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] blacklist expired, reset" << std::endl;
             }
         }
-        
+
         // Check minimum RSSI threshold
         if (metrics.lastRSSI < rssi_threshold) {
-            std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] below RSSI threshold ("
-                      << metrics.lastRSSI << " < " << rssi_threshold << " dBm)" << std::endl;
             continue;  // Skip RSUs with too weak signal
         }
-        
+
         // Calculate multi-criteria score
         metrics.score = calculateRSUScore(metrics);
-        
+
         // Apply hysteresis: favor currently selected RSU
         if (metrics.macAddress == currentRSU && currentRSU != 0) {
             metrics.score += 0.1;  // 10% bonus for staying with current RSU
-            std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] is CURRENT, added hysteresis bonus" << std::endl;
         }
-        
-        std::cout << "RSU_SELECTION: RSU[" << rsuIndex << "] SCORE=" << metrics.score 
-                  << " (RSSI=" << metrics.lastRSSI << ", PRR=" << metrics.getPRR() 
-                  << ", dist=" << metrics.distance << "m)" << std::endl;
-        
+
         // Track best candidate
         if (metrics.score > bestScore) {
             bestScore = metrics.score;
@@ -2552,24 +2635,15 @@ LAddress::L2Type PayloadVehicleApp::selectBestRSU() {
     if (bestRSU != 0 && bestRSU != currentRSU && currentRSU != 0) {
         // Switching to new RSU - check if improvement is significant enough
         if (bestScore - rsuMetrics[bestIndex].score < 0.15) {  // Need >15% improvement
-            std::cout << "RSU_SELECTION: ⚠️ Hysteresis prevents switch (not enough improvement)" << std::endl;
             return currentRSU;  // Stay with current RSU
         }
     }
-    
+
     if (bestRSU != 0) {
-        if (bestRSU != currentRSU) {
-            std::cout << "RSU_SELECTION: ✅ SWITCHING to RSU[" << bestIndex 
-                      << "] MAC=" << bestRSU << " (score=" << bestScore << ")" << std::endl;
-            currentRSU = bestRSU;
-        } else {
-            std::cout << "RSU_SELECTION: ✅ STAYING with RSU[" << bestIndex 
-                      << "] MAC=" << bestRSU << " (score=" << bestScore << ")" << std::endl;
-        }
+        currentRSU = bestRSU;
         return bestRSU;
     }
-    
-    std::cout << "RSU_SELECTION: ❌ No viable RSU found, fallback to distance-based" << std::endl;
+
     return findRSUMacAddress();  // Fallback to old method
 }
 
@@ -2799,7 +2873,7 @@ double PayloadVehicleApp::getEstimatedRSSI() {
 
 double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
     // IEEE 802.11p DSRC Channel Rate: 3-27 Mbps (typically 6 Mbps for reliability)
-    double bandwidth_mbps = 6.0;  // Conservative estimate for reliable transmission
+    double bandwidth_mbps = kDefaultV2xLinkBandwidthMbps;  // Conservative estimate for reliable transmission
     
     // Calculate transmission time based on input bytes sent over the air
     double transmission_time = (task->input_size_bytes * 8.0) / (bandwidth_mbps * 1e6);
@@ -3044,6 +3118,12 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
 
         std::string sub_id = task->task_id + "::" + agent_name;
 
+        // Pass remaining deadline so the target node uses accurate timing.
+        // Using original relative_deadline would give the SV/RSU a full 0.5s
+        // even though 0.1-0.3s has already elapsed — corrupting deadline checks.
+        double elapsed_s = (simTime() - task->created_time).dbl();
+        double remaining_deadline_s = std::max(0.001, task->relative_deadline - elapsed_s);
+
         if (target_type == "RSU") {
             // Send to the dispatch RSU (TV's RSU) for local processing.
             // If target_id != this RSU, the route hint will forward it.
@@ -3054,7 +3134,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
             pkt->setOffload_time(simTime().dbl());
             pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
             pkt->setCpu_cycles(task->cpu_cycles);
-            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setDeadline_seconds(remaining_deadline_s);
             pkt->setQos_value(task->qos_value);
             pkt->setTask_input_data("{}");  // no route hint — goes to TV's nearest RSU
 
@@ -3080,7 +3160,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
                 pkt->setOffload_time(simTime().dbl());
                 pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
                 pkt->setCpu_cycles(task->cpu_cycles);
-                pkt->setDeadline_seconds(task->relative_deadline);
+                pkt->setDeadline_seconds(remaining_deadline_s);
                 pkt->setQos_value(task->qos_value);
                 pkt->setTask_input_data("{}");
                 LAddress::L2Type rsuMac = (dispatchRsuMac != 0) ? dispatchRsuMac : selectBestRSU();
@@ -3100,7 +3180,7 @@ void PayloadVehicleApp::dispatchBaselineSubTasks(Task* task,
             pkt->setOffload_time(simTime().dbl());
             pkt->setMem_footprint_bytes(task->mem_footprint_bytes);
             pkt->setCpu_cycles(task->cpu_cycles);
-            pkt->setDeadline_seconds(task->relative_deadline);
+            pkt->setDeadline_seconds(remaining_deadline_s);
             pkt->setQos_value(task->qos_value);
 
             // Try direct V2V first; fall back to infrastructure relay via TV's RSU
@@ -3189,7 +3269,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         } else {
             EV_INFO << "⏸ Queuing task for local execution" << endl;
             task->state = QUEUED;
-            task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+            markTaskQueued(task);
             pending_tasks.push(task);
             sendTaskOffloadingEvent(task->task_id, "QUEUED",
                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3230,10 +3310,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
         timeoutMsg->setContextPointer(task);
         scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
-        
+        offloadedTaskTimeouts[task->task_id] = timeoutMsg;
+
         EV_INFO << "✓ Task offloaded to RSU, awaiting result" << endl;
     }
-    
+
     // ========================================================================
     // DECISION: OFFLOAD TO SERVICE VEHICLE
     // ========================================================================
@@ -3266,7 +3347,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
-                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                    markTaskQueued(task);
                     pending_tasks.push(task);
                     sendTaskOffloadingEvent(task->task_id, "QUEUED",
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3296,10 +3377,11 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
         timeoutMsg->setContextPointer(task);
         scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
-        
+        offloadedTaskTimeouts[task->task_id] = timeoutMsg;
+
         EV_INFO << "✓ Task offloaded to service vehicle, awaiting result" << endl;
     }
-    
+
     // ========================================================================
     // DECISION: REDIRECT TO ANOTHER RSU
     // ========================================================================
@@ -3333,7 +3415,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                     allocateResourcesAndStart(task);
                 } else {
                     task->state = QUEUED;
-                    task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                    markTaskQueued(task);
                     pending_tasks.push(task);
                     sendTaskOffloadingEvent(task->task_id, "QUEUED",
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -3460,7 +3542,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 allocateResourcesAndStart(task);
             } else {
                 task->state = QUEUED;
-                task->queue_entry_time = simTime();  // Mark queue entry time for stable aging
+                markTaskQueued(task);
                 pending_tasks.push(task);
             }
         } else {
@@ -3497,10 +3579,11 @@ void PayloadVehicleApp::sendTaskToRSU(Task* task, LAddress::L2Type ingressRsuMac
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     std::string routeHint = buildRouteHint(ingressRsuMac, processorRsuMac);
     packet->setTask_input_data(routeHint.c_str());
+    setOffloadPacketSize(packet, task->input_size_bytes > 0 ? task->input_size_bytes : task->mem_footprint_bytes);
     
     // Send to RSU. If caller provided a target RSU (decision-origin), use it.
     // Otherwise keep legacy behavior and choose current best RSU.
@@ -3545,9 +3628,10 @@ void PayloadVehicleApp::sendTaskToServiceVehicle(Task* task, const std::string& 
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     packet->setTask_input_data("{\"input\":\"task_data\"}");  // Placeholder
+    setOffloadPacketSize(packet, task->input_size_bytes > 0 ? task->input_size_bytes : task->mem_footprint_bytes);
     
     // Send to service vehicle
     populateWSM(packet, serviceMac);
@@ -3581,10 +3665,11 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
     packet->setOffload_time(simTime().dbl());
     packet->setMem_footprint_bytes(task->mem_footprint_bytes);
     packet->setCpu_cycles(task->cpu_cycles);
-    packet->setDeadline_seconds(task->relative_deadline);
+    packet->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     packet->setQos_value(task->qos_value);
     std::string hint = buildServiceRouteHint(serviceMac, anchorRsuMac, myId);
     packet->setTask_input_data(hint.c_str());
+    setOffloadPacketSize(packet, task->input_size_bytes > 0 ? task->input_size_bytes : task->mem_footprint_bytes);
 
     LAddress::L2Type firstHopRsu = (ingressRsuMac != 0) ? ingressRsuMac : selectBestRSU();
     if (firstHopRsu == 0) {
@@ -3687,7 +3772,34 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
         Task* task = it->second;
         bool success = msg->getSuccess();
         double completion_time = msg->getCompletion_time();
+        double receive_time = simTime().dbl();
         bool on_time = completion_time <= task->deadline.dbl();
+
+        double decision_latency = 0.0;
+        double total_offload_latency = 0.0;
+        if (taskTimings.find(task_id) != taskTimings.end()) {
+            const TaskTimingInfo& timing = taskTimings[task_id];
+            decision_latency = std::max(0.0, timing.decision_time - timing.request_time);
+            total_offload_latency = std::max(0.0, receive_time - timing.request_time);
+        }
+        double downlink_latency = std::max(0.0, receive_time - completion_time);
+        double estimated_uplink_and_queue = std::max(0.0,
+            total_offload_latency - msg->getProcessing_time() - downlink_latency);
+
+        sendTaskOffloadingEvent(task_id, "OFFLOAD_TIMING_MEASURED",
+            msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+            "{\"decision_latency_s\":" + std::to_string(decision_latency) +
+            ",\"uplink_plus_queue_s\":" + std::to_string(estimated_uplink_and_queue) +
+            ",\"processing_s\":" + std::to_string(msg->getProcessing_time()) +
+            ",\"downlink_s\":" + std::to_string(downlink_latency) +
+            ",\"total_offload_s\":" + std::to_string(total_offload_latency) + "}");
+
+        std::cout << "OFFLOAD_TIMING: task=" << task_id
+                  << " decision=" << decision_latency
+                  << " uplink+queue=" << estimated_uplink_and_queue
+                  << " processing=" << msg->getProcessing_time()
+                  << " downlink=" << downlink_latency
+                  << " total=" << total_offload_latency << std::endl;
         sendTaskOffloadingEvent(task_id, "TASK_RESULTS_RECEIVED",
             msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             "{\"success\":" + std::string(success ? "true" : "false") + ","
@@ -3736,13 +3848,21 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
             }
         }
         
+        // Cancel the offloadedTaskTimeout so it doesn't fire on freed memory
+        auto tmIt = offloadedTaskTimeouts.find(task_id);
+        if (tmIt != offloadedTaskTimeouts.end()) {
+            if (tmIt->second->isScheduled()) cancelAndDelete(tmIt->second);
+            else delete tmIt->second;
+            offloadedTaskTimeouts.erase(tmIt);
+        }
+
         // Clean up
         cleanupTaskEvents(task);
         delete task;
         offloadedTasks.erase(it);
         offloadedTaskTargets.erase(task_id);
     }
-    
+
     delete msg;
 }
 
@@ -3993,7 +4113,9 @@ void PayloadVehicleApp::reallocateServiceCPUResources() {
             cancelEvent(t->completion_event);
         }
         double new_exec = (per_task_hz > 0.0) ? remaining / per_task_hz : 0.0;
-        scheduleAt(simTime() + new_exec, t->completion_event);
+        if (t->completion_event) {
+            scheduleAt(simTime() + new_exec, t->completion_event);
+        }
 
         EV_INFO << "  SV realloc: task " << t->task_id
                 << " → " << (per_task_hz/1e9) << " GHz, "
@@ -4016,6 +4138,7 @@ void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& ori
     result->setSuccess(task->state == COMPLETED_ON_TIME || task->state == COMPLETED_LATE);
     result->setCompletion_time(task->completion_time.dbl());
     result->setProcessing_time((task->completion_time - task->processing_start_time).dbl());
+    setResultPacketSize(result, task->output_size_bytes);
     
     // Set result data (placeholder - in real system would include actual computation output)
     result->setTask_output_data("{\"status\":\"completed_by_service_vehicle\"}");

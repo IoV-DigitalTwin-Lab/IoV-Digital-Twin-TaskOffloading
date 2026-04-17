@@ -102,11 +102,12 @@ private:
     uint32_t tasks_rejected = 0;
     
     double total_completion_time = 0.0;       // Sum for average calculation
-
+    double local_service_time_ewma_alpha = 0.2; // EWMA smoothing for local service time
+    double local_service_time_default_sec = 0.5; // Cold-start fallback estimate
+    std::map<TaskType, double> local_service_time_ewma; // Per-task-type local service estimate
     // Recurring self-messages owned by this module
     cMessage* sendPayloadEvent = nullptr;
     cMessage* monitorPositionEvent = nullptr;
-    
     // Self-messages for task generation (one per task type)
     cMessage* localObjDetEvent = nullptr;
     cMessage* coopPercepEvent = nullptr;
@@ -114,6 +115,11 @@ private:
     cMessage* fleetForecastEvent = nullptr;
     cMessage* voiceCommandEvent = nullptr;
     cMessage* sensorHealthEvent = nullptr;
+    // Periodic heartbeat (resource-status broadcast) timer.
+    // Must be tracked so finish() can cancel it when SUMO removes this vehicle
+    // mid-simulation; an untracked anonymous new cMessage() left in the FES
+    // causes a SIGSEGV (vtable dispatch on freed module) during executeEvent.
+    cMessage* heartbeatMsg = nullptr;
     
     // Task Processing Methods
     void initializeTaskSystem();              // Initialize task processing parameters
@@ -147,6 +153,10 @@ private:
     void logTaskStatistics();
     
     // Helper methods
+    void markTaskQueued(Task* task);           // Record queue entry and predicted service time
+    double estimateLocalServiceTime(Task* task) const; // Estimate local execution time for a task
+    double estimateLocalQueueWait(Task* task) const; // Estimate wait from tasks ahead in queue
+    void updateLocalServiceTimeEstimate(Task* task, double actual_service_time_sec); // EWMA update
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
@@ -174,9 +184,10 @@ private:
         simtime_t lastContactTime = 0;               // Last successful contact
         double score = 0.0;                          // Calculated selection score
         
-        // RSU edge-compute load (set from beacon / assume 0 when unknown)
-        int rsu_processing_count = 0;  // Active tasks on this RSU right now
-        int rsu_max_concurrent   = 16; // Configured admission ceiling on this RSU
+        // RSU edge-compute load (set from beacon / assume defaults when unknown)
+        int rsu_processing_count = 0;   // Active tasks on this RSU right now
+        int rsu_max_concurrent   = 16;  // Configured admission ceiling on this RSU
+        double rsu_cpu_available_ghz = 4.0; // Estimated available RSU CPU (GHz)
         
         // Calculate Packet Reception Ratio (PRR)
         double getPRR() const {
@@ -198,6 +209,9 @@ private:
         double request_time = 0.0;      // When offloading request was sent
         double decision_time = 0.0;     // When RSU decision was received
         double start_time = 0.0;        // When processing started
+        double finish_time = 0.0;       // When processing finished
+        double predicted_service_time = 0.0; // Predicted local execution time when queued
+        double actual_service_time = 0.0;     // Actual local execution time
         std::string decision_type;      // LOCAL, RSU, SERVICE_VEHICLE
         std::string processor_id;       // ID of processor
     };
@@ -215,7 +229,7 @@ private:
     std::map<std::string, TaskTimingInfo> taskTimings;  // task_id -> timing info
     
     bool offloadingEnabled = false;                        // Enable/disable offloading
-    bool forceOffload = false;                             // Always offload (bypass heuristic)
+    std::string offloadMode = "heuristic";               // "heuristic" | "allOffload" | "allLocal"
     TaskOffloadingDecisionMaker* decisionMaker = nullptr;  // Offloading decision maker
     
     // Pending offloading requests (awaiting RSU decision)
@@ -225,6 +239,7 @@ private:
     // Offloaded tasks (awaiting results)
     std::map<std::string, Task*> offloadedTasks;  // task_id -> Task*
     std::map<std::string, std::string> offloadedTaskTargets;  // task_id -> target ("RSU" or vehicle_id)
+    std::map<std::string, cMessage*> offloadedTaskTimeouts;  // task_id -> timeout msg (cancel on result)
     
     // Timeout parameters
     simtime_t rsuDecisionTimeout = 1.0;            // Timeout for RSU decision response
@@ -254,10 +269,9 @@ private:
     void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
                                    const std::string& sourceEntity, const std::string& targetEntity,
                                    const std::string& details);
-    void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType, 
+    void sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
                                   const std::string& sourceEntity, const std::string& targetEntity);
-    void sendTaskCompletionToRSU(Task* task, bool success, const std::string& failureReason = "");
-    void sendTaskCompletionToRSU(const std::string& taskId, double completionTime, 
+    void sendTaskCompletionToRSU(const std::string& taskId, double completionTime,
                                   bool success, bool onTime, 
                                   uint64_t taskSizeBytes, uint64_t cpuCycles, 
                                   double qosValue, const std::string& resultData);
@@ -287,7 +301,7 @@ private:
     std::set<Task*> processingServiceTasks;  // Currently processing service tasks
     std::map<std::string, std::string> serviceTaskOriginVehicles;  // task_id -> origin_vehicle_id
     std::map<std::string, veins::LAddress::L2Type> serviceTaskOriginMACs;  // task_id -> origin_mac
-    double serviceDirectRssiThresholdDbm = -72.0;   // direct TV<->SV/SV<->TV threshold
+    double serviceDirectRssiThresholdDbm = -85.0;   // direct TV<->SV/SV<->TV threshold (IEEE 802.11p: -85 to -90 dBm for ~300m range)
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);

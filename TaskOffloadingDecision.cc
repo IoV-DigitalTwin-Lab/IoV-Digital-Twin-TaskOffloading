@@ -68,7 +68,8 @@ void TaskOffloadingDecisionMaker::provideFeedback(const std::string& task_id,
         } else {
             failed_local++;
         }
-    } else if (decision == OffloadingDecision::OFFLOAD_TO_RSU) {
+    } else if (decision == OffloadingDecision::OFFLOAD_TO_RSU ||
+               decision == OffloadingDecision::OFFLOAD_TO_SERVICE_VEHICLE) {
         if (success) {
             successful_offload++;
         } else {
@@ -115,7 +116,7 @@ double TaskOffloadingDecisionMaker::estimateLocalExecutionTime(const DecisionCon
     // Simple estimation: cycles / CPU speed
     // Account for queue wait time
     double processing_time = context.cpu_cycles_required / (context.local_cpu_available * 1e9);
-    double queue_wait_time = context.local_queue_length * 0.5; // Assume 0.5s per queued task
+    double queue_wait_time = std::max(0.0, context.local_queue_wait_seconds);
     
     return processing_time + queue_wait_time;
 }
@@ -123,7 +124,7 @@ double TaskOffloadingDecisionMaker::estimateLocalExecutionTime(const DecisionCon
 double TaskOffloadingDecisionMaker::estimateOffloadingTime(const DecisionContext& context) {
     // Transmission time + processing at RSU (assumed faster)
     double transmission_time = context.estimated_transmission_time;
-    double rsu_processing_time = context.cpu_cycles_required / (4.0 * 1e9); // Assume RSU has 4 GHz
+    double rsu_processing_time = context.cpu_cycles_required / EnergyConstants::FREQ_RSU_NOMINAL; // Use nominal RSU CPU from EnergyModel
     
     return transmission_time + rsu_processing_time;
 }
@@ -176,9 +177,18 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     // Step 3 formulas from README_GATES (with currently available context fields)
     const double t_local = std::max(0.0, context.cpu_cycles_required) / local_cpu_hz;
     const double t_tx = std::max(0.0, context.estimated_transmission_time);
-    const double assumed_rsu_cpu_hz = 4.0 * 1e9; // Existing model assumption until RSU CPU is injected into context
-    const double t_edge = std::max(0.0, context.cpu_cycles_required) / assumed_rsu_cpu_hz;
-    const double t_rx = 0.0; // Output-size-based estimate will be added when output metadata is passed in DecisionContext
+    const double rsu_cpu_hz = std::max(1e6, context.rsu_cpu_available_ghz * 1e9);
+    const double t_edge = std::max(0.0, context.cpu_cycles_required) / rsu_cpu_hz;
+
+    // Estimate downlink receive time similarly to uplink transmission model:
+    // data transfer + propagation + fixed MAC overhead.
+    const double downlink_mbps = std::max(0.001, context.estimated_downlink_bandwidth_mbps);
+    const double output_size_bytes = std::max(0.0, context.output_size_kb) * 1024.0;
+    const double t_rx_data = (output_size_bytes * 8.0) / (downlink_mbps * 1e6);
+    const double t_rx_propagation = std::max(0.0, context.rsu_distance) / 3e8;
+    const double t_rx_overhead = 0.001;
+    const double t_rx = t_rx_data + t_rx_propagation + t_rx_overhead;
+
     const double t_offload = t_tx + t_edge + t_rx;
 
     result.t_local_seconds = t_local;
@@ -218,7 +228,7 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     const bool compute_data_ok = context.cpu_cycles_required < (k2 * task_size_bytes);
     const bool must_local_by_threshold = local_capacity_ok && compute_data_ok;
 
-    const double queue_wait_sec = std::max(0.0, static_cast<double>(context.local_queue_length)) * 0.5;
+    const double queue_wait_sec = std::max(0.0, context.local_queue_wait_seconds);
     const bool must_offload_by_queue = (queue_wait_sec + t_local) >= remaining_deadline;
 
     if (context.must_local_tag || must_local_by_threshold) {
@@ -328,61 +338,6 @@ OffloadingDecision HeuristicDecisionMaker::makeDecision(const DecisionContext& c
                   "REJECT_TASK")
               << " — " << last_decision_reason << std::endl;
     return result.decision;
-}
-
-// ============================================================================
-// DRLDecisionMaker - Placeholder for Deep Reinforcement Learning
-// ============================================================================
-
-DRLDecisionMaker::DRLDecisionMaker()
-    : TaskOffloadingDecisionMaker(),
-      exploration_rate(0.1),
-      learning_rate(0.001),
-      use_pretrained_model(false) {
-    std::cout << "DRL Decision Maker initialized (placeholder - not yet implemented)" << std::endl;
-}
-
-OffloadingDecision DRLDecisionMaker::makeDecision(const DecisionContext& context) {
-    // TODO: Implement DRL-based decision making
-    // For now, fall back to simple heuristic
-    std::cout << "⚠️  DRL not implemented yet, using simple heuristic fallback" << std::endl;
-    
-    // Simple fallback: offload if RSU available and CPU busy
-    if (context.rsu_available && context.local_cpu_utilization > 0.7) {
-        decisions_offload++;
-        return OffloadingDecision::OFFLOAD_TO_RSU;
-    } else {
-        decisions_local++;
-        return OffloadingDecision::EXECUTE_LOCALLY;
-    }
-}
-
-void DRLDecisionMaker::provideFeedback(const std::string& task_id,
-                                       OffloadingDecision decision,
-                                       bool success,
-                                       double execution_time) {
-    TaskOffloadingDecisionMaker::provideFeedback(task_id, decision, success, execution_time);
-    
-    // TODO: Store experience in replay buffer
-    // TODO: Trigger training if buffer is full
-}
-
-void DRLDecisionMaker::loadModel(const std::string& model_path) {
-    // TODO: Load pre-trained DRL model
-    std::cout << "TODO: Load DRL model from " << model_path << std::endl;
-}
-
-void DRLDecisionMaker::saveModel(const std::string& model_path) {
-    // TODO: Save trained DRL model
-    std::cout << "TODO: Save DRL model to " << model_path << std::endl;
-}
-
-void DRLDecisionMaker::setLearningRate(double rate) {
-    learning_rate = rate;
-}
-
-void DRLDecisionMaker::setExplorationRate(double rate) {
-    exploration_rate = rate;
 }
 
 } // namespace complex_network

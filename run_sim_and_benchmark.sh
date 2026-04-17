@@ -22,12 +22,24 @@ fi
 echo "  ✓ Redis ready"
 echo ""
 
+echo "[1/3b] Cleaning stale simulation processes..."
+pkill -f "IoV-Digital-Twin-TaskOffloading" 2>/dev/null || true
+pkill -f "sumo-launchd" 2>/dev/null || true
+if lsof -i :10000 >/dev/null 2>&1; then
+    PID=$(lsof -t -i :10000 2>/dev/null)
+    if [ -n "$PID" ]; then
+        kill "$PID" 2>/dev/null || true
+    fi
+fi
+echo "  ✓ Stale processes cleaned"
+echo ""
+
 # Run simulation for specified duration
 echo "[2/3] Running OMNeT++ simulation for ${SIM_TIMEOUT_SECONDS}s..."
 cd "$SCRIPT_DIR"
 
 # Run simulation in background with timeout
-timeout "$SIM_TIMEOUT_SECONDS" ./run_sim_portable.sh -c DT-Secondary-MotionChannel 2>&1 | tee sim_run.log &
+timeout "$SIM_TIMEOUT_SECONDS" ./run_sim_portable.sh -u Cmdenv -c DT-Secondary-MotionChannel -r 0 --*.manager.port=10000 2>&1 | tee sim_run.log &
 SIM_PID=$!
 
 # Wait for completion or timeout
