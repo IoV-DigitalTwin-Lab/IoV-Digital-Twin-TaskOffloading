@@ -15,6 +15,13 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         // ---- Heartbeat (continuous vehicle telemetry) ----
         double heartbeatIntervalS @unit(s) = default(0.1s);  // 100 ms DT sync broadcast interval
         double firstStatusDelayS @unit(s) = default(0s);     // delay before first status, allow t=0
+        bool motionChannelOnly = default(false);             // disable task generation/offloading when true
+
+        // ---- Optional route-progress export (for external route-aware predictor) ----
+        bool routeProgressRedisEnabled = default(false);
+        string routeProgressRedisHost = default("127.0.0.1");
+        int routeProgressRedisPort = default(6379);
+        int routeProgressRedisDb = default(0);
 
         // First task generation minimum delay
         double firstTaskDelayS @unit(s) = default(0.2s);      // ensure tasks start after initial heartbeats
@@ -48,7 +55,6 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         
         // Offloading Control
         bool offloadingEnabled = default(true);               // Enable ML-based offloading
-        bool motionChannelOnly = default(false);              // Secondary DT mode: disable task generation/offloading
         bool force_offload = default(false);                  // Force all tasks to be offloaded
         double gateAlpha = default(0.6);                      // Gate-B latency weight
         double gateBeta = default(0.4);                       // Gate-B energy weight

@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 export OMNETPP_HOME="${OMNETPP_HOME:-/opt/omnet/omnetpp-6.1}"
-export VEINS_PATH="${VEINS_PATH:-/opt/omnet/veins}"
+export VEINS_PATH="${VEINS_PATH:-../veins}"
 export INET_PATH="${INET_PATH:-../inet4.5}"
 
 # Source OMNeT++ environment (temporarily disable -u for setenv compatibility)

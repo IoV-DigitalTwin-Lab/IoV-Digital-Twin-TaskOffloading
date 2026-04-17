@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <cstdlib>
 #include <cmath>
+#include <string>
 
 using namespace veins;
 
@@ -84,21 +85,46 @@ void PayloadVehicleApp::initialize(int stage) {
         std::cout << "CONSOLE: PayloadVehicleApp - Vehicle data initialized" << std::endl;
         std::cout << "SHADOW: Vehicle starting signal monitoring for shadowing analysis" << std::endl;
 
-        // ===== INITIALIZE TASK PROCESSING SYSTEM =====
         motionChannelOnly = par("motionChannelOnly").boolValue();
-        initializeTaskSystem();
+
+        // ===== INITIALIZE TASK PROCESSING SYSTEM =====
+        if (!motionChannelOnly) {
+            initializeTaskSystem();
+        } else {
+            offloadingEnabled = false;
+            serviceVehicleEnabled = false;
+            EV_INFO << "PayloadVehicleApp: motionChannelOnly=true, task generation/offloading disabled" << endl;
+        }
+
+        routeProgressRedisEnabled = par("routeProgressRedisEnabled").boolValue();
+        if (routeProgressRedisEnabled) {
+            routeProgressRedisHost = par("routeProgressRedisHost").stdstringValue();
+            routeProgressRedisPort = par("routeProgressRedisPort").intValue();
+            routeProgressRedisDb = par("routeProgressRedisDb").intValue();
+            routeProgressRedisClient = new RedisDigitalTwin(routeProgressRedisHost, routeProgressRedisPort, routeProgressRedisDb);
+            if (!routeProgressRedisClient->isConnected()) {
+                EV_WARN << "Route-progress Redis unavailable; disabling export" << endl;
+                delete routeProgressRedisClient;
+                routeProgressRedisClient = nullptr;
+                routeProgressRedisEnabled = false;
+            }
+        }
         
         // Schedule first periodic vehicle status update
         // Allow configuration; default is t=0 so Redis sees vehicles immediately
         double firstStatusDelay = par("firstStatusDelayS").doubleValue();
-        cMessage* sendMsgEvent = new cMessage("sendPayloadMessage");
-        scheduleAt(simTime() + firstStatusDelay, sendMsgEvent);
+        if (!sendPayloadEvent) {
+            sendPayloadEvent = new cMessage("sendPayloadMessage");
+        }
+        scheduleAt(simTime() + firstStatusDelay, sendPayloadEvent);
         std::cout << "CONSOLE: PayloadVehicleApp - Scheduled first payload message at time "
               << (simTime() + firstStatusDelay) << std::endl;
         
         // Schedule periodic position monitoring for shadowing analysis
-        cMessage* monitorEvent = new cMessage("monitorPosition");
-        scheduleAt(simTime() + 1, monitorEvent);
+        if (!monitorPositionEvent) {
+            monitorPositionEvent = new cMessage("monitorPosition");
+        }
+        scheduleAt(simTime() + 1, monitorPositionEvent);
         std::cout << "SHADOW: Position monitoring started - checking for obstacle effects" << std::endl;
     }
     else if (stage == 1) {
@@ -257,11 +283,9 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         // This includes position, speed, CPU, memory, and task statistics
         sendVehicleResourceStatus();
 
-        // Schedule next periodic update using heartbeatIntervalS parameter
+        // Reuse the same timer for periodic status updates.
         double heartbeatInterval = par("heartbeatIntervalS").doubleValue();
-        scheduleAt(simTime() + heartbeatInterval, new cMessage("sendPayloadMessage"));
-        
-        delete msg;
+        scheduleAt(simTime() + heartbeatInterval, msg);
     } 
     else if (strcmp(msg->getName(), "monitorPosition") == 0) {
         // Monitor vehicle position and get REAL simulation shadowing data
@@ -485,6 +509,7 @@ void PayloadVehicleApp::handleMessage(cMessage* msg) {
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     if (wsm) {
         onWSM(wsm);
+        delete wsm;
         return;
     }
 
@@ -1269,6 +1294,22 @@ void PayloadVehicleApp::generateTask(TaskType type) {
 }
 
 void PayloadVehicleApp::finish() {
+    auto cleanupTimer = [this](cMessage*& timer) {
+        if (timer) {
+            cancelAndDelete(timer);
+            timer = nullptr;
+        }
+    };
+
+    cleanupTimer(sendPayloadEvent);
+    cleanupTimer(monitorPositionEvent);
+    cleanupTimer(localObjDetEvent);
+    cleanupTimer(coopPercepEvent);
+    cleanupTimer(routeOptEvent);
+    cleanupTimer(fleetForecastEvent);
+    cleanupTimer(voiceCommandEvent);
+    cleanupTimer(sensorHealthEvent);
+
     // Stop recurring generation timers.
     if (localObjDetEvent) { cancelAndDelete(localObjDetEvent); localObjDetEvent = nullptr; }
     if (coopPercepEvent) { cancelAndDelete(coopPercepEvent); coopPercepEvent = nullptr; }
@@ -1336,6 +1377,11 @@ void PayloadVehicleApp::finish() {
     if (decisionMaker) {
         delete decisionMaker;
         decisionMaker = nullptr;
+    }
+
+    if (routeProgressRedisClient) {
+        delete routeProgressRedisClient;
+        routeProgressRedisClient = nullptr;
     }
 
     DemoBaseApplLayer::finish();
@@ -2276,7 +2322,7 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setBattery_capacity_mAh(battery_mAh_max);
     statusMsg->setEnergy_task_j_total(task_energy_j_total);
     statusMsg->setEnergy_task_j_last(task_energy_j_last);
-    
+
     // Set sender MAC so RSU can register this vehicle's L2 address from heartbeats alone.
     statusMsg->setSenderAddress(myId);
 
@@ -2287,10 +2333,38 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     std::cout << "RESOURCE_BROADCAST: Vehicle " << getParentModule()->getIndex()
               << " broadcast status - CPU:" << (cpu_util * 100.0)
               << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
+    exportRouteProgressToRedis();
 }
 
 void PayloadVehicleApp::sendVehicleResourceStatus() {
     sendResourceStatusToRSU();
+}
+
+void PayloadVehicleApp::exportRouteProgressToRedis() {
+    if (!routeProgressRedisEnabled || !routeProgressRedisClient || !routeProgressRedisClient->isConnected() || !mobility) {
+        return;
+    }
+
+    std::string edge_id;
+    double lane_pos_m = 0.0;
+
+    try {
+        edge_id = mobility->getRoadId();
+        auto* vehicle_if = mobility->getVehicleCommandInterface();
+        if (vehicle_if) {
+            lane_pos_m = vehicle_if->getLanePosition();
+        }
+    }
+    catch (const cRuntimeError&) {
+        return;
+    }
+
+    if (edge_id.empty()) {
+        return;
+    }
+
+    const std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+    routeProgressRedisClient->updateVehicleRouteProgress(vehicle_id, simTime().dbl(), edge_id, lane_pos_m);
 }
 
 // ============================================================================

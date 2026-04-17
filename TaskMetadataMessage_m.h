@@ -52,10 +52,8 @@ namespace veins {
  *     string vehicle_id;           // Originating vehicle ID
  * 
  *     // Task Characteristics
- *     // mem_footprint_bytes: working memory reserved on the processing entity.
- *     // Set to input_size_bytes; kept as a separate wire field so the RSU's
- *     // admission-control and DB schema don't need to look up the profile.
- *     uint64_t mem_footprint_bytes;    // Working memory footprint (= input_size_bytes for this task)
+ *     uint64_t task_size_bytes;    // Legacy payload size field (= input_size_bytes)
+ *     uint64_t mem_footprint_bytes; // Working memory footprint (D_task)
  *     uint64_t cpu_cycles;         // Required CPU cycles (C_task)
  * 
  *     // Timing Information
@@ -83,6 +81,7 @@ class TaskMetadataMessage : public ::veins::BaseFrame1609_4
   protected:
     ::omnetpp::opp_string task_id;
     ::omnetpp::opp_string vehicle_id;
+    uint64_t task_size_bytes = 0;
     uint64_t mem_footprint_bytes = 0;
     uint64_t cpu_cycles = 0;
     double created_time = 0;
@@ -118,6 +117,9 @@ class TaskMetadataMessage : public ::veins::BaseFrame1609_4
 
     virtual const char * getVehicle_id() const;
     virtual void setVehicle_id(const char * vehicle_id);
+
+    virtual uint64_t getTask_size_bytes() const;
+    virtual void setTask_size_bytes(uint64_t task_size_bytes);
 
     virtual uint64_t getMem_footprint_bytes() const;
     virtual void setMem_footprint_bytes(uint64_t mem_footprint_bytes);
@@ -166,7 +168,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskMetadataMessage& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskMetadataMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:47</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:45</tt> by opp_msgtool.
  * <pre>
  * //
  * // Object Detection Data Message - Vehicle → Vehicle broadcast (cooperative perception)
@@ -220,7 +222,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const ObjectDetectionDataMe
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, ObjectDetectionDataMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:57</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:55</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Completion Message - Sent from vehicle to RSU when task completes
@@ -284,7 +286,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskCompletionMessage
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskCompletionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:69</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:67</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Failure Message - Sent from vehicle to RSU when task fails/is rejected
@@ -343,7 +345,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskFailureMessage& o
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:80</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:78</tt> by opp_msgtool.
  * <pre>
  * //
  * // Vehicle Resource Status Message - Periodic heartbeat from vehicle to RSU
@@ -529,7 +531,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const VehicleResourceStatus
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:125</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:123</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Request Message - Task vehicle → RSU (requesting offloading decision)
@@ -542,7 +544,8 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMess
  *     double request_time;                 // When request was sent
  * 
  *     // Task Characteristics
- *     uint64_t mem_footprint_bytes;            // Task size
+ *     uint64_t task_size_bytes;            // Legacy payload size field
+ *     uint64_t mem_footprint_bytes;        // Working memory footprint
  *     uint64_t cpu_cycles;                 // Required CPU cycles
  *     double deadline_seconds;             // Task deadline
  *     double qos_value;                    // QoS priority
@@ -576,6 +579,7 @@ class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
     ::omnetpp::opp_string task_id;
     ::omnetpp::opp_string vehicle_id;
     double request_time = 0;
+    uint64_t task_size_bytes = 0;
     uint64_t mem_footprint_bytes = 0;
     uint64_t cpu_cycles = 0;
     double deadline_seconds = 0;
@@ -621,6 +625,9 @@ class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
 
     virtual double getRequest_time() const;
     virtual void setRequest_time(double request_time);
+
+    virtual uint64_t getTask_size_bytes() const;
+    virtual void setTask_size_bytes(uint64_t task_size_bytes);
 
     virtual uint64_t getMem_footprint_bytes() const;
     virtual void setMem_footprint_bytes(uint64_t mem_footprint_bytes);
@@ -681,7 +688,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:161</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:160</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -700,15 +707,15 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage&
  *     string target_service_vehicle_id;    // Service vehicle ID (if applicable)
  *     uint64_t target_service_vehicle_mac; // Service vehicle MAC address (if applicable)
  * 
+ *     // Optional RSU redirection hints for multi-hop offloading
+ *     string redirect_target_rsu_id;       // Preferred RSU ID for forwarding
+ *     uint64_t redirect_target_rsu_mac;    // Preferred RSU MAC for forwarding
+ *     int next_candidate_index = 0;        // Candidate index hint for retry chains
+ * 
  *     // Decision Metadata
  *     double confidence_score;             // ML model confidence (0-1)
  *     double estimated_completion_time;    // Estimated time to complete
  *     string decision_reason;              // Human-readable reasoning
- * 
- *     // Redirect Information (if decision_type == "REDIRECT")
- *     uint64_t redirect_target_rsu_mac;    // MAC address of RSU to try next
- *     string redirect_target_rsu_id;       // ID of RSU to try next
- *     int next_candidate_index;            // Index in candidate list to try next
  * 
  *     // Multi-agent baseline decisions (TV dispatches sub-tasks for each agent)
  *     // Encoded as CSV: "agent:TYPE:target_id:target_mac,..."
@@ -727,12 +734,12 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
     ::omnetpp::opp_string decision_type;
     ::omnetpp::opp_string target_service_vehicle_id;
     uint64_t target_service_vehicle_mac = 0;
+    ::omnetpp::opp_string redirect_target_rsu_id;
+    uint64_t redirect_target_rsu_mac = 0;
+    int next_candidate_index = 0;
     double confidence_score = 0;
     double estimated_completion_time = 0;
     ::omnetpp::opp_string decision_reason;
-    uint64_t redirect_target_rsu_mac = 0;
-    ::omnetpp::opp_string redirect_target_rsu_id;
-    int next_candidate_index = 0;
     ::omnetpp::opp_string agentDecisions;
 
   private:
@@ -772,6 +779,15 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
     virtual uint64_t getTarget_service_vehicle_mac() const;
     virtual void setTarget_service_vehicle_mac(uint64_t target_service_vehicle_mac);
 
+    virtual const char * getRedirect_target_rsu_id() const;
+    virtual void setRedirect_target_rsu_id(const char * redirect_target_rsu_id);
+
+    virtual uint64_t getRedirect_target_rsu_mac() const;
+    virtual void setRedirect_target_rsu_mac(uint64_t redirect_target_rsu_mac);
+
+    virtual int getNext_candidate_index() const;
+    virtual void setNext_candidate_index(int next_candidate_index);
+
     virtual double getConfidence_score() const;
     virtual void setConfidence_score(double confidence_score);
 
@@ -781,15 +797,6 @@ class OffloadingDecisionMessage : public ::veins::BaseFrame1609_4
     virtual const char * getDecision_reason() const;
     virtual void setDecision_reason(const char * decision_reason);
 
-    virtual uint64_t getRedirect_target_rsu_mac() const;
-    virtual void setRedirect_target_rsu_mac(uint64_t redirect_target_rsu_mac);
-
-    virtual const char * getRedirect_target_rsu_id() const;
-    virtual void setRedirect_target_rsu_id(const char * redirect_target_rsu_id);
-
-    virtual int getNext_candidate_index() const;
-    virtual void setNext_candidate_index(int next_candidate_index);
-
     virtual const char * getAgentDecisions() const;
     virtual void setAgentDecisions(const char * agentDecisions);
 };
@@ -798,7 +805,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:193</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:192</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -811,7 +818,8 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage
  *     double offload_time;                 // When task was offloaded
  * 
  *     // Task Characteristics
- *     uint64_t mem_footprint_bytes;            // Task size
+ *     uint64_t task_size_bytes;            // Legacy payload size field
+ *     uint64_t mem_footprint_bytes;        // Working memory footprint
  *     uint64_t cpu_cycles;                 // Required CPU cycles
  *     double deadline_seconds;             // Task deadline
  *     double qos_value;                    // QoS priority
@@ -828,6 +836,7 @@ class TaskOffloadPacket : public ::veins::BaseFrame1609_4
     ::omnetpp::opp_string origin_vehicle_id;
     uint64_t origin_vehicle_mac = 0;
     double offload_time = 0;
+    uint64_t task_size_bytes = 0;
     uint64_t mem_footprint_bytes = 0;
     uint64_t cpu_cycles = 0;
     double deadline_seconds = 0;
@@ -860,6 +869,9 @@ class TaskOffloadPacket : public ::veins::BaseFrame1609_4
 
     virtual double getOffload_time() const;
     virtual void setOffload_time(double offload_time);
+
+    virtual uint64_t getTask_size_bytes() const;
+    virtual void setTask_size_bytes(uint64_t task_size_bytes);
 
     virtual uint64_t getMem_footprint_bytes() const;
     virtual void setMem_footprint_bytes(uint64_t mem_footprint_bytes);
@@ -1122,6 +1134,7 @@ class VehicleDetailInBroadcast
  * 
  *     // Coverage Information with Vehicle Details
  *     VehicleDetailInBroadcast vehicle_details_in_coverage[];  // Full vehicle state in coverage
+ *     string vehicle_ids_in_coverage[];    // Vehicle IDs in coverage
  *     int vehicle_count;                   // Number of vehicles in coverage
  * 
  *     // Network Topology
@@ -1145,6 +1158,8 @@ class RSUStatusBroadcastMessage : public ::veins::BaseFrame1609_4
     double memory_total_gb = 0;
     VehicleDetailInBroadcast *vehicle_details_in_coverage = nullptr;
     size_t vehicle_details_in_coverage_arraysize = 0;
+    ::omnetpp::opp_string *vehicle_ids_in_coverage = nullptr;
+    size_t vehicle_ids_in_coverage_arraysize = 0;
     int vehicle_count = 0;
     double pos_x = 0;
     double pos_y = 0;
@@ -1204,6 +1219,15 @@ class RSUStatusBroadcastMessage : public ::veins::BaseFrame1609_4
     [[deprecated]] void insertVehicle_details_in_coverage(const VehicleDetailInBroadcast& vehicle_details_in_coverage) {appendVehicle_details_in_coverage(vehicle_details_in_coverage);}
     virtual void appendVehicle_details_in_coverage(const VehicleDetailInBroadcast& vehicle_details_in_coverage);
     virtual void eraseVehicle_details_in_coverage(size_t k);
+
+    virtual void setVehicle_ids_in_coverageArraySize(size_t size);
+    virtual size_t getVehicle_ids_in_coverageArraySize() const;
+    virtual const char * getVehicle_ids_in_coverage(size_t k) const;
+    virtual void setVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage);
+    virtual void insertVehicle_ids_in_coverage(size_t k, const char * vehicle_ids_in_coverage);
+    [[deprecated]] void insertVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage) {appendVehicle_ids_in_coverage(vehicle_ids_in_coverage);}
+    virtual void appendVehicle_ids_in_coverage(const char * vehicle_ids_in_coverage);
+    virtual void eraseVehicle_ids_in_coverage(size_t k);
 
     virtual int getVehicle_count() const;
     virtual void setVehicle_count(int vehicle_count);
