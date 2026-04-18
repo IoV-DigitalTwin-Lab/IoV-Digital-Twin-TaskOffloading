@@ -92,6 +92,7 @@ private:
     size_t max_queue_size = 50;               // Maximum pending tasks
     size_t max_concurrent_tasks = 4;          // Maximum parallel execution
     double min_cpu_guarantee = 0.1;           // 10% of allocable per task
+    double cpuConcurrencyCompletionThreshold = 0.8; // Tasks >= threshold progress are excluded from cpu_available concurrency count
     
     // Task Statistics
     uint64_t task_sequence_number = 0;        // For unique task IDs
@@ -157,6 +158,10 @@ private:
     double estimateLocalServiceTime(Task* task) const; // Estimate local execution time for a task
     double estimateLocalQueueWait(Task* task) const; // Estimate wait from tasks ahead in queue
     void updateLocalServiceTimeEstimate(Task* task, double actual_service_time_sec); // EWMA update
+    double calculateTaskCompletionFraction(const Task* task) const; // Execution progress in [0, 1]
+    size_t countCpuAvailableConcurrency() const; // Count processing tasks below completion threshold
+    double calculateReportedCpuAvailable() const; // F_allocable / (concurrent + 1)
+    double calculateTaskCpuUtilization() const; // Fraction of allocable CPU currently assigned to tasks
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
