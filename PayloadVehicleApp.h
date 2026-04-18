@@ -20,6 +20,14 @@
 
 namespace complex_network {
 
+// Crash window logging helper (t=9.8-10.5s)
+#define LOG_CRASH_WINDOW(msg) \
+    do { \
+        double _t = simTime().dbl(); \
+        if (_t >= 9.8 && _t <= 10.5) { \
+            std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << _t << "s " << msg << std::endl; \
+        } \
+    } while(0)
 class PayloadVehicleApp : public veins::DemoBaseApplLayer {
 protected:
     virtual void initialize(int stage) override;

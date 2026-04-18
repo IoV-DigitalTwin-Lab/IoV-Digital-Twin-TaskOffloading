@@ -3385,6 +3385,8 @@ void OffloadingRequestMessage::copy(const OffloadingRequestMessage& other)
     this->pos_y = other.pos_y;
     this->speed = other.speed;
     this->local_decision = other.local_decision;
+    this->initial_gate_classification = other.initial_gate_classification;
+    this->initial_gate_reason = other.initial_gate_reason;
     delete [] this->candidate_rsu_macs;
     this->candidate_rsu_macs = (other.candidate_rsu_macs_arraysize==0) ? nullptr : new uint64_t[other.candidate_rsu_macs_arraysize];
     candidate_rsu_macs_arraysize = other.candidate_rsu_macs_arraysize;
@@ -3416,6 +3418,8 @@ void OffloadingRequestMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->pos_y);
     doParsimPacking(b,this->speed);
     doParsimPacking(b,this->local_decision);
+    doParsimPacking(b,this->initial_gate_classification);
+    doParsimPacking(b,this->initial_gate_reason);
     b->pack(candidate_rsu_macs_arraysize);
     doParsimArrayPacking(b,this->candidate_rsu_macs,candidate_rsu_macs_arraysize);
     doParsimPacking(b,this->current_candidate_index);
@@ -3443,6 +3447,8 @@ void OffloadingRequestMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->pos_y);
     doParsimUnpacking(b,this->speed);
     doParsimUnpacking(b,this->local_decision);
+    doParsimUnpacking(b,this->initial_gate_classification);
+    doParsimUnpacking(b,this->initial_gate_reason);
     delete [] this->candidate_rsu_macs;
     b->unpack(candidate_rsu_macs_arraysize);
     if (candidate_rsu_macs_arraysize == 0) {
@@ -3635,6 +3641,26 @@ void OffloadingRequestMessage::setLocal_decision(const char * local_decision)
     this->local_decision = local_decision;
 }
 
+const char * OffloadingRequestMessage::getInitial_gate_classification() const
+{
+    return this->initial_gate_classification.c_str();
+}
+
+void OffloadingRequestMessage::setInitial_gate_classification(const char * initial_gate_classification)
+{
+    this->initial_gate_classification = initial_gate_classification;
+}
+
+const char * OffloadingRequestMessage::getInitial_gate_reason() const
+{
+    return this->initial_gate_reason.c_str();
+}
+
+void OffloadingRequestMessage::setInitial_gate_reason(const char * initial_gate_reason)
+{
+    this->initial_gate_reason = initial_gate_reason;
+}
+
 size_t OffloadingRequestMessage::getCandidate_rsu_macsArraySize() const
 {
     return candidate_rsu_macs_arraysize;
@@ -3744,6 +3770,8 @@ class OffloadingRequestMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_pos_y,
         FIELD_speed,
         FIELD_local_decision,
+        FIELD_initial_gate_classification,
+        FIELD_initial_gate_reason,
         FIELD_candidate_rsu_macs,
         FIELD_current_candidate_index,
         FIELD_max_redirect_hops,
@@ -3813,7 +3841,7 @@ const char *OffloadingRequestMessageDescriptor::getProperty(const char *property
 int OffloadingRequestMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 21+base->getFieldCount() : 21;
+    return base ? 23+base->getFieldCount() : 23;
 }
 
 unsigned int OffloadingRequestMessageDescriptor::getFieldTypeFlags(int field) const
@@ -3843,11 +3871,13 @@ unsigned int OffloadingRequestMessageDescriptor::getFieldTypeFlags(int field) co
         FD_ISEDITABLE,    // FIELD_pos_y
         FD_ISEDITABLE,    // FIELD_speed
         FD_ISEDITABLE,    // FIELD_local_decision
+        FD_ISEDITABLE,    // FIELD_initial_gate_classification
+        FD_ISEDITABLE,    // FIELD_initial_gate_reason
         FD_ISARRAY | FD_ISEDITABLE | FD_ISRESIZABLE,    // FIELD_candidate_rsu_macs
         FD_ISEDITABLE,    // FIELD_current_candidate_index
         FD_ISEDITABLE,    // FIELD_max_redirect_hops
     };
-    return (field >= 0 && field < 21) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 23) ? fieldTypeFlags[field] : 0;
 }
 
 const char *OffloadingRequestMessageDescriptor::getFieldName(int field) const
@@ -3877,11 +3907,13 @@ const char *OffloadingRequestMessageDescriptor::getFieldName(int field) const
         "pos_y",
         "speed",
         "local_decision",
+        "initial_gate_classification",
+        "initial_gate_reason",
         "candidate_rsu_macs",
         "current_candidate_index",
         "max_redirect_hops",
     };
-    return (field >= 0 && field < 21) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 23) ? fieldNames[field] : nullptr;
 }
 
 int OffloadingRequestMessageDescriptor::findField(const char *fieldName) const
@@ -3906,9 +3938,11 @@ int OffloadingRequestMessageDescriptor::findField(const char *fieldName) const
     if (strcmp(fieldName, "pos_y") == 0) return baseIndex + 15;
     if (strcmp(fieldName, "speed") == 0) return baseIndex + 16;
     if (strcmp(fieldName, "local_decision") == 0) return baseIndex + 17;
-    if (strcmp(fieldName, "candidate_rsu_macs") == 0) return baseIndex + 18;
-    if (strcmp(fieldName, "current_candidate_index") == 0) return baseIndex + 19;
-    if (strcmp(fieldName, "max_redirect_hops") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "initial_gate_classification") == 0) return baseIndex + 18;
+    if (strcmp(fieldName, "initial_gate_reason") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "candidate_rsu_macs") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "current_candidate_index") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "max_redirect_hops") == 0) return baseIndex + 22;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -3939,11 +3973,13 @@ const char *OffloadingRequestMessageDescriptor::getFieldTypeString(int field) co
         "double",    // FIELD_pos_y
         "double",    // FIELD_speed
         "string",    // FIELD_local_decision
+        "string",    // FIELD_initial_gate_classification
+        "string",    // FIELD_initial_gate_reason
         "uint64_t",    // FIELD_candidate_rsu_macs
         "int",    // FIELD_current_candidate_index
         "int",    // FIELD_max_redirect_hops
     };
-    return (field >= 0 && field < 21) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 23) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **OffloadingRequestMessageDescriptor::getFieldPropertyNames(int field) const
@@ -4046,6 +4082,8 @@ std::string OffloadingRequestMessageDescriptor::getFieldValueAsString(omnetpp::a
         case FIELD_pos_y: return double2string(pp->getPos_y());
         case FIELD_speed: return double2string(pp->getSpeed());
         case FIELD_local_decision: return oppstring2string(pp->getLocal_decision());
+        case FIELD_initial_gate_classification: return oppstring2string(pp->getInitial_gate_classification());
+        case FIELD_initial_gate_reason: return oppstring2string(pp->getInitial_gate_reason());
         case FIELD_candidate_rsu_macs: return uint642string(pp->getCandidate_rsu_macs(i));
         case FIELD_current_candidate_index: return long2string(pp->getCurrent_candidate_index());
         case FIELD_max_redirect_hops: return long2string(pp->getMax_redirect_hops());
@@ -4082,6 +4120,8 @@ void OffloadingRequestMessageDescriptor::setFieldValueAsString(omnetpp::any_ptr 
         case FIELD_pos_y: pp->setPos_y(string2double(value)); break;
         case FIELD_speed: pp->setSpeed(string2double(value)); break;
         case FIELD_local_decision: pp->setLocal_decision((value)); break;
+        case FIELD_initial_gate_classification: pp->setInitial_gate_classification((value)); break;
+        case FIELD_initial_gate_reason: pp->setInitial_gate_reason((value)); break;
         case FIELD_candidate_rsu_macs: pp->setCandidate_rsu_macs(i,string2uint64(value)); break;
         case FIELD_current_candidate_index: pp->setCurrent_candidate_index(string2long(value)); break;
         case FIELD_max_redirect_hops: pp->setMax_redirect_hops(string2long(value)); break;
@@ -4117,6 +4157,8 @@ omnetpp::cValue OffloadingRequestMessageDescriptor::getFieldValue(omnetpp::any_p
         case FIELD_pos_y: return pp->getPos_y();
         case FIELD_speed: return pp->getSpeed();
         case FIELD_local_decision: return pp->getLocal_decision();
+        case FIELD_initial_gate_classification: return pp->getInitial_gate_classification();
+        case FIELD_initial_gate_reason: return pp->getInitial_gate_reason();
         case FIELD_candidate_rsu_macs: return (omnetpp::intval_t)(pp->getCandidate_rsu_macs(i));
         case FIELD_current_candidate_index: return pp->getCurrent_candidate_index();
         case FIELD_max_redirect_hops: return pp->getMax_redirect_hops();
@@ -4153,6 +4195,8 @@ void OffloadingRequestMessageDescriptor::setFieldValue(omnetpp::any_ptr object, 
         case FIELD_pos_y: pp->setPos_y(value.doubleValue()); break;
         case FIELD_speed: pp->setSpeed(value.doubleValue()); break;
         case FIELD_local_decision: pp->setLocal_decision(value.stringValue()); break;
+        case FIELD_initial_gate_classification: pp->setInitial_gate_classification(value.stringValue()); break;
+        case FIELD_initial_gate_reason: pp->setInitial_gate_reason(value.stringValue()); break;
         case FIELD_candidate_rsu_macs: pp->setCandidate_rsu_macs(i,omnetpp::checked_int_cast<uint64_t>(value.intValue())); break;
         case FIELD_current_candidate_index: pp->setCurrent_candidate_index(omnetpp::checked_int_cast<int>(value.intValue())); break;
         case FIELD_max_redirect_hops: pp->setMax_redirect_hops(omnetpp::checked_int_cast<int>(value.intValue())); break;

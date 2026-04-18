@@ -113,6 +113,8 @@ struct TaskRecord {
     
     // Decision tracking (for database polling)
     bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
+    bool decision_poll_miss_logged = false;
+    int decision_poll_miss_count = 0;
 };
 
 /**
@@ -356,6 +358,8 @@ private:
         LAddress::L2Type vehicle_mac;
         double request_time;
         std::string local_decision;
+        std::string initial_gate_classification;
+        std::string initial_gate_reason;
         
         // Task characteristics
         uint64_t mem_footprint_bytes;  // working memory on processing entity
@@ -552,6 +556,10 @@ private:
     void insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
                               const std::string& source, const std::string& target,
                               const std::string& details = "{}");
+    void updateTaskStaticTraceFromEvent(const std::string& task_id,
+                                        const std::string& event_type,
+                                        double event_time,
+                                        const std::string& details);
     void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
                                        const std::string& decision_type, const std::string& processor_id,
                                        double request_time, double decision_time, double start_time, 

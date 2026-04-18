@@ -68,100 +68,94 @@ CREATE TABLE IF NOT EXISTS task_metadata (
 CREATE INDEX IF NOT EXISTS idx_task_metadata_vehicle ON task_metadata (vehicle_id, created_time);
 CREATE INDEX IF NOT EXISTS idx_task_metadata_task_id ON task_metadata (task_id);
 
--- Task completion/failure events
-CREATE TABLE IF NOT EXISTS task_events (
-    id BIGSERIAL PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    event_type TEXT NOT NULL, -- 'COMPLETED' or 'FAILED'
-    completion_time DOUBLE PRECISION,
-    processing_time DOUBLE PRECISION,
-    completed_on_time BOOLEAN,
-    failure_reason TEXT,
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events (task_id);
-CREATE INDEX IF NOT EXISTS idx_task_events_vehicle ON task_events (vehicle_id, completion_time);
-
--- Offloading request table (Digital Twin tracking)
-CREATE TABLE IF NOT EXISTS offloading_requests (
-    id BIGSERIAL PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    request_time DOUBLE PRECISION,
-    
-    -- Task characteristics
+-- Unified static task metadata (immutable fields only)
+CREATE TABLE IF NOT EXISTS task_static_metadata (
+    task_id TEXT PRIMARY KEY,
+    creator_vehicle_id TEXT NOT NULL,
+    initial_rsu_id INTEGER,
+    created_time DOUBLE PRECISION,
+    task_type_name TEXT,
+    task_type_id INTEGER DEFAULT 0,
+    input_size_bytes BIGINT DEFAULT 0,
+    output_size_bytes BIGINT DEFAULT 0,
     mem_footprint_bytes BIGINT,
     cpu_cycles BIGINT,
     deadline_seconds DOUBLE PRECISION,
     qos_value DOUBLE PRECISION,
-    
-    -- Vehicle state at request time
-    vehicle_cpu_available DOUBLE PRECISION,
-    vehicle_cpu_utilization DOUBLE PRECISION,
-    vehicle_mem_available DOUBLE PRECISION,
-    vehicle_queue_length INTEGER,
-    vehicle_processing_count INTEGER,
-    
-    -- Vehicle location
-    pos_x DOUBLE PRECISION,
-    pos_y DOUBLE PRECISION,
-    speed DOUBLE PRECISION,
-    
-    -- Local decision recommendation
-    local_decision TEXT,
-    
+    is_offloadable BOOLEAN DEFAULT TRUE,
+    is_safety_critical BOOLEAN DEFAULT FALSE,
+    priority_level INTEGER DEFAULT 2,
+    initial_gate_classification TEXT,
+    initial_gate_reason TEXT,
+    decision_type TEXT,
+    target_rsu_id INTEGER,
+    target_sv_id TEXT,
+    decision_node_rsu_id INTEGER,
+    request_received_time DOUBLE PRECISION,
+    decision_in_process_time DOUBLE PRECISION,
+    decision_sent_time DOUBLE PRECISION,
+    decision_received_time DOUBLE PRECISION,
+    decision_poll_miss_count INTEGER DEFAULT 0,
+    rsu_wait_s DOUBLE PRECISION,
+    decision_wait_s DOUBLE PRECISION,
+    decision_delivery_s DOUBLE PRECISION,
+    decision_timeout_stage TEXT,
+    decision_timeout_reason TEXT,
+    decision_timeout_budget_s DOUBLE PRECISION,
+    decision_timeout_waited_s DOUBLE PRECISION,
+    drl_dequeued_wall_s DOUBLE PRECISION,
+    drl_state_ready_wall_s DOUBLE PRECISION,
+    drl_decision_written_wall_s DOUBLE PRECISION,
+    drl_result_timeout_discard_wall_s DOUBLE PRECISION,
+    drl_result_timeout_s DOUBLE PRECISION,
+    completion_time DOUBLE PRECISION,
+    processing_start_time DOUBLE PRECISION,
+    processing_time_s DOUBLE PRECISION,
+    success BOOLEAN,
+    failure_reason TEXT,
+    processor_id TEXT,
+    completed_on_time BOOLEAN,
     payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_offloading_requests_task_id ON offloading_requests (task_id);
-CREATE INDEX IF NOT EXISTS idx_offloading_requests_vehicle ON offloading_requests (vehicle_id, request_time);
-CREATE INDEX IF NOT EXISTS idx_offloading_requests_rsu ON offloading_requests (rsu_id, request_time);
+CREATE INDEX IF NOT EXISTS idx_task_static_metadata_vehicle ON task_static_metadata (creator_vehicle_id, created_time);
+CREATE INDEX IF NOT EXISTS idx_task_static_metadata_decision ON task_static_metadata (decision_type, decision_node_rsu_id);
+CREATE INDEX IF NOT EXISTS idx_task_static_metadata_success ON task_static_metadata (success, completion_time);
 
--- Offloading decision table (ML model outputs)
-CREATE TABLE IF NOT EXISTS offloading_decisions (
+-- Unified runtime timeline for all task state transitions
+CREATE TABLE IF NOT EXISTS task_runtime_events (
     id BIGSERIAL PRIMARY KEY,
     task_id TEXT NOT NULL,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    decision_time DOUBLE PRECISION,
-    
-    -- Decision details
-    decision_type TEXT NOT NULL, -- 'LOCAL', 'RSU', 'SERVICE_VEHICLE', 'REJECT'
-    target_service_vehicle_id TEXT,
-    confidence_score DOUBLE PRECISION,
-    estimated_completion_time DOUBLE PRECISION,
-    decision_reason TEXT,
-    
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_offloading_decisions_task_id ON offloading_decisions (task_id);
-CREATE INDEX IF NOT EXISTS idx_offloading_decisions_vehicle ON offloading_decisions (vehicle_id, decision_time);
-CREATE INDEX IF NOT EXISTS idx_offloading_decisions_type ON offloading_decisions (decision_type, decision_time);
-
--- Task offloading event table (lifecycle tracking)
-CREATE TABLE IF NOT EXISTS task_offloading_events (
-    id BIGSERIAL PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    event_type TEXT NOT NULL, -- 'REQUEST_SENT', 'DECISION_RECEIVED', 'OFFLOAD_SENT', 'PROCESSING_STARTED', 'RESULT_RECEIVED', 'TIMEOUT', etc.
     event_time DOUBLE PRECISION,
+    stage TEXT,
+    event_type TEXT NOT NULL,
     source_entity_id TEXT,
     target_entity_id TEXT,
     rsu_id INTEGER,
-    event_details JSONB,
+    decision_type TEXT,
+    processor_id TEXT,
+    status TEXT,
+    reason_code TEXT,
+    reason_detail TEXT,
+    timeout_stage TEXT,
+    timeout_budget_s DOUBLE PRECISION,
+    waited_s DOUBLE PRECISION,
+    processing_time_s DOUBLE PRECISION,
+    total_latency_s DOUBLE PRECISION,
+    completed_on_time BOOLEAN,
+    payload JSONB,
     received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_task_offloading_events_task_id ON task_offloading_events (task_id, event_time);
-CREATE INDEX IF NOT EXISTS idx_task_offloading_events_type ON task_offloading_events (event_type, event_time);
-CREATE INDEX IF NOT EXISTS idx_task_offloading_events_source ON task_offloading_events (source_entity_id, event_time);
+CREATE INDEX IF NOT EXISTS idx_task_runtime_events_task_time ON task_runtime_events (task_id, event_time);
+CREATE INDEX IF NOT EXISTS idx_task_runtime_events_type_time ON task_runtime_events (event_type, event_time);
+
+-- Legacy task tables are intentionally removed after consolidation.
+DROP TABLE IF EXISTS task_events;
+DROP TABLE IF EXISTS offloading_requests;
+DROP TABLE IF EXISTS offloading_decisions;
+DROP TABLE IF EXISTS task_offloading_events;
 
 -- Task completion tracking for offloaded tasks
 CREATE TABLE IF NOT EXISTS offloaded_task_completions (

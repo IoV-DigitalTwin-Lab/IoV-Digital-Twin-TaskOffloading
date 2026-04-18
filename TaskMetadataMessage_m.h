@@ -619,6 +619,8 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, VehicleResourceStatusMess
  * 
  *     // Local Decision Recommendation
  *     string local_decision;               // "LOCAL", "OFFLOAD", or "REJECT"
+ *     string initial_gate_classification;  // "MUST_OFFLOAD", "MUST_LOCAL", "BOTH_FEASIBLE", "INFEASIBLE"
+ *     string initial_gate_reason;          // Detailed Gate A/B reason
  * 
  *     // Ranked RSU Candidates (for redirect support)
  *     uint64_t candidate_rsu_macs[];       // Ordered list of candidate RSU MAC addresses (best to worst)
@@ -648,6 +650,8 @@ class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
     double pos_y = 0;
     double speed = 0;
     ::omnetpp::opp_string local_decision;
+    ::omnetpp::opp_string initial_gate_classification;
+    ::omnetpp::opp_string initial_gate_reason;
     uint64_t *candidate_rsu_macs = nullptr;
     size_t candidate_rsu_macs_arraysize = 0;
     int current_candidate_index = 0;
@@ -723,6 +727,12 @@ class OffloadingRequestMessage : public ::veins::BaseFrame1609_4
     virtual const char * getLocal_decision() const;
     virtual void setLocal_decision(const char * local_decision);
 
+    virtual const char * getInitial_gate_classification() const;
+    virtual void setInitial_gate_classification(const char * initial_gate_classification);
+
+    virtual const char * getInitial_gate_reason() const;
+    virtual void setInitial_gate_reason(const char * initial_gate_reason);
+
     virtual void setCandidate_rsu_macsArraySize(size_t size);
     virtual size_t getCandidate_rsu_macsArraySize() const;
     virtual uint64_t getCandidate_rsu_macs(size_t k) const;
@@ -743,7 +753,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingRequestMess
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingRequestMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:175</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:177</tt> by opp_msgtool.
  * <pre>
  * //
  * // Offloading Decision Message - RSU → Task vehicle (ML model decision)
@@ -860,7 +870,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const OffloadingDecisionMes
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, OffloadingDecisionMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:207</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:209</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offload Packet - Task vehicle → RSU/Service vehicle (complete task data)
@@ -948,7 +958,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadPacket& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadPacket& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:227</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:229</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Result Message - RSU/Service vehicle → Task vehicle (processing results)
@@ -1024,7 +1034,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskResultMessage& ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskResultMessage& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:243</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:245</tt> by opp_msgtool.
  * <pre>
  * //
  * // Task Offloading Event - Any entity → RSU (lifecycle tracking for Digital Twin)
@@ -1092,7 +1102,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskOffloadingEvent& 
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskOffloadingEvent& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:257</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:259</tt> by opp_msgtool.
  * <pre>
  * // Vehicle detail information included in RSU broadcasts
  * class VehicleDetailInBroadcast
@@ -1170,7 +1180,7 @@ class VehicleDetailInBroadcast
 };
 
 /**
- * Class generated from <tt>TaskMetadataMessage.msg:270</tt> by opp_msgtool.
+ * Class generated from <tt>TaskMetadataMessage.msg:272</tt> by opp_msgtool.
  * <pre>
  * packet RSUStatusBroadcastMessage extends BaseFrame1609_4
  * {

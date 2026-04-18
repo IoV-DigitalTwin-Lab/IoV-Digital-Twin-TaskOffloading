@@ -162,6 +162,8 @@ packet OffloadingRequestMessage extends BaseFrame1609_4 {
     
     // Local Decision Recommendation
     string local_decision;               // "LOCAL", "OFFLOAD", or "REJECT"
+    string initial_gate_classification;  // "MUST_OFFLOAD", "MUST_LOCAL", "BOTH_FEASIBLE", "INFEASIBLE"
+    string initial_gate_reason;          // Detailed Gate A/B reason
     
     // Ranked RSU Candidates (for redirect support)
     uint64_t candidate_rsu_macs[];       // Ordered list of candidate RSU MAC addresses (best to worst)
