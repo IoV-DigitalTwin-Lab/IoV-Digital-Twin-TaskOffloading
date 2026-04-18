@@ -75,6 +75,14 @@ double estimateQueuedTaskServiceTime(const Task* task, double default_service_ti
     }
     return default_service_time_sec;
 }
+
+double getServiceTaskPriorityWeight(double qosValue) {
+    // Keep service-vehicle weighting aligned with RSU weighted-share policy.
+    double qos = std::max(0.0, std::min(1.0, qosValue));
+    if (qos >= 0.80) return 5.0; // high priority
+    if (qos >= 0.50) return 3.0; // medium priority
+    return 2.0;                  // low/background priority
+}
 }
 
 Define_Module(PayloadVehicleApp);
@@ -4013,25 +4021,31 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
 
     // ======================================================================
     // PHYSICS: Service vehicle reserves serviceCpuReservation fraction of
-    // its total CPU for serving other vehicles' tasks.  When multiple service
-    // tasks run concurrently that pool is shared equally (processor sharing).
+    // total CPU for serving others' tasks. Concurrent service tasks share
+    // that pool by QoS-derived priority weights (same 3-tier mapping as RSU).
     //
-    //   per_task_hz = (cpu_total * reservation) / N_concurrent
-    //   exec_time   = cpu_cycles / per_task_hz
+    //   cpu_task_i = (cpu_total * reservation) * weight_i / sum(weights)
+    //   exec_time  = cpu_cycles / cpu_task_i
     //
-    // Arrival of a new service task triggers reallocateServiceCPUResources()
-    // which burns down cycles already executed and reschedules all in-flight
-    // service tasks at the reduced per-task share.  Completion symmetrically
-    // speeds up the remaining tasks.  This mirrors the vehicle-local
-    // reallocateCPUResources() model.
+    // Arrival of a new service task triggers reallocateServiceCPUResources(),
+    // which burns down already-executed cycles and reschedules all in-flight
+    // service tasks with updated weighted shares.
     // ======================================================================
     double total_service_hz = cpu_total * serviceCpuReservation;
     int n_concurrent = static_cast<int>(processingServiceTasks.size()) + 1; // +1 for this task
-    double per_task_hz = total_service_hz / n_concurrent;
+
+    double existing_weight_sum = 0.0;
+    for (Task* t : processingServiceTasks) {
+        existing_weight_sum += getServiceTaskPriorityWeight(t->qos_value);
+    }
+    double this_weight = getServiceTaskPriorityWeight(task->qos_value);
+    double total_weight = std::max(1e-9, existing_weight_sum + this_weight);
+    double per_task_hz = total_service_hz * (this_weight / total_weight);
     double processing_time = static_cast<double>(task->cpu_cycles) / per_task_hz;
 
-    EV_INFO << "  Service CPU pool: " << (total_service_hz/1e9) << " GHz / "
-            << n_concurrent << " task(s) = " << (per_task_hz/1e9) << " GHz per task" << endl;
+    EV_INFO << "  Service CPU pool: " << (total_service_hz/1e9) << " GHz across "
+            << n_concurrent << " task(s), this weight=" << this_weight
+            << ", alloc=" << (per_task_hz/1e9) << " GHz" << endl;
     EV_INFO << "  Task CPU Cycles: " << (task->cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Estimated Processing Time: " << processing_time << " s" << endl;
     EV_INFO << "  Deadline: " << task->relative_deadline << " s" << endl;
@@ -4070,7 +4084,8 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
         sendTaskOffloadingEvent(task->task_id, "SV_PROCESSING_STARTED", sv_id, orig_id,
             "{\"cpu_ghz\":" + std::to_string(per_task_hz / 1e9) +
             ",\"est_exec_s\":" + std::to_string(processing_time) +
-            ",\"concurrent\":" + std::to_string(n_concurrent) + "}");
+            ",\"concurrent\":" + std::to_string(n_concurrent) +
+            ",\"priority_weight\":" + std::to_string(this_weight) + "}");
     }
 
     // Slow down all other concurrent service tasks now that one more shares the pool
@@ -4082,7 +4097,7 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
 
 // ============================================================================
 // SERVICE VEHICLE CPU REALLOCATION
-// Divides the reserved CPU pool equally among all concurrent service tasks
+// Divides the reserved CPU pool by QoS-derived priority weights
 // and reschedules each completion event accordingly, mirroring
 // reallocateCPUResources() for own-vehicle tasks.
 // ============================================================================
@@ -4090,9 +4105,17 @@ void PayloadVehicleApp::reallocateServiceCPUResources() {
     if (processingServiceTasks.empty()) return;
 
     double total_service_hz = cpu_total * serviceCpuReservation;
-    double per_task_hz = total_service_hz / static_cast<double>(processingServiceTasks.size());
+    double total_weight = 0.0;
+    for (Task* t : processingServiceTasks) {
+        total_weight += getServiceTaskPriorityWeight(t->qos_value);
+    }
+    if (total_weight <= 0.0) {
+        total_weight = static_cast<double>(processingServiceTasks.size());
+    }
 
     for (Task* t : processingServiceTasks) {
+        double task_weight = getServiceTaskPriorityWeight(t->qos_value);
+        double per_task_hz = total_service_hz * (task_weight / total_weight);
         if (std::abs(per_task_hz - t->cpu_allocated) < 1e6) continue;  // no meaningful change
 
         // Derive remaining cycles from the currently scheduled completion time:
@@ -4118,7 +4141,7 @@ void PayloadVehicleApp::reallocateServiceCPUResources() {
         }
 
         EV_INFO << "  SV realloc: task " << t->task_id
-                << " → " << (per_task_hz/1e9) << " GHz, "
+            << " (w=" << task_weight << ") → " << (per_task_hz/1e9) << " GHz, "
                 << (remaining/1e9) << "G cycles left, completes in " << new_exec << "s" << endl;
     }
 }
