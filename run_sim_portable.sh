@@ -40,11 +40,6 @@ find_veins_path() {
     return 0
   fi
 
-  if [ -d "/opt/omnet/veins/src/veins" ]; then
-    echo "/opt/omnet/veins"
-    return 0
-  fi
-
   local base
   for base in "$SCRIPT_DIR/.." "$SCRIPT_DIR/../.." "$HOME"; do
     for cand in "$base"/veins*; do
@@ -54,6 +49,11 @@ find_veins_path() {
       fi
     done
   done
+
+  if [ -d "/opt/omnet/veins/src/veins" ]; then
+    echo "/opt/omnet/veins"
+    return 0
+  fi
   return 1
 }
 
@@ -82,24 +82,45 @@ if [ -z "$INET_PATH" ] || [ ! -d "$INET_PATH/src" ]; then
   echo "Error: INET not found. Set INET_PATH to your INET root directory." >&2
   exit 1
 fi
+INET_PATH="$(realpath "$INET_PATH")"
 
 VEINS_PATH="$(find_veins_path || true)"
 if [ -z "$VEINS_PATH" ] || [ ! -d "$VEINS_PATH/src/veins" ]; then
   echo "Error: Veins not found. Set VEINS_PATH to your Veins root directory." >&2
   exit 1
 fi
+VEINS_PATH="$(realpath "$VEINS_PATH")"
 
 set +u
 source "$OMNETPP_HOME/setenv"
 set -u
 
+# OMNeT++ setenv may not include SUMO's binary directory on some systems.
+if ! command -v sumo >/dev/null 2>&1; then
+  if [ -x "/usr/share/sumo/bin/sumo" ]; then
+    export PATH="/usr/share/sumo/bin:$PATH"
+  fi
+fi
+
+if ! command -v sumo >/dev/null 2>&1; then
+  echo "Error: SUMO executable not found in PATH. Install SUMO or add it to PATH." >&2
+  exit 1
+fi
+
+export SUMO_HOME="${SUMO_HOME:-/usr/share/sumo}"
+
 cd "$SCRIPT_DIR"
+
+NED_PATH=".:$INET_PATH/src:$VEINS_PATH/src/veins"
+# Keep NED roots deterministic to avoid duplicate loads from mixed installs.
+export NEDPATH="$NED_PATH"
 
 echo "Starting IoV Digital Twin Task Offloading simulation..."
 echo "OMNeT++: $OMNETPP_HOME"
 echo "INET:    $INET_PATH"
 echo "Veins:   $VEINS_PATH"
-echo "NED path: .:$INET_PATH/src:$VEINS_PATH/src/veins"
+echo "SUMO:    $(command -v sumo)"
+echo "NED path: $NED_PATH"
 echo ""
 
 # Detect if running in headless environment
@@ -120,5 +141,5 @@ fi
 # Loading them again with -l can register a second copy and crash on shutdown.
 ./IoV-Digital-Twin-TaskOffloading \
   -u "$UI_ENV" \
-  -n ".:$INET_PATH/src:$VEINS_PATH/src/veins" \
+  -n "$NED_PATH" \
   omnetpp.ini "$@"
