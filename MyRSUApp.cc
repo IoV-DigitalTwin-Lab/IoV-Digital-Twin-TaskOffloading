@@ -191,7 +191,30 @@ std::string extractJsonNumberValue(const std::string& json, const std::string& k
         ++valueEnd;
     }
     if (valueEnd <= valueStart) return "";
-    return json.substr(valueStart, valueEnd - valueStart);
+    std::string token = json.substr(valueStart, valueEnd - valueStart);
+
+    // Trim trailing whitespace
+    while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) {
+        token.pop_back();
+    }
+
+    // JSON null should map to empty so SQL NULLIF(...,'') casts safely.
+    if (token == "null" || token == "NULL") {
+        return "";
+    }
+
+    // Accept numeric values encoded as quoted strings.
+    if (token.size() >= 2 && token.front() == '"' && token.back() == '"') {
+        token = token.substr(1, token.size() - 2);
+    }
+
+    // Guard against non-numeric sentinels that would fail ::double precision casts.
+    if (token == "nan" || token == "NaN" || token == "inf" || token == "-inf"
+            || token == "Infinity" || token == "-Infinity") {
+        return "";
+    }
+
+    return token;
 }
 
 std::string classifyLifecycleStatus(const std::string& eventType) {
@@ -4249,6 +4272,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
         "payload=COALESCE(payload, '{}'::jsonb) || jsonb_build_object('last_trace_event_time', $7::double precision) "
         "WHERE task_id=$1";
     PGresult* traceRes = PQexecParams(conn, traceQuery, 7, nullptr, traceValues, nullptr, nullptr, 0);
+    if (!traceRes || PQresultStatus(traceRes) != PGRES_COMMAND_OK) {
+        EV_WARN << "⚠ task_static_metadata trace update failed for " << task_id
+                << " event=" << event_type << ": " << PQerrorMessage(conn) << endl;
+    }
     if (traceRes) PQclear(traceRes);
 
     if (event_type == "OFFLOADING_REQUEST_RECEIVED") {
@@ -4258,6 +4285,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
             "request_received_time=COALESCE(request_received_time, $2::double precision) "
             "WHERE task_id=$1";
         PGresult* res = PQexecParams(conn, query, 2, nullptr, values, nullptr, nullptr, 0);
+        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ request_received_time update failed for " << task_id
+                    << ": " << PQerrorMessage(conn) << endl;
+        }
         if (res) PQclear(res);
         return;
     }
@@ -4270,6 +4301,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
             "payload=COALESCE(payload, '{}'::jsonb) || jsonb_build_object('last_poll_miss_event_time', $2::double precision) "
             "WHERE task_id=$1";
         PGresult* res = PQexecParams(conn, query, 3, nullptr, values, nullptr, nullptr, 0);
+        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ decision_poll_miss_count update failed for " << task_id
+                    << ": " << PQerrorMessage(conn) << endl;
+        }
         if (res) PQclear(res);
         return;
     }
@@ -4282,6 +4317,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
             "rsu_wait_s=COALESCE(NULLIF($3, '')::double precision, GREATEST(0.0, $2::double precision - COALESCE(request_received_time, created_time)), rsu_wait_s) "
             "WHERE task_id=$1";
         PGresult* res = PQexecParams(conn, query, 3, nullptr, values, nullptr, nullptr, 0);
+        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ decision_in_process_time/rsu_wait_s update failed for " << task_id
+                    << ": " << PQerrorMessage(conn) << endl;
+        }
         if (res) PQclear(res);
         return;
     }
@@ -4293,6 +4332,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
             "decision_sent_time=COALESCE(decision_sent_time, $2::double precision) "
             "WHERE task_id=$1";
         PGresult* res = PQexecParams(conn, query, 2, nullptr, values, nullptr, nullptr, 0);
+        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ decision_sent_time update failed for " << task_id
+                    << ": " << PQerrorMessage(conn) << endl;
+        }
         if (res) PQclear(res);
         return;
     }
@@ -4311,6 +4354,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
             "decision_delivery_s=COALESCE(NULLIF($4, '')::double precision, CASE WHEN decision_sent_time IS NOT NULL THEN GREATEST(0.0, $2::double precision - decision_sent_time) ELSE decision_delivery_s END, decision_delivery_s) "
             "WHERE task_id=$1";
         PGresult* res = PQexecParams(conn, query, 4, nullptr, values, nullptr, nullptr, 0);
+        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ decision_received_time/wait update failed for " << task_id
+                    << ": " << PQerrorMessage(conn) << endl;
+        }
         if (res) PQclear(res);
         return;
     }
@@ -4337,6 +4384,10 @@ void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
                 "completed_on_time=COALESCE(completed_on_time, false) "
                 "WHERE task_id=$1";
             PGresult* res = PQexecParams(conn, query, 6, nullptr, values, nullptr, nullptr, 0);
+            if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
+                EV_WARN << "⚠ decision timeout trace update failed for " << task_id
+                        << ": " << PQerrorMessage(conn) << endl;
+            }
             if (res) PQclear(res);
         }
         return;
