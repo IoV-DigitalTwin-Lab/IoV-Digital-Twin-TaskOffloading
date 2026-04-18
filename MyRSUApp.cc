@@ -904,8 +904,9 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     // Original DemoSafetyMessage handling (regular vehicle beacons)
     DemoSafetyMessage* dsm = dynamic_cast<DemoSafetyMessage*>(wsm);
     if(!dsm) {
-        std::cout << "CONSOLE: MyRSUApp - ERROR: Message is NOT DemoSafetyMessage!" 
-                  << std::endl;
+        // Non-DSM frames can still arrive on this path; drop safely.
+        EV_WARN << "MyRSUApp: Dropping non-DSM frame: " << wsm->getClassName() << endl;
+        delete wsm;
         return;
     }
     
