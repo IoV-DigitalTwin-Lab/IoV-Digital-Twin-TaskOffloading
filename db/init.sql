@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS vehicle_metadata (
     
     -- Mobility pattern (optional)
     typical_route TEXT,                  -- Description of route
-    average_speed_kmh DOUBLE PRECISION,  -- Average speed
+    average_velocity DOUBLE PRECISION,   -- Average velocity (m/s)
     
     -- Registration info
     first_seen_time DOUBLE PRECISION,    -- Simulation time first seen

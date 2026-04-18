@@ -38,6 +38,7 @@ private:
     double flocHz_max = 0.0;         // Maximum CPU capacity (Hz)
     double flocHz_available = 0.0;   // Current available CPU capacity (Hz)
     double txPower_mW = 0.0;         // mW
+    double storage_capacity_gb = 128.0; // Storage capacity (GB)
     double speed = 0.0;              // Vehicle speed
     double prev_speed = 0.0;         // Previous speed for acceleration calculation
     double acceleration = 0.0;       // Current acceleration (m/s^2)
@@ -61,6 +62,7 @@ private:
     double memory_MB_max = 0.0;          // Maximum memory capacity (MB)
     double memory_MB_available = 0.0;    // Current available memory (MB)
     double memoryUsageFactor = 0.0;      // Current memory usage (0.0-1.0)
+    std::string vehicle_type = "";       // Manufacturer label for metadata tracking
     
     // ============================================================================
     // TASK PROCESSING SYSTEM (New for Digital Twin Design)

@@ -49,6 +49,13 @@ struct VehicleDigitalTwin {
     double battery_capacity_mAh = 0.0;
     double energy_task_j_total = 0.0;
     double energy_task_j_last = 0.0;
+
+    // Vehicle metadata synced from periodic beacons
+    std::string vehicle_type;
+    double tx_power_mw = 0.0;
+    double storage_capacity_gb = 128.0;
+    uint32_t max_queue_size = 50;
+    uint32_t max_concurrent_tasks = 4;
     
     double tx_power = 0.0;
     double reservation_ratio = 0.0;

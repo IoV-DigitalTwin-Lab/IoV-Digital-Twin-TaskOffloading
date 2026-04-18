@@ -406,6 +406,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 std::string target_id;
                 double confidence = 0.8;  // Default confidence
                 bool found_decision = false;
+                bool decision_from_redis = false;
                 std::string agentDecisionsPayload;  // will be set if multi-agent
 
                 // Single-agent decision: poll task:{id}:decision written by Python agent
@@ -415,6 +416,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         decision_type = dec.at("type");
                         target_id = dec.count("target") ? dec.at("target") : "";
                         found_decision = true;
+                        decision_from_redis = true;
                         EV_INFO << "✓ Single-agent decision for task " << record.task_id
                                 << ": type=" << decision_type << " target=" << target_id << endl;
                         std::cout << "ML_DECISION: Task " << record.task_id
@@ -460,6 +462,17 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     dMsg->setSenderAddress(myId);  // RSU MAC address
                     dMsg->setAgentDecisions(agentDecisionsPayload.c_str());  // baseline decisions
 
+                    // Persist DRL decisions to PostgreSQL so dashboard/history stay complete
+                    // even when runtime decisions come from Redis.
+                    if (decision_from_redis) {
+                        insertOffloadingDecision(record.task_id, dMsg);
+                        insertLifecycleEvent(record.task_id, "OFFLOADING_DECISION_IN_PROCESS",
+                            "RSU_" + std::to_string(rsu_id), record.vehicle_id,
+                            std::string("{\"decision_type\":\"") + decision_type + "\","
+                            "\"target\":\"" + target_id + "\","
+                            "\"source\":\"REDIS_DRL\"}");
+                    }
+
                     // Set target service vehicle MAC if applicable
                     if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
                         if (vehicle_macs.count(target_id)) {
@@ -474,6 +487,14 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     if (vehicle_macs.count(record.vehicle_id)) {
                         populateWSM(dMsg, vehicle_macs[record.vehicle_id]);
                         sendDown(dMsg);
+
+                        if (decision_from_redis) {
+                            insertLifecycleEvent(record.task_id, "OFFLOADING_DECISION_SENDING",
+                                "RSU_" + std::to_string(rsu_id), record.vehicle_id,
+                                std::string("{\"decision_type\":\"") + decision_type + "\","
+                                "\"target\":\"" + target_id + "\","
+                                "\"source\":\"REDIS_DRL\"}");
+                        }
                         
                         record.decision_sent = true;
                         decided.push_back(tid);  // remove from pending after decision sent
@@ -2066,6 +2087,11 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     twin.battery_capacity_mAh = msg->getBattery_capacity_mAh();
     twin.energy_task_j_total = msg->getEnergy_task_j_total();
     twin.energy_task_j_last = msg->getEnergy_task_j_last();
+    twin.vehicle_type = msg->getVehicle_type();
+    twin.tx_power_mw = msg->getTx_power_mw();
+    twin.storage_capacity_gb = msg->getStorage_capacity_gb();
+    twin.max_queue_size = msg->getMax_queue_size();
+    twin.max_concurrent_tasks = msg->getMax_concurrent_tasks();
     
     // Update task statistics
     twin.tasks_generated = msg->getTasks_generated();
@@ -2562,6 +2588,49 @@ void MyRSUApp::initDatabase() {
         EV_INFO << "✓ PostgreSQL connection established successfully" << endl;
         std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connected" << std::endl;
 
+        // Bootstrap schema on fresh databases: if core tables are missing,
+        // execute db/init.sql once before running ALTER-based migrations.
+        PGresult* existsRes = PQexec(db_conn,
+            "SELECT to_regclass('public.vehicle_status') IS NOT NULL");
+        bool schema_ready = false;
+        if (existsRes && PQresultStatus(existsRes) == PGRES_TUPLES_OK && PQntuples(existsRes) == 1) {
+            const char* v = PQgetvalue(existsRes, 0, 0);
+            schema_ready = (v && (strcmp(v, "t") == 0 || strcmp(v, "true") == 0));
+        }
+        if (existsRes) PQclear(existsRes);
+
+        if (!schema_ready) {
+            EV_WARN << "PostgreSQL schema not found; attempting bootstrap from db/init.sql" << endl;
+
+            const char* candidates[] = {"db/init.sql", "./db/init.sql", nullptr};
+            std::string initSqlPath;
+            for (int i = 0; candidates[i] != nullptr; ++i) {
+                std::ifstream f(candidates[i]);
+                if (f.is_open()) {
+                    initSqlPath = candidates[i];
+                    f.close();
+                    break;
+                }
+            }
+
+            if (!initSqlPath.empty()) {
+                std::ifstream in(initSqlPath);
+                std::string sql((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                in.close();
+
+                PGresult* initRes = PQexec(db_conn, sql.c_str());
+                if (!initRes || PQresultStatus(initRes) != PGRES_COMMAND_OK) {
+                    EV_ERROR << "✗ Failed to bootstrap DB schema from " << initSqlPath
+                             << ": " << PQerrorMessage(db_conn) << endl;
+                } else {
+                    EV_INFO << "✓ DB schema bootstrapped from " << initSqlPath << endl;
+                }
+                if (initRes) PQclear(initRes);
+            } else {
+                EV_ERROR << "✗ Could not find db/init.sql for schema bootstrap" << endl;
+            }
+        }
+
         // Ensure acceleration column exists (idempotent — safe to run every startup)
         PGresult* altRes = PQexec(db_conn,
             "ALTER TABLE vehicle_status ADD COLUMN IF NOT EXISTS "
@@ -2635,6 +2704,59 @@ void MyRSUApp::initDatabase() {
             }
             PQclear(r);
         }
+
+        // Ensure vehicle_metadata has latest sync columns (idempotent)
+        const char* vehicle_meta_alters[] = {
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS storage_capacity_gb DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS battery_capacity_kwh DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS transmission_power_mw DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(100)",
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS max_concurrent_tasks INTEGER DEFAULT 0",
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS max_queue_size INTEGER DEFAULT 0",
+            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS average_velocity DOUBLE PRECISION DEFAULT 0",
+            nullptr
+        };
+        for (int i = 0; vehicle_meta_alters[i] != nullptr; ++i) {
+            PGresult* r = PQexec(db_conn, vehicle_meta_alters[i]);
+            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
+                EV_WARN << "⚠ vehicle_metadata schema update failed: " << PQerrorMessage(db_conn) << endl;
+            }
+            PQclear(r);
+        }
+
+        // Backward compatibility for old schema using average_speed_kmh / velocity.
+        // If both columns exist, preserve old values by backfilling average_velocity first.
+        PGresult* renameRes = PQexec(db_conn,
+            "DO $$ BEGIN "
+            "IF EXISTS (SELECT 1 FROM information_schema.columns "
+            "           WHERE table_name='vehicle_metadata' AND column_name='average_speed_kmh') THEN "
+            "  IF EXISTS (SELECT 1 FROM information_schema.columns "
+            "             WHERE table_name='vehicle_metadata' AND column_name='average_velocity') THEN "
+            "    EXECUTE 'UPDATE vehicle_metadata SET average_velocity = COALESCE(average_velocity, average_speed_kmh)'; "
+            "    EXECUTE 'ALTER TABLE vehicle_metadata DROP COLUMN average_speed_kmh'; "
+            "  ELSE "
+            "    EXECUTE 'ALTER TABLE vehicle_metadata RENAME COLUMN average_speed_kmh TO average_velocity'; "
+            "  END IF; "
+            "END IF; "
+            "IF EXISTS (SELECT 1 FROM information_schema.columns "
+            "           WHERE table_name='vehicle_metadata' AND column_name='velocity') THEN "
+            "  IF EXISTS (SELECT 1 FROM information_schema.columns "
+            "             WHERE table_name='vehicle_metadata' AND column_name='average_velocity') THEN "
+            "    EXECUTE 'UPDATE vehicle_metadata SET average_velocity = COALESCE(average_velocity, velocity)'; "
+            "    EXECUTE 'ALTER TABLE vehicle_metadata DROP COLUMN velocity'; "
+            "  ELSE "
+            "    EXECUTE 'ALTER TABLE vehicle_metadata RENAME COLUMN velocity TO average_velocity'; "
+            "  END IF; "
+            "END IF; "
+            "IF EXISTS (SELECT 1 FROM information_schema.columns "
+            "           WHERE table_name='vehicle_metadata' AND column_name='cpu_available_ghz') THEN "
+            "  EXECUTE 'ALTER TABLE vehicle_metadata DROP COLUMN cpu_available_ghz'; "
+            "END IF; "
+            "END $$;");
+        if (PQresultStatus(renameRes) != PGRES_COMMAND_OK) {
+            EV_WARN << "⚠ vehicle_metadata migration failed: " << PQerrorMessage(db_conn) << endl;
+        }
+        PQclear(renameRes);
     }
 }
 
@@ -4944,29 +5066,53 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
     
     const VehicleDigitalTwin& twin = it->second;
     
+    const std::string effective_vehicle_type = twin.vehicle_type.empty() ? "Toyota" : twin.vehicle_type;
+    const double battery_capacity_kwh = (twin.battery_capacity_mAh > 0.0)
+        ? (twin.battery_capacity_mAh * 12.0 / 1.0e6) : 0.0;
+
     // Build INSERT query with UPSERT
-    const char* paramValues[6];
-    std::string params[6];
-    
+    const char* paramValues[13];
+    std::string params[13];
+
     params[0] = vehicle_id;
-    params[1] = std::to_string(twin.cpu_total / 1e9);  // Convert Hz to GHz
-    params[2] = std::to_string(twin.mem_total / 1e6);  // Convert bytes to MB
-    params[3] = std::to_string(twin.first_seen_time);
-    params[4] = std::to_string(twin.last_update_time);
-    params[5] = "false";  // Default: not a service vehicle
-    
-    for (int i = 0; i < 6; i++) {
+    params[1] = std::to_string(twin.cpu_total / 1e9);       // Hz -> GHz
+    params[2] = std::to_string(twin.mem_total / 1e6);       // bytes -> MB
+    params[3] = std::to_string(twin.storage_capacity_gb);
+    params[4] = std::to_string(battery_capacity_kwh);
+    params[5] = std::to_string(twin.tx_power_mw);
+    params[6] = effective_vehicle_type;
+    params[7] = "false";  // Default: not a service vehicle
+    params[8] = std::to_string(twin.max_concurrent_tasks);
+    params[9] = std::to_string(twin.max_queue_size);
+    params[10] = std::to_string(twin.speed);               // Average velocity (m/s)
+    params[11] = std::to_string(twin.first_seen_time);
+    params[12] = std::to_string(twin.last_update_time);
+
+    for (int i = 0; i < 13; i++) {
         paramValues[i] = params[i].c_str();
     }
-    
+
     const char* query = 
         "INSERT INTO vehicle_metadata ("
-        "vehicle_id, cpu_capacity_ghz, memory_capacity_mb, first_seen_time, last_seen_time, service_vehicle"
-        ") VALUES ($1, $2, $3, $4, $5, $6::boolean) "
+        "vehicle_id, cpu_capacity_ghz, memory_capacity_mb, storage_capacity_gb, "
+        "battery_capacity_kwh, transmission_power_mw, vehicle_type, service_vehicle, "
+        "max_concurrent_tasks, max_queue_size, average_velocity, first_seen_time, last_seen_time"
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8::boolean, $9, $10, $11, $12, $13) "
         "ON CONFLICT (vehicle_id) DO UPDATE SET "
-        "last_seen_time = EXCLUDED.last_seen_time, updated_at = CURRENT_TIMESTAMP";
-    
-    PGresult* res = PQexecParams(conn, query, 6, nullptr, paramValues, nullptr, nullptr, 0);
+        "cpu_capacity_ghz = EXCLUDED.cpu_capacity_ghz, "
+        "memory_capacity_mb = EXCLUDED.memory_capacity_mb, "
+        "storage_capacity_gb = EXCLUDED.storage_capacity_gb, "
+        "battery_capacity_kwh = EXCLUDED.battery_capacity_kwh, "
+        "transmission_power_mw = EXCLUDED.transmission_power_mw, "
+        "vehicle_type = EXCLUDED.vehicle_type, "
+        "service_vehicle = EXCLUDED.service_vehicle, "
+        "max_concurrent_tasks = EXCLUDED.max_concurrent_tasks, "
+        "max_queue_size = EXCLUDED.max_queue_size, "
+        "average_velocity = EXCLUDED.average_velocity, "
+        "last_seen_time = EXCLUDED.last_seen_time, "
+        "updated_at = CURRENT_TIMESTAMP";
+
+    PGresult* res = PQexecParams(conn, query, 13, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;

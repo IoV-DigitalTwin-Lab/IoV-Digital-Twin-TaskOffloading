@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <array>
 
 using namespace veins;
 
@@ -16,6 +17,14 @@ namespace {
 constexpr double kDefaultV2xLinkBandwidthMbps = 6.0;
 constexpr int64_t kPacketHeaderBytes = 256;
 constexpr int64_t kResultMinPayloadBytes = 512;
+
+std::string inferVehicleTypeFromId(int vehicleIndex) {
+    static const std::array<const char*, 6> kBrands = {
+        "Toyota", "Tesla", "Nissan", "Mercedes", "BMW", "Audi"
+    };
+    if (vehicleIndex < 0) return "Toyota";
+    return kBrands[static_cast<size_t>(vehicleIndex) % kBrands.size()];
+}
 
 int64_t clampPacketBytes(uint64_t payloadBytes) {
     const int64_t maxSafe = static_cast<int64_t>(std::numeric_limits<int32_t>::max() - kPacketHeaderBytes);
@@ -89,6 +98,21 @@ void PayloadVehicleApp::initialize(int stage) {
         flocHz_max = par("initFlocHz").doubleValue();
         flocHz_available = flocHz_max;  // Start with full capacity
         txPower_mW = par("initTxPower_mW").doubleValue();
+        
+        try {
+            storage_capacity_gb = par("storage_capacity_gb").doubleValue();
+        } catch (...) {
+            storage_capacity_gb = 128.0;
+        }
+        
+        try {
+            vehicle_type = par("vehicle_type").stdstringValue();
+        } catch (...) {
+            vehicle_type.clear();
+        }
+        if (vehicle_type.empty()) {
+            vehicle_type = inferVehicleTypeFromId(getParentModule()->getIndex());
+        }
         cpuLoadFactor = uniform(0.1, 0.3);  // Initial light load
         lastCpuUpdateTime = simTime().dbl();
         
@@ -2410,6 +2434,11 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setBattery_capacity_mAh(battery_mAh_max);
     statusMsg->setEnergy_task_j_total(task_energy_j_total);
     statusMsg->setEnergy_task_j_last(task_energy_j_last);
+    statusMsg->setVehicle_type(vehicle_type.c_str());
+    statusMsg->setTx_power_mw(txPower_mW);
+    statusMsg->setStorage_capacity_gb(storage_capacity_gb);
+    statusMsg->setMax_queue_size(static_cast<uint32_t>(max_queue_size));
+    statusMsg->setMax_concurrent_tasks(static_cast<uint32_t>(max_concurrent_tasks));
 
     // Set sender MAC so RSU can register this vehicle's L2 address from heartbeats alone.
     statusMsg->setSenderAddress(myId);

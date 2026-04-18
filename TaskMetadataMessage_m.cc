@@ -2330,6 +2330,11 @@ void VehicleResourceStatusMessage::copy(const VehicleResourceStatusMessage& othe
     this->battery_capacity_mAh = other.battery_capacity_mAh;
     this->energy_task_j_total = other.energy_task_j_total;
     this->energy_task_j_last = other.energy_task_j_last;
+    this->vehicle_type = other.vehicle_type;
+    this->tx_power_mw = other.tx_power_mw;
+    this->storage_capacity_gb = other.storage_capacity_gb;
+    this->max_queue_size = other.max_queue_size;
+    this->max_concurrent_tasks = other.max_concurrent_tasks;
     this->tasks_generated = other.tasks_generated;
     this->tasks_completed_on_time = other.tasks_completed_on_time;
     this->tasks_completed_late = other.tasks_completed_late;
@@ -2363,6 +2368,11 @@ void VehicleResourceStatusMessage::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->battery_capacity_mAh);
     doParsimPacking(b,this->energy_task_j_total);
     doParsimPacking(b,this->energy_task_j_last);
+    doParsimPacking(b,this->vehicle_type);
+    doParsimPacking(b,this->tx_power_mw);
+    doParsimPacking(b,this->storage_capacity_gb);
+    doParsimPacking(b,this->max_queue_size);
+    doParsimPacking(b,this->max_concurrent_tasks);
     doParsimPacking(b,this->tasks_generated);
     doParsimPacking(b,this->tasks_completed_on_time);
     doParsimPacking(b,this->tasks_completed_late);
@@ -2396,6 +2406,11 @@ void VehicleResourceStatusMessage::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->battery_capacity_mAh);
     doParsimUnpacking(b,this->energy_task_j_total);
     doParsimUnpacking(b,this->energy_task_j_last);
+    doParsimUnpacking(b,this->vehicle_type);
+    doParsimUnpacking(b,this->tx_power_mw);
+    doParsimUnpacking(b,this->storage_capacity_gb);
+    doParsimUnpacking(b,this->max_queue_size);
+    doParsimUnpacking(b,this->max_concurrent_tasks);
     doParsimUnpacking(b,this->tasks_generated);
     doParsimUnpacking(b,this->tasks_completed_on_time);
     doParsimUnpacking(b,this->tasks_completed_late);
@@ -2597,6 +2612,56 @@ void VehicleResourceStatusMessage::setEnergy_task_j_last(double energy_task_j_la
     this->energy_task_j_last = energy_task_j_last;
 }
 
+const char * VehicleResourceStatusMessage::getVehicle_type() const
+{
+    return this->vehicle_type.c_str();
+}
+
+void VehicleResourceStatusMessage::setVehicle_type(const char * vehicle_type)
+{
+    this->vehicle_type = vehicle_type;
+}
+
+double VehicleResourceStatusMessage::getTx_power_mw() const
+{
+    return this->tx_power_mw;
+}
+
+void VehicleResourceStatusMessage::setTx_power_mw(double tx_power_mw)
+{
+    this->tx_power_mw = tx_power_mw;
+}
+
+double VehicleResourceStatusMessage::getStorage_capacity_gb() const
+{
+    return this->storage_capacity_gb;
+}
+
+void VehicleResourceStatusMessage::setStorage_capacity_gb(double storage_capacity_gb)
+{
+    this->storage_capacity_gb = storage_capacity_gb;
+}
+
+uint32_t VehicleResourceStatusMessage::getMax_queue_size() const
+{
+    return this->max_queue_size;
+}
+
+void VehicleResourceStatusMessage::setMax_queue_size(uint32_t max_queue_size)
+{
+    this->max_queue_size = max_queue_size;
+}
+
+uint32_t VehicleResourceStatusMessage::getMax_concurrent_tasks() const
+{
+    return this->max_concurrent_tasks;
+}
+
+void VehicleResourceStatusMessage::setMax_concurrent_tasks(uint32_t max_concurrent_tasks)
+{
+    this->max_concurrent_tasks = max_concurrent_tasks;
+}
+
 uint32_t VehicleResourceStatusMessage::getTasks_generated() const
 {
     return this->tasks_generated;
@@ -2711,6 +2776,11 @@ class VehicleResourceStatusMessageDescriptor : public omnetpp::cClassDescriptor
         FIELD_battery_capacity_mAh,
         FIELD_energy_task_j_total,
         FIELD_energy_task_j_last,
+        FIELD_vehicle_type,
+        FIELD_tx_power_mw,
+        FIELD_storage_capacity_gb,
+        FIELD_max_queue_size,
+        FIELD_max_concurrent_tasks,
         FIELD_tasks_generated,
         FIELD_tasks_completed_on_time,
         FIELD_tasks_completed_late,
@@ -2786,7 +2856,7 @@ const char *VehicleResourceStatusMessageDescriptor::getProperty(const char *prop
 int VehicleResourceStatusMessageDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *base = getBaseClassDescriptor();
-    return base ? 28+base->getFieldCount() : 28;
+    return base ? 33+base->getFieldCount() : 33;
 }
 
 unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field) const
@@ -2817,6 +2887,11 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_battery_capacity_mAh
         FD_ISEDITABLE,    // FIELD_energy_task_j_total
         FD_ISEDITABLE,    // FIELD_energy_task_j_last
+        FD_ISEDITABLE,    // FIELD_vehicle_type
+        FD_ISEDITABLE,    // FIELD_tx_power_mw
+        FD_ISEDITABLE,    // FIELD_storage_capacity_gb
+        FD_ISEDITABLE,    // FIELD_max_queue_size
+        FD_ISEDITABLE,    // FIELD_max_concurrent_tasks
         FD_ISEDITABLE,    // FIELD_tasks_generated
         FD_ISEDITABLE,    // FIELD_tasks_completed_on_time
         FD_ISEDITABLE,    // FIELD_tasks_completed_late
@@ -2827,7 +2902,7 @@ unsigned int VehicleResourceStatusMessageDescriptor::getFieldTypeFlags(int field
         FD_ISEDITABLE,    // FIELD_avg_completion_time
         FD_ISEDITABLE,    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 28) ? fieldTypeFlags[field] : 0;
+    return (field >= 0 && field < 33) ? fieldTypeFlags[field] : 0;
 }
 
 const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) const
@@ -2858,6 +2933,11 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "battery_capacity_mAh",
         "energy_task_j_total",
         "energy_task_j_last",
+        "vehicle_type",
+        "tx_power_mw",
+        "storage_capacity_gb",
+        "max_queue_size",
+        "max_concurrent_tasks",
         "tasks_generated",
         "tasks_completed_on_time",
         "tasks_completed_late",
@@ -2868,7 +2948,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldName(int field) cons
         "avg_completion_time",
         "deadline_miss_ratio",
     };
-    return (field >= 0 && field < 28) ? fieldNames[field] : nullptr;
+    return (field >= 0 && field < 33) ? fieldNames[field] : nullptr;
 }
 
 int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) const
@@ -2894,15 +2974,20 @@ int VehicleResourceStatusMessageDescriptor::findField(const char *fieldName) con
     if (strcmp(fieldName, "battery_capacity_mAh") == 0) return baseIndex + 16;
     if (strcmp(fieldName, "energy_task_j_total") == 0) return baseIndex + 17;
     if (strcmp(fieldName, "energy_task_j_last") == 0) return baseIndex + 18;
-    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 19;
-    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 20;
-    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 21;
-    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 22;
-    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 23;
-    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 24;
-    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 25;
-    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 26;
-    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 27;
+    if (strcmp(fieldName, "vehicle_type") == 0) return baseIndex + 19;
+    if (strcmp(fieldName, "tx_power_mw") == 0) return baseIndex + 20;
+    if (strcmp(fieldName, "storage_capacity_gb") == 0) return baseIndex + 21;
+    if (strcmp(fieldName, "max_queue_size") == 0) return baseIndex + 22;
+    if (strcmp(fieldName, "max_concurrent_tasks") == 0) return baseIndex + 23;
+    if (strcmp(fieldName, "tasks_generated") == 0) return baseIndex + 24;
+    if (strcmp(fieldName, "tasks_completed_on_time") == 0) return baseIndex + 25;
+    if (strcmp(fieldName, "tasks_completed_late") == 0) return baseIndex + 26;
+    if (strcmp(fieldName, "tasks_failed") == 0) return baseIndex + 27;
+    if (strcmp(fieldName, "tasks_rejected") == 0) return baseIndex + 28;
+    if (strcmp(fieldName, "current_queue_length") == 0) return baseIndex + 29;
+    if (strcmp(fieldName, "current_processing_count") == 0) return baseIndex + 30;
+    if (strcmp(fieldName, "avg_completion_time") == 0) return baseIndex + 31;
+    if (strcmp(fieldName, "deadline_miss_ratio") == 0) return baseIndex + 32;
     return base ? base->findField(fieldName) : -1;
 }
 
@@ -2934,6 +3019,11 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_battery_capacity_mAh
         "double",    // FIELD_energy_task_j_total
         "double",    // FIELD_energy_task_j_last
+        "string",    // FIELD_vehicle_type
+        "double",    // FIELD_tx_power_mw
+        "double",    // FIELD_storage_capacity_gb
+        "uint32_t",    // FIELD_max_queue_size
+        "uint32_t",    // FIELD_max_concurrent_tasks
         "uint32_t",    // FIELD_tasks_generated
         "uint32_t",    // FIELD_tasks_completed_on_time
         "uint32_t",    // FIELD_tasks_completed_late
@@ -2944,7 +3034,7 @@ const char *VehicleResourceStatusMessageDescriptor::getFieldTypeString(int field
         "double",    // FIELD_avg_completion_time
         "double",    // FIELD_deadline_miss_ratio
     };
-    return (field >= 0 && field < 28) ? fieldTypeStrings[field] : nullptr;
+    return (field >= 0 && field < 33) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **VehicleResourceStatusMessageDescriptor::getFieldPropertyNames(int field) const
@@ -3046,6 +3136,11 @@ std::string VehicleResourceStatusMessageDescriptor::getFieldValueAsString(omnetp
         case FIELD_battery_capacity_mAh: return double2string(pp->getBattery_capacity_mAh());
         case FIELD_energy_task_j_total: return double2string(pp->getEnergy_task_j_total());
         case FIELD_energy_task_j_last: return double2string(pp->getEnergy_task_j_last());
+        case FIELD_vehicle_type: return oppstring2string(pp->getVehicle_type());
+        case FIELD_tx_power_mw: return double2string(pp->getTx_power_mw());
+        case FIELD_storage_capacity_gb: return double2string(pp->getStorage_capacity_gb());
+        case FIELD_max_queue_size: return ulong2string(pp->getMax_queue_size());
+        case FIELD_max_concurrent_tasks: return ulong2string(pp->getMax_concurrent_tasks());
         case FIELD_tasks_generated: return ulong2string(pp->getTasks_generated());
         case FIELD_tasks_completed_on_time: return ulong2string(pp->getTasks_completed_on_time());
         case FIELD_tasks_completed_late: return ulong2string(pp->getTasks_completed_late());
@@ -3089,6 +3184,11 @@ void VehicleResourceStatusMessageDescriptor::setFieldValueAsString(omnetpp::any_
         case FIELD_battery_capacity_mAh: pp->setBattery_capacity_mAh(string2double(value)); break;
         case FIELD_energy_task_j_total: pp->setEnergy_task_j_total(string2double(value)); break;
         case FIELD_energy_task_j_last: pp->setEnergy_task_j_last(string2double(value)); break;
+        case FIELD_vehicle_type: pp->setVehicle_type((value)); break;
+        case FIELD_tx_power_mw: pp->setTx_power_mw(string2double(value)); break;
+        case FIELD_storage_capacity_gb: pp->setStorage_capacity_gb(string2double(value)); break;
+        case FIELD_max_queue_size: pp->setMax_queue_size(string2ulong(value)); break;
+        case FIELD_max_concurrent_tasks: pp->setMax_concurrent_tasks(string2ulong(value)); break;
         case FIELD_tasks_generated: pp->setTasks_generated(string2ulong(value)); break;
         case FIELD_tasks_completed_on_time: pp->setTasks_completed_on_time(string2ulong(value)); break;
         case FIELD_tasks_completed_late: pp->setTasks_completed_late(string2ulong(value)); break;
@@ -3131,6 +3231,11 @@ omnetpp::cValue VehicleResourceStatusMessageDescriptor::getFieldValue(omnetpp::a
         case FIELD_battery_capacity_mAh: return pp->getBattery_capacity_mAh();
         case FIELD_energy_task_j_total: return pp->getEnergy_task_j_total();
         case FIELD_energy_task_j_last: return pp->getEnergy_task_j_last();
+        case FIELD_vehicle_type: return pp->getVehicle_type();
+        case FIELD_tx_power_mw: return pp->getTx_power_mw();
+        case FIELD_storage_capacity_gb: return pp->getStorage_capacity_gb();
+        case FIELD_max_queue_size: return (omnetpp::intval_t)(pp->getMax_queue_size());
+        case FIELD_max_concurrent_tasks: return (omnetpp::intval_t)(pp->getMax_concurrent_tasks());
         case FIELD_tasks_generated: return (omnetpp::intval_t)(pp->getTasks_generated());
         case FIELD_tasks_completed_on_time: return (omnetpp::intval_t)(pp->getTasks_completed_on_time());
         case FIELD_tasks_completed_late: return (omnetpp::intval_t)(pp->getTasks_completed_late());
@@ -3174,6 +3279,11 @@ void VehicleResourceStatusMessageDescriptor::setFieldValue(omnetpp::any_ptr obje
         case FIELD_battery_capacity_mAh: pp->setBattery_capacity_mAh(value.doubleValue()); break;
         case FIELD_energy_task_j_total: pp->setEnergy_task_j_total(value.doubleValue()); break;
         case FIELD_energy_task_j_last: pp->setEnergy_task_j_last(value.doubleValue()); break;
+        case FIELD_vehicle_type: pp->setVehicle_type(value.stringValue()); break;
+        case FIELD_tx_power_mw: pp->setTx_power_mw(value.doubleValue()); break;
+        case FIELD_storage_capacity_gb: pp->setStorage_capacity_gb(value.doubleValue()); break;
+        case FIELD_max_queue_size: pp->setMax_queue_size(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
+        case FIELD_max_concurrent_tasks: pp->setMax_concurrent_tasks(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
         case FIELD_tasks_generated: pp->setTasks_generated(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
         case FIELD_tasks_completed_on_time: pp->setTasks_completed_on_time(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
         case FIELD_tasks_completed_late: pp->setTasks_completed_late(omnetpp::checked_int_cast<uint32_t>(value.intValue())); break;
