@@ -1730,6 +1730,33 @@ double PayloadVehicleApp::calculateTaskCpuUtilization() const {
     return std::max(0.0, std::min(1.0, allocated_sum / cpu_allocable));
 }
 
+double PayloadVehicleApp::getServiceCpuPoolHz() const {
+    if (cpu_allocable <= 0.0) {
+        return 0.0;
+    }
+
+    // Base reserved pool for service work.
+    const double reservation = std::max(0.0, std::min(1.0, serviceCpuReservation));
+    const double base_pool_hz = cpu_total * reservation;
+
+    // Borrow part of currently idle allocable CPU (after local processing allocations).
+    double local_allocated_hz = 0.0;
+    for (Task* task : processing_tasks) {
+        if (task && task->state == PROCESSING) {
+            local_allocated_hz += std::max(0.0, task->cpu_allocated);
+        }
+    }
+
+    const double idle_allocable_hz = std::max(0.0, cpu_allocable - local_allocated_hz);
+    const double borrow_hz = 0.7 * idle_allocable_hz;
+
+    // Keep headroom for own tasks and control traffic bursts.
+    const double hard_cap_hz = 0.9 * cpu_allocable;
+    const double adaptive_pool_hz = std::min(hard_cap_hz, base_pool_hz + borrow_hz);
+
+    return std::max(base_pool_hz, adaptive_pool_hz);
+}
+
 double PayloadVehicleApp::calculateCPUAllocation(Task* task) {
     if (processing_tasks.empty()) {
         // First task gets full allocable CPU
@@ -3389,6 +3416,84 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         LAddress::L2Type anchorRsuMac = decision->getRedirect_target_rsu_mac();
         LAddress::L2Type ingressRsuMac = decision->getSenderAddress();
 
+        // Guardrail: if remaining deadline is too tight for nominal SV offload latency,
+        // route to RSU instead of sending an almost-certain deadline miss to SV.
+        const double elapsed_s = std::max(0.0, (simTime() - task->created_time).dbl());
+        const double remaining_deadline_s = std::max(0.001, task->relative_deadline - elapsed_s);
+        const double service_pool_hz = std::max(1.0, getServiceCpuPoolHz());
+        const size_t projected_service_concurrency = processingServiceTasks.size() + 1;
+        const double projected_task_hz = service_pool_hz / std::max<size_t>(1, projected_service_concurrency);
+        const double est_sv_exec_s = static_cast<double>(task->cpu_cycles) / std::max(1.0, projected_task_hz);
+        const double est_uplink_s = (static_cast<double>(task->input_size_bytes) * 8.0) / 6e6;
+        const double est_downlink_s = (static_cast<double>(task->output_size_bytes) * 8.0) / 6e6;
+        const double est_total_sv_s = est_uplink_s + est_sv_exec_s + est_downlink_s + 0.01;
+
+        // QoS-aware guard policy with two risk signals:
+        // 1) TV-local conservative estimate (queue + fixed-rate path),
+        // 2) RSU-predicted completion time selected during SV candidate scoring.
+        // For medium/low QoS, fallback only when risk is severe and corroborated.
+        double sv_feasibility_margin = 1.20;
+        if (task->qos_value >= 0.8) {
+            sv_feasibility_margin = 1.0;
+        } else if (task->qos_value >= 0.6) {
+            sv_feasibility_margin = 2.2;
+        } else {
+            sv_feasibility_margin = 3.2;
+        }
+
+        const double rsu_pred_sv_s = std::max(0.0, decision->getEstimated_completion_time());
+        const bool local_infeasible = est_total_sv_s > (remaining_deadline_s * sv_feasibility_margin);
+        const bool severe_local_infeasible = est_total_sv_s > (remaining_deadline_s * sv_feasibility_margin * 1.35);
+        const bool rsu_infeasible = (rsu_pred_sv_s > 0.0)
+            ? (rsu_pred_sv_s > (remaining_deadline_s * sv_feasibility_margin))
+            : local_infeasible;
+
+        bool shouldFallbackToRsu = false;
+        if (task->qos_value >= 0.8) {
+            // High QoS remains strict.
+            shouldFallbackToRsu = local_infeasible || rsu_infeasible;
+        } else {
+            // Lower QoS: avoid needless fallback unless both signals indicate strong risk.
+            shouldFallbackToRsu = severe_local_infeasible && rsu_infeasible;
+        }
+
+        if (shouldFallbackToRsu) {
+            EV_WARN << "SV infeasible for task " << task->task_id
+                    << ": est_total=" << est_total_sv_s
+                    << "s, rsu_pred=" << rsu_pred_sv_s
+                    << "s, remaining_deadline=" << remaining_deadline_s
+                    << "s. Falling back to RSU." << endl;
+
+            sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD_FALLBACK",
+                "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+                "{\"from\":\"SERVICE_VEHICLE\",\"to\":\"RSU\","
+                "\"est_sv_total_s\":" + std::to_string(est_total_sv_s) + ","
+                "\"rsu_pred_sv_s\":" + std::to_string(rsu_pred_sv_s) + ","
+                "\"remaining_deadline_s\":" + std::to_string(remaining_deadline_s) + "}");
+
+            std::cout << "OFFLOAD_FALLBACK: Task " << task->task_id
+                      << " SV->RSU (est_sv=" << est_total_sv_s
+                      << "s, remaining=" << remaining_deadline_s << "s)" << std::endl;
+
+            if (taskTimings.find(task->task_id) != taskTimings.end()) {
+                taskTimings[task->task_id].decision_type = "RSU";
+                taskTimings[task->task_id].processor_id = "RSU";
+            }
+
+            sendTaskToRSU(task, ingressRsuMac, anchorRsuMac);
+
+            offloadedTasks[task->task_id] = task;
+            offloadedTaskTargets[task->task_id] = "RSU";
+
+            cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
+            timeoutMsg->setContextPointer(task);
+            scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
+            offloadedTaskTimeouts[task->task_id] = timeoutMsg;
+
+            EV_INFO << "✓ Infeasible SV offload redirected to RSU, awaiting result" << endl;
+            return;
+        }
+
         sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD",
             "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             "{\"target\":\"SERVICE_VEHICLE\",\"sv_id\":\"" + serviceVehicleId + "\"}");
@@ -4086,7 +4191,7 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
     // which burns down already-executed cycles and reschedules all in-flight
     // service tasks with updated weighted shares.
     // ======================================================================
-    double total_service_hz = cpu_total * serviceCpuReservation;
+    double total_service_hz = getServiceCpuPoolHz();
     int n_concurrent = static_cast<int>(processingServiceTasks.size()) + 1; // +1 for this task
 
     double existing_weight_sum = 0.0;
@@ -4159,7 +4264,7 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
 void PayloadVehicleApp::reallocateServiceCPUResources() {
     if (processingServiceTasks.empty()) return;
 
-    double total_service_hz = cpu_total * serviceCpuReservation;
+    double total_service_hz = getServiceCpuPoolHz();
     double total_weight = 0.0;
     for (Task* t : processingServiceTasks) {
         total_weight += getServiceTaskPriorityWeight(t->qos_value);

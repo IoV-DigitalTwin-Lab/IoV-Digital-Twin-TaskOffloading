@@ -3591,9 +3591,13 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     delete msg;
 }
 
-std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) const {
+std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request,
+                                               double* outPredictedSeconds,
+                                               std::string* outReason) const {
     std::string bestId;
-    uint32_t bestQueue = std::numeric_limits<uint32_t>::max();
+    double bestScore = std::numeric_limits<double>::infinity();
+    double bestPredicted = std::numeric_limits<double>::infinity();
+    std::string bestReason;
 
     for (const auto& kv : vehicle_twins) {
         const std::string& candidateId = kv.first;
@@ -3606,10 +3610,76 @@ std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request)
             continue;
         }
 
-        if (twin.current_queue_length < bestQueue) {
-            bestQueue = twin.current_queue_length;
-            bestId = candidateId;
+        // Keep state freshness bounded; stale twins are risky SV choices.
+        if ((simTime().dbl() - twin.last_update_time) > 1.5) {
+            continue;
         }
+
+        Coord tvPos(request.pos_x, request.pos_y);
+        Coord svPos(twin.pos_x, twin.pos_y);
+        const double distance_m = tvPos.distance(svPos);
+        const double rssi_dbm = estimateDirectLinkRssiDbm(distance_m);
+
+        // Hard prune very weak direct links.
+        if (rssi_dbm < (directLinkRssiThreshold_dBm - 3.0)) {
+            continue;
+        }
+
+        // Conservative direct-link throughput estimate from PHY params and RSSI quality.
+        const double quality = std::max(0.0, std::min(1.0,
+            (rssi_dbm - directLinkRssiThreshold_dBm) / 20.0));
+        const double base_rate_bps = std::max(1.0, offload_link_bandwidth_hz * offload_rate_efficiency);
+        double est_rate_bps = base_rate_bps * (0.2 + 0.8 * quality);
+        if (offload_rate_cap_bps > 0.0) {
+            est_rate_bps = std::min(est_rate_bps, offload_rate_cap_bps);
+        }
+
+        const double uplink_s = (static_cast<double>(request.mem_footprint_bytes) * 8.0) / std::max(1.0, est_rate_bps);
+        const double downlink_bytes = std::max(1.0, static_cast<double>(request.mem_footprint_bytes) * offload_response_ratio);
+        const double downlink_s = (downlink_bytes * 8.0) / std::max(1.0, est_rate_bps);
+
+        // Use SV available CPU as a proxy for actual service compute budget.
+        const double svc_cpu_hz = std::max(5e8, twin.cpu_available * 1e9);
+        const double exec_s = static_cast<double>(request.cpu_cycles) / svc_cpu_hz;
+
+        // Approximate waiting from current queued + processing load.
+        const double pending_factor = static_cast<double>(twin.current_queue_length + twin.current_processing_count);
+        const double queue_wait_s = pending_factor * exec_s * 0.6;
+
+        const double predicted_total_s = uplink_s + queue_wait_s + exec_s + downlink_s + 0.01;
+
+        // QoS-aware feasibility: strict for high QoS, more permissive for lower QoS.
+        double qos_margin = 1.2;
+        if (request.qos_value >= 0.8) qos_margin = 1.0;
+        else if (request.qos_value <= 0.4) qos_margin = 1.35;
+        if (predicted_total_s > request.deadline_seconds * qos_margin) {
+            continue;
+        }
+
+        // Multi-factor score: prioritize lower predicted completion time,
+        // then lower queue pressure and better link quality.
+        const double normalized_queue = std::min(1.0, pending_factor / 10.0);
+        const double link_penalty = 1.0 - quality;
+        const double score = predicted_total_s + (0.12 * normalized_queue) + (0.08 * link_penalty);
+
+        if (score < bestScore) {
+            bestScore = score;
+            bestPredicted = predicted_total_s;
+            bestId = candidateId;
+            std::ostringstream oss;
+            oss << "SV score=" << score
+                << " pred=" << predicted_total_s
+                << "s q=" << pending_factor
+                << " rssi=" << rssi_dbm << "dBm";
+            bestReason = oss.str();
+        }
+    }
+
+    if (outPredictedSeconds) {
+        *outPredictedSeconds = std::isfinite(bestPredicted) ? bestPredicted : 0.0;
+    }
+    if (outReason) {
+        *outReason = bestReason;
     }
 
     return bestId;
@@ -3642,20 +3712,25 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         // ----------------------------------------------------------------
         EV_INFO << "  Using placeholder round-robin decision" << endl;
 
-        static int sv_dispatch_counter = 0;
-        bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
+        // Prefer SV when origin vehicle is loaded or local pre-decision already asked for SV.
+        bool sv_pressure = (request.vehicle_cpu_utilization >= 0.45) ||
+                           (request.vehicle_queue_length > 0) ||
+                           (request.local_decision == "OFFLOAD_TO_SERVICE_VEHICLE");
+        bool try_sv = serviceVehicleSelectionEnabled && sv_pressure;
 
         if (try_sv) {
-            std::string sv_id = selectBestServiceVehicle(request);
+            double sv_predicted_s = 0.0;
+            std::string sv_pick_reason;
+            std::string sv_id = selectBestServiceVehicle(request, &sv_predicted_s, &sv_pick_reason);
             if (!sv_id.empty() && vehicle_macs.count(sv_id)) {
                 decisionType = "SERVICE_VEHICLE";
                 target_service_vehicle_id  = sv_id;
                 target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
-                reason = "Round-robin placeholder: delegating to service vehicle " + sv_id
-                         + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
-                             vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
-                confidence = 0.75;
-                estimated_completion_time = request.deadline_seconds * 0.7;
+                reason = "Deadline-aware SV selection: " + sv_id + " (" + sv_pick_reason + ")";
+                confidence = 0.82;
+                estimated_completion_time = (sv_predicted_s > 0.0)
+                    ? sv_predicted_s
+                    : (request.deadline_seconds * 0.7);
                 std::cout << "SV_DECISION: Task " << request.task_id
                           << " routed to service vehicle " << sv_id
                           << " MAC=" << target_service_vehicle_mac << std::endl;

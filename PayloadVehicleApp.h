@@ -310,6 +310,7 @@ private:
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);
+    double getServiceCpuPoolHz() const;
     // Divide service-reserved CPU equally among all concurrent service tasks
     // and reschedule each completion event, mirroring reallocateCPUResources().
     void reallocateServiceCPUResources();
