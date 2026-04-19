@@ -407,11 +407,6 @@ double MyRSUApp::estimateDirectLinkRssiDbm(double distanceMeters) const {
 }
 
 void MyRSUApp::handleSelfMsg(cMessage* msg) {
-    double sim_time = simTime().dbl();
-    if (sim_time >= 9.8 && sim_time <= 10.5) {
-        std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                  << "s MyRSUApp::handleSelfMsg() msg=" << msg->getName() << std::endl;
-    }
     if (msg == beaconMsg && strcmp(msg->getName(), "sendMessage") == 0) {
         DemoSafetyMessage* wsm = new DemoSafetyMessage();
         populateWSM(wsm);
@@ -463,11 +458,6 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
     }
     
     else if (msg == checkDecisionMsg) {
-        if (sim_time >= 9.8 && sim_time <= 10.5) {
-            std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                      << "s MyRSUApp::checkDecisionMsg START pending=" << pending_decision_ids_.size()
-                      << std::endl;
-        }
         // Poll Redis for DRL decisions.
         // Iterates only pending_decision_ids_ (O(N_pending)) instead of all task_records
         // (O(N_total)).  N_pending is bounded by rsuDecisionTimeout × generation_rate and
@@ -701,10 +691,6 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
             scheduleAt(simTime() + 0.05, checkDecisionMsg);
         }
 
-        if (sim_time >= 9.8 && sim_time <= 10.5) {
-            std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                      << "s MyRSUApp::checkDecisionMsg END" << std::endl;
-        }
     }
     else if (strcmp(msg->getName(), "rsuTaskComplete") == 0) {
         // Physics-based RSU task completion — fire when exec_time elapses
@@ -1870,11 +1856,6 @@ void MyRSUApp::runSecondaryCycle() {
 }
 
 void MyRSUApp::handleMessage(cMessage* msg) {
-    double sim_time = simTime().dbl();
-    if (sim_time >= 9.8 && sim_time <= 10.5) {
-        std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                  << "s MyRSUApp::handleMessage() msg=" << msg->getName() << std::endl;
-    }
     // ========================================================================
     // HANDLE OFFLOADING REQUEST MESSAGES
     // ========================================================================
@@ -4572,12 +4553,6 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
 // ============================================================================
 
 void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
-    double sim_time = simTime().dbl();
-    if (sim_time >= 9.8 && sim_time <= 10.5) {
-        std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                  << "s MyRSUApp::handleOffloadingRequest() START task=" << msg->getTask_id()
-                  << " vehicle=" << msg->getVehicle_id() << std::endl;
-    }
     EV_INFO << "\n" << endl;
     EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
     EV_INFO << "║              RSU: OFFLOADING REQUEST RECEIVED                            ║" << endl;
@@ -4694,10 +4669,6 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     // This avoids destructor-time corruption if the generated packet ownership
     // chain is not safe to release here.
 
-    if (sim_time >= 9.8 && sim_time <= 10.5) {
-        std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                  << "s MyRSUApp::handleOffloadingRequest() END task=" << task_id << std::endl;
-    }
 }
 
 std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) const {
@@ -5627,12 +5598,6 @@ void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::strin
 }
 
 void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
-    double sim_time = simTime().dbl();
-    if (sim_time >= 9.8 && sim_time <= 10.5) {
-        std::cout << "CRASH_WINDOW: t=" << std::fixed << std::setprecision(6) << sim_time
-                  << "s MyRSUApp::handleTaskOffloadingEvent() event=" << msg->getEvent_type()
-                  << " task=" << msg->getTask_id() << std::endl;
-    }
     EV_DEBUG << "📊 RSU: Received task offloading event" << endl;
     
     std::string task_id = msg->getTask_id();

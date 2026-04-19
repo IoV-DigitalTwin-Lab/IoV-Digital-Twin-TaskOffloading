@@ -217,7 +217,6 @@ void PayloadVehicleApp::initialize(int stage) {
 }
 
 void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
-    LOG_CRASH_WINDOW("handleSelfMsg() msg=" << msg->getName());
     // Handle task-related events
     if (strcmp(msg->getName(), "taskGenLocalObjDet") == 0) {
         generateTask(TaskType::LOCAL_OBJECT_DETECTION);
@@ -541,7 +540,6 @@ void PayloadVehicleApp::onWSM(BaseFrame1609_4* wsm) {
 }
 
 void PayloadVehicleApp::handleMessage(cMessage* msg) {
-    LOG_CRASH_WINDOW("handleMessage() msg=" << msg->getName());
     EV << "PayloadVehicleApp: handleMessage() called with " << msg->getName() << endl;
 
     // ========================================================================
@@ -1350,14 +1348,12 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         
         // Send offloading request to RSU (includes local recommendation)
         sendOffloadingRequestToRSU(task, localDecision, gateResult);
-        LOG_CRASH_WINDOW("generateTask() after sendOffloadingRequestToRSU task=" << task->task_id);
         
         // Mark task as awaiting RSU ML decision
         EV_INFO << "⏳ Task awaiting RSU ML decision..." << endl;
         // Task is already in pendingOffloadingDecisions map from sendOffloadingRequestToRSU()
         
         // Schedule a timeout for the decision
-        LOG_CRASH_WINDOW("generateTask() before rsuDecisionTimeout setup task=" << task->task_id);
         cMessage* timeoutMsg = new cMessage("rsuDecisionTimeout");
         timeoutMsg->setContextPointer(task);
         double timeoutBudgetSec = rsuDecisionTimeout.dbl();
@@ -1369,10 +1365,8 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         
         // Store timeout message so we can cancel it if decision arrives
         pendingDecisionTimeouts[task->task_id] = timeoutMsg;
-        LOG_CRASH_WINDOW("generateTask() after rsuDecisionTimeout setup task=" << task->task_id);
         
         logResourceState("After task generation (awaiting offload decision)");
-        LOG_CRASH_WINDOW("generateTask() after logResourceState task=" << task->task_id);
         return;  // Don't process yet - wait for RSU decision
     }
     
@@ -1679,7 +1673,6 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     EV_INFO << "│           ALLOCATING RESOURCES AND STARTING TASK                         │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
     
-    LOG_CRASH_WINDOW("allocateResourcesAndStart() START task=" << task->task_id);
     
     // Allocate memory
     memory_available -= task->mem_footprint_bytes;
@@ -1869,7 +1862,6 @@ void PayloadVehicleApp::reallocateCPUResources() {
         cpu_available = cpu_allocable;
         return;
     }
-    LOG_CRASH_WINDOW("reallocateCPUResources() START processing=" << processing_tasks.size());
     
     EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
     EV_INFO << "│               REALLOCATING CPU RESOURCES                                 │" << endl;
@@ -1923,7 +1915,6 @@ void PayloadVehicleApp::reallocateCPUResources() {
     ASSERT(cpu_available >= -1e-9);
     
     EV_INFO << "CPU available after reallocation: " << (cpu_available/1e9) << " GHz" << endl;
-    LOG_CRASH_WINDOW("reallocateCPUResources() END");
 }
 
 void PayloadVehicleApp::processQueuedTasks() {
@@ -1979,7 +1970,6 @@ void PayloadVehicleApp::processQueuedTasks() {
 }
 
 void PayloadVehicleApp::handleTaskCompletion(Task* task) {
-    LOG_CRASH_WINDOW("handleTaskCompletion() START task=" << task->task_id);
     EV_INFO << "\n" << endl;
     EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
     EV_INFO << "║                       TASK COMPLETED                                     ║" << endl;
@@ -2079,7 +2069,6 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     
     logResourceState("After task completion");
     logTaskStatistics();
-    LOG_CRASH_WINDOW("handleTaskCompletion() END task=" << task->task_id);
 }
 
 void PayloadVehicleApp::handleTaskDeadline(Task* task) {
@@ -3041,7 +3030,6 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
     // IEEE 802.11p DSRC Channel Rate: 3-27 Mbps (typically 6 Mbps for reliability)
     double bandwidth_mbps = kDefaultV2xLinkBandwidthMbps;  // Conservative estimate for reliable transmission
     
-    LOG_CRASH_WINDOW("estimateTransmissionTime() START task=" << (task ? task->task_id : "NULL"));
     
     // Calculate transmission time based on input bytes sent over the air
     double transmission_time = (task->input_size_bytes * 8.0) / (bandwidth_mbps * 1e6);
@@ -3059,7 +3047,6 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
              << (propagation_delay * 1e6) << "us propagation + 1ms overhead = "
              << (total_time * 1000) << "ms total" << endl;
     
-        LOG_CRASH_WINDOW("estimateTransmissionTime() END");
     return total_time;
 }
 
@@ -3071,7 +3058,6 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     EV_INFO << "📤 Sending offloading request to RSU for task " << task->task_id << endl;
     std::cout << "OFFLOAD_Decision_REQUEST: Vehicle " << task->vehicle_id << " requesting offloading decision for task " 
               << task->task_id << std::endl;
-    LOG_CRASH_WINDOW("sendOffloadingRequestToRSU() START task=" << task->task_id);
     
     // Create offloading request message
     veins::OffloadingRequestMessage* msg = new veins::OffloadingRequestMessage();
@@ -3201,7 +3187,6 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
             << candidates.size() << " candidate RSUs" << endl;
     std::cout << "INFO: Offloading request sent to primary RSU with " << candidates.size() 
               << " fallback candidates" << std::endl;
-        LOG_CRASH_WINDOW("sendOffloadingRequestToRSU() END task=" << task->task_id);
 }
 
 void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisionMessage* msg) {
@@ -3973,7 +3958,6 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
     EV_INFO << "📥 Received task result for " << task_id << endl;
     std::cout << "TASK_RESULT: Received result for task " << task_id 
               << " from " << msg->getProcessor_id() << std::endl;
-    LOG_CRASH_WINDOW("handleTaskResult() START task=" << task_id);
     
     // Process result and send completion report to RSU
     auto it = offloadedTasks.find(task_id);
@@ -4073,7 +4057,6 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
     }
 
     delete msg;
-        LOG_CRASH_WINDOW("handleTaskResult() END task=" << task_id);
 }
 
 // ============================================================================
@@ -4474,7 +4457,6 @@ void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& ori
 void PayloadVehicleApp::sendTaskOffloadingEvent(const std::string& taskId, const std::string& eventType,
                                                  const std::string& sourceEntity, const std::string& targetEntity,
                                                  const std::string& details) {
-    LOG_CRASH_WINDOW("sendTaskOffloadingEvent() START event=" << eventType << " task=" << taskId);
     EV_DEBUG << "📊 Lifecycle event: " << eventType << " for task " << taskId << endl;
     std::cout << "LIFECYCLE: " << eventType << " task=" << taskId
               << " src=" << sourceEntity << " dst=" << targetEntity << std::endl;
@@ -4495,7 +4477,6 @@ void PayloadVehicleApp::sendTaskOffloadingEvent(const std::string& taskId, const
         EV_WARN << "No RSU in range — lifecycle event dropped: " << eventType << endl;
         delete event;
     }
-    LOG_CRASH_WINDOW("sendTaskOffloadingEvent() END event=" << eventType << " task=" << taskId);
 }
 
 // Overload: no details (backward compat)
