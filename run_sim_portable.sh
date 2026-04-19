@@ -138,6 +138,11 @@ set +u
 source "$OMNETPP_HOME/setenv"
 set -u
 
+# Ensure locally installed hiredis is available at runtime for external_controller_cpp.
+if [ -d "/home/mihiraja/.local/lib" ]; then
+  export LD_LIBRARY_PATH="/home/mihiraja/.local/lib:${LD_LIBRARY_PATH:-}"
+fi
+
 # OMNeT++ setenv may not include SUMO's binary directory on some systems.
 if ! command -v sumo >/dev/null 2>&1; then
   if [ -x "/usr/share/sumo/bin/sumo" ]; then
