@@ -3416,50 +3416,59 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         LAddress::L2Type anchorRsuMac = decision->getRedirect_target_rsu_mac();
         LAddress::L2Type ingressRsuMac = decision->getSenderAddress();
 
-        // Guardrail: if remaining deadline is too tight for nominal SV offload latency,
-        // route to RSU instead of sending an almost-certain deadline miss to SV.
+        // Guardrail: keep SV as the preferred execution target when RSU already
+        // selected it, and only fallback on clear high-risk deadline misses.
+        // NOTE: this vehicle cannot observe the target SV queue/CPU directly;
+        // using local service queue here causes false SV->RSU fallback.
         const double elapsed_s = std::max(0.0, (simTime() - task->created_time).dbl());
         const double remaining_deadline_s = std::max(0.001, task->relative_deadline - elapsed_s);
-        const double service_pool_hz = std::max(1.0, getServiceCpuPoolHz());
-        const size_t projected_service_concurrency = processingServiceTasks.size() + 1;
-        const double projected_task_hz = service_pool_hz / std::max<size_t>(1, projected_service_concurrency);
-        const double est_sv_exec_s = static_cast<double>(task->cpu_cycles) / std::max(1.0, projected_task_hz);
+
+        // RSU predicts the chosen SV path using global DT state and candidate scoring.
+        const double rsu_pred_sv_s = std::max(0.0, decision->getEstimated_completion_time());
+
+        // Keep a lightweight local proxy only as a corroboration signal when RSU
+        // prediction is unavailable. This proxy avoids target-SV queue assumptions.
+        // Use nominal shared service capacity (not this vehicle's active service queue)
+        // to keep a conservative but stable execution-time estimate.
         const double est_uplink_s = (static_cast<double>(task->input_size_bytes) * 8.0) / 6e6;
         const double est_downlink_s = (static_cast<double>(task->output_size_bytes) * 8.0) / 6e6;
-        const double est_total_sv_s = est_uplink_s + est_sv_exec_s + est_downlink_s + 0.01;
+        const double nominal_service_hz = std::max(1.0, cpu_total * std::max(0.25, serviceCpuReservation));
+        const double est_exec_proxy_s = static_cast<double>(task->cpu_cycles) / nominal_service_hz;
+        const double est_total_proxy_sv_s = est_uplink_s + est_exec_proxy_s + est_downlink_s + 0.02;
 
-        // QoS-aware guard policy with two risk signals:
-        // 1) TV-local conservative estimate (queue + fixed-rate path),
-        // 2) RSU-predicted completion time selected during SV candidate scoring.
-        // For medium/low QoS, fallback only when risk is severe and corroborated.
-        double sv_feasibility_margin = 1.20;
+        // Promote executed SV share by requiring stronger evidence before fallback.
+        // Higher QoS still applies tighter deadlines than medium/low QoS.
+        double risk_threshold = 1.0;
         if (task->qos_value >= 0.8) {
-            sv_feasibility_margin = 1.0;
+            risk_threshold = 1.18;
         } else if (task->qos_value >= 0.6) {
-            sv_feasibility_margin = 2.2;
+            risk_threshold = 1.40;
         } else {
-            sv_feasibility_margin = 3.2;
+            risk_threshold = 1.75;
         }
 
-        const double rsu_pred_sv_s = std::max(0.0, decision->getEstimated_completion_time());
-        const bool local_infeasible = est_total_sv_s > (remaining_deadline_s * sv_feasibility_margin);
-        const bool severe_local_infeasible = est_total_sv_s > (remaining_deadline_s * sv_feasibility_margin * 1.35);
-        const bool rsu_infeasible = (rsu_pred_sv_s > 0.0)
-            ? (rsu_pred_sv_s > (remaining_deadline_s * sv_feasibility_margin))
-            : local_infeasible;
+        // High-confidence SV selections get slightly more slack before demotion.
+        if (decision->getConfidence_score() >= 0.85) {
+            risk_threshold += 0.12;
+        }
+
+        const bool rsu_high_risk = (rsu_pred_sv_s > 0.0)
+            ? (rsu_pred_sv_s > (remaining_deadline_s * risk_threshold))
+            : false;
+        const bool proxy_high_risk = est_total_proxy_sv_s > (remaining_deadline_s * risk_threshold * 0.95);
 
         bool shouldFallbackToRsu = false;
-        if (task->qos_value >= 0.8) {
-            // High QoS remains strict.
-            shouldFallbackToRsu = local_infeasible || rsu_infeasible;
+        if (rsu_pred_sv_s > 0.0) {
+            // Only fallback when RSU says SV is high-risk and local proxy does not disagree.
+            shouldFallbackToRsu = rsu_high_risk && proxy_high_risk;
         } else {
-            // Lower QoS: avoid needless fallback unless both signals indicate strong risk.
-            shouldFallbackToRsu = severe_local_infeasible && rsu_infeasible;
+            // No RSU prediction available: use local proxy with strict high-risk test only.
+            shouldFallbackToRsu = est_total_proxy_sv_s > (remaining_deadline_s * (risk_threshold + 0.25));
         }
 
         if (shouldFallbackToRsu) {
             EV_WARN << "SV infeasible for task " << task->task_id
-                    << ": est_total=" << est_total_sv_s
+                    << ": proxy_est_total=" << est_total_proxy_sv_s
                     << "s, rsu_pred=" << rsu_pred_sv_s
                     << "s, remaining_deadline=" << remaining_deadline_s
                     << "s. Falling back to RSU." << endl;
@@ -3467,12 +3476,13 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD_FALLBACK",
                 "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
                 "{\"from\":\"SERVICE_VEHICLE\",\"to\":\"RSU\","
-                "\"est_sv_total_s\":" + std::to_string(est_total_sv_s) + ","
+                "\"est_sv_total_s\":" + std::to_string(est_total_proxy_sv_s) + ","
                 "\"rsu_pred_sv_s\":" + std::to_string(rsu_pred_sv_s) + ","
                 "\"remaining_deadline_s\":" + std::to_string(remaining_deadline_s) + "}");
 
             std::cout << "OFFLOAD_FALLBACK: Task " << task->task_id
-                      << " SV->RSU (est_sv=" << est_total_sv_s
+                      << " SV->RSU (proxy_est_sv=" << est_total_proxy_sv_s
+                      << "s, rsu_pred=" << rsu_pred_sv_s
                       << "s, remaining=" << remaining_deadline_s << "s)" << std::endl;
 
             if (taskTimings.find(task->task_id) != taskTimings.end()) {
