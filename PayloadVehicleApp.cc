@@ -3002,7 +3002,7 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     msg->setRequest_time(simTime().dbl());
     msg->setMem_footprint_bytes(task->mem_footprint_bytes);
     msg->setCpu_cycles(task->cpu_cycles);
-    msg->setDeadline_seconds(task->relative_deadline);
+    msg->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     msg->setQos_value(task->qos_value);
     
     // Vehicle resource state
@@ -3637,7 +3637,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             redirectRequest->setRequest_time(simTime().dbl());
             redirectRequest->setMem_footprint_bytes(task->input_size_bytes);
             redirectRequest->setCpu_cycles(task->cpu_cycles);
-            redirectRequest->setDeadline_seconds(task->relative_deadline);
+            redirectRequest->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
             redirectRequest->setQos_value(task->qos_value);
             redirectRequest->setLocal_cpu_available_ghz(calculateReportedCpuAvailable() / 1e9);
             redirectRequest->setLocal_cpu_utilization(calculateTaskCpuUtilization());
