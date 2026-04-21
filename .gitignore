@@ -92,8 +92,6 @@ results/*
 out/*
 INSTALLATION_REQUIREMENTS.md
 sim_run.log
-IoV-Digital-Twin-TaskOffloading
-IoV-Digital-Twin-TaskOffloading_dbg
 
 README_POSTGRES_VEHICLE_METADATA_SYNC_PLAN.md
 README_POSTGRES_TASK_TIMEOUT_DEBUG_AND_SCHEMA_REFACTOR_PLAN.md
