@@ -576,6 +576,51 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     dMsg->setTarget_service_vehicle_id(target_id.c_str());
                     dMsg->setConfidence_score(confidence);
                     dMsg->setDecision_time(simTime().dbl());
+                    
+                    double estimated_completion_time = 0.0;
+                    if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
+                        auto svIt = vehicle_twins.find(target_id);
+                        auto tvIt = vehicle_twins.find(record.vehicle_id);
+                        if (svIt != vehicle_twins.end() && tvIt != vehicle_twins.end()) {
+                            const auto& twin = svIt->second;
+                            const auto& tvTwin = tvIt->second;
+                            
+                            Coord tvPos(tvTwin.pos_x, tvTwin.pos_y);
+                            Coord svPos(twin.pos_x, twin.pos_y);
+                            const double distance_m = tvPos.distance(svPos);
+                            const double rssi_dbm = estimateDirectLinkRssiDbm(distance_m);
+
+                            const double quality = std::max(0.0, std::min(1.0,
+                                (rssi_dbm - directLinkRssiThreshold_dBm) / 20.0));
+                            const double base_rate_bps = std::max(1.0, offload_link_bandwidth_hz * offload_rate_efficiency);
+                            double est_rate_bps = base_rate_bps * (0.2 + 0.8 * quality);
+                            if (offload_rate_cap_bps > 0.0) {
+                                est_rate_bps = std::min(est_rate_bps, offload_rate_cap_bps);
+                            }
+
+                            const double input_bytes = static_cast<double>(record.is_profile_task ? record.input_size_bytes : record.mem_footprint_bytes);
+                            const double output_bytes = static_cast<double>(record.is_profile_task ? record.output_size_bytes : (record.mem_footprint_bytes * offload_response_ratio));
+                            
+                            const double uplink_s = (input_bytes * 8.0) / std::max(1.0, est_rate_bps);
+                            const double downlink_s = (output_bytes * 8.0) / std::max(1.0, est_rate_bps);
+
+                            const double svc_cpu_hz = std::max(1e8, twin.cpu_available * 1e9);
+                            const double exec_s = static_cast<double>(record.cpu_cycles) / svc_cpu_hz;
+
+                            const double pending_factor = static_cast<double>(twin.current_queue_length + twin.current_processing_count);
+                            const double queue_wait_s = pending_factor * exec_s * 0.6;
+
+                            estimated_completion_time = uplink_s + queue_wait_s + exec_s + downlink_s + 0.01;
+                        } else {
+                            estimated_completion_time = record.deadline_seconds * 0.9;
+                        }
+                    } else if (decision_type == "RSU") {
+                        estimated_completion_time = record.deadline_seconds * 0.6;
+                    } else if (decision_type == "LOCAL") {
+                        estimated_completion_time = record.deadline_seconds * 0.5;
+                    }
+                    dMsg->setEstimated_completion_time(estimated_completion_time);
+                    
                     dMsg->setSenderAddress(myId);  // RSU MAC address
                     dMsg->setAgentDecisions(agentDecisionsPayload.c_str());  // baseline decisions
 
@@ -4003,6 +4048,8 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     
     const char* paramValues[11];
     std::string task_id = request.task_id;
+
+
     std::string vehicle_id = request.vehicle_id;
     std::string rsu_id_str = std::to_string(rsu_id);
     std::string request_time = std::to_string(request.request_time);
@@ -4671,9 +4718,13 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
 
 }
 
-std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request) const {
+std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request,
+                                               double* outPredictedSeconds,
+                                               std::string* outReason) const {
     std::string bestId;
-    uint32_t bestQueue = std::numeric_limits<uint32_t>::max();
+    double bestScore = std::numeric_limits<double>::infinity();
+    double bestPredicted = std::numeric_limits<double>::infinity();
+    std::string bestReason;
 
     for (const auto& kv : vehicle_twins) {
         const std::string& candidateId = kv.first;
@@ -4686,10 +4737,89 @@ std::string MyRSUApp::selectBestServiceVehicle(const OffloadingRequest& request)
             continue;
         }
 
-        if (twin.current_queue_length < bestQueue) {
-            bestQueue = twin.current_queue_length;
-            bestId = candidateId;
+        // Keep state freshness bounded; stale twins are risky SV choices.
+        if ((simTime().dbl() - twin.last_update_time) > 0.9) {
+            continue;
         }
+
+        Coord tvPos(request.pos_x, request.pos_y);
+        Coord svPos(twin.pos_x, twin.pos_y);
+        const double distance_m = tvPos.distance(svPos);
+        const double rssi_dbm = estimateDirectLinkRssiDbm(distance_m);
+
+        // Hard prune very weak direct links.
+        if (rssi_dbm < (directLinkRssiThreshold_dBm - 3.0)) {
+            continue;
+        }
+
+        // Conservative direct-link throughput estimate from PHY params and RSSI quality.
+        const double quality = std::max(0.0, std::min(1.0,
+            (rssi_dbm - directLinkRssiThreshold_dBm) / 20.0));
+        const double base_rate_bps = std::max(1.0, offload_link_bandwidth_hz * offload_rate_efficiency);
+        double est_rate_bps = base_rate_bps * (0.2 + 0.8 * quality);
+        if (offload_rate_cap_bps > 0.0) {
+            est_rate_bps = std::min(est_rate_bps, offload_rate_cap_bps);
+        }
+
+        const double uplink_s = (static_cast<double>(request.mem_footprint_bytes) * 8.0) / std::max(1.0, est_rate_bps);
+        const double downlink_bytes = std::max(1.0, static_cast<double>(request.mem_footprint_bytes) * offload_response_ratio);
+        const double downlink_s = (downlink_bytes * 8.0) / std::max(1.0, est_rate_bps);
+
+        // Use SV available CPU as a proxy for actual service compute budget.
+        const double svc_cpu_hz = std::max(5e8, twin.cpu_available * 1e9);
+        const double exec_s = static_cast<double>(request.cpu_cycles) / svc_cpu_hz;
+
+        // Approximate waiting from current queued + processing load.
+        const double pending_factor = static_cast<double>(twin.current_queue_length + twin.current_processing_count);
+        const double queue_wait_s = pending_factor * exec_s * 0.6;
+
+        const double predicted_total_s = uplink_s + queue_wait_s + exec_s + downlink_s + 0.01;
+
+        // QoS-aware feasibility: keep margins closer to real deadline so we
+        // request SV only when conversion likelihood is high.
+        double qos_margin = 1.15;
+        double min_slack_s = 0.03;
+        if (request.qos_value >= 0.8) {
+            qos_margin = 1.0;
+            min_slack_s = 0.02;
+        } else if (request.qos_value <= 0.4) {
+            qos_margin = 1.22;
+            min_slack_s = 0.05;
+        }
+        const double feasible_budget_s = std::max(0.001, (request.deadline_seconds * qos_margin) - min_slack_s);
+        if (predicted_total_s > feasible_budget_s) {
+            continue;
+        }
+
+        // Multi-factor score: prioritize lower predicted completion time,
+        // then lower queue pressure and better link quality.
+        const double normalized_queue = std::min(1.0, pending_factor / 8.0);
+        const double link_penalty = 1.0 - quality;
+        const double deadline_pressure = std::max(0.0,
+            predicted_total_s / std::max(0.001, request.deadline_seconds) - 0.75);
+        const double score = predicted_total_s
+                           + (0.16 * normalized_queue)
+                           + (0.10 * link_penalty)
+                           + (0.14 * deadline_pressure);
+
+        if (score < bestScore) {
+            bestScore = score;
+            bestPredicted = predicted_total_s;
+            bestId = candidateId;
+            std::ostringstream oss;
+            oss << "SV score=" << score
+                << " pred=" << predicted_total_s
+                << "s q=" << pending_factor
+                << " rssi=" << rssi_dbm << "dBm";
+            bestReason = oss.str();
+        }
+    }
+
+    if (outPredictedSeconds) {
+        *outPredictedSeconds = std::isfinite(bestPredicted) ? bestPredicted : 0.0;
+    }
+    if (outReason) {
+        *outReason = bestReason;
     }
 
     return bestId;
@@ -4722,20 +4852,25 @@ veins::OffloadingDecisionMessage* MyRSUApp::makeOffloadingDecision(const Offload
         // ----------------------------------------------------------------
         EV_INFO << "  Using placeholder round-robin decision" << endl;
 
-        static int sv_dispatch_counter = 0;
-        bool try_sv = serviceVehicleSelectionEnabled && (sv_dispatch_counter++ % 3 == 0);
+        // Prefer SV when origin vehicle is loaded or local pre-decision already asked for SV.
+        bool sv_pressure = (request.vehicle_cpu_utilization >= 0.45) ||
+                           (request.vehicle_queue_length > 0) ||
+                           (request.local_decision == "OFFLOAD_TO_SERVICE_VEHICLE");
+        bool try_sv = serviceVehicleSelectionEnabled && sv_pressure;
 
         if (try_sv) {
-            std::string sv_id = selectBestServiceVehicle(request);
+            double sv_predicted_s = 0.0;
+            std::string sv_pick_reason;
+            std::string sv_id = selectBestServiceVehicle(request, &sv_predicted_s, &sv_pick_reason);
             if (!sv_id.empty() && vehicle_macs.count(sv_id)) {
                 decisionType = "SERVICE_VEHICLE";
                 target_service_vehicle_id  = canonicalServiceVehicleId(sv_id);
                 target_service_vehicle_mac = vehicle_macs[sv_id];  // real MAC from Digital Twin
-                reason = "Round-robin placeholder: delegating to service vehicle " + target_service_vehicle_id
-                         + " (queue=" + std::to_string(vehicle_twins.count(sv_id) ?
-                             vehicle_twins.at(sv_id).current_queue_length : 0) + ")";
-                confidence = 0.75;
-                estimated_completion_time = request.deadline_seconds * 0.7;
+                reason = "Deadline-aware SV selection: " + sv_id + " (" + sv_pick_reason + ")";
+                confidence = 0.82;
+                estimated_completion_time = (sv_predicted_s > 0.0)
+                    ? sv_predicted_s
+                    : (request.deadline_seconds * 0.7);
                 std::cout << "SV_DECISION: Task " << request.task_id
                           << " routed to service vehicle " << target_service_vehicle_id
                           << " MAC=" << target_service_vehicle_mac << std::endl;
@@ -5808,6 +5943,20 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
             {
                 std::string ddqn_status = on_time ? "COMPLETED_ON_TIME" : "FAILED";
                 std::string ddqn_reason = on_time ? "NONE" : "DEADLINE_MISSED";
+                
+                // --- PENALIZE FALLBACKS ---
+                // If the DDQN algorithm originally requested an SV offload, but it 
+                // failed the TV's safety gate and fell back to the RSU, this execution
+                // was technically a failure of the agent's policy.
+                std::string original_ddqn_type = redis_twin->getAgentDecisionType(task_id, "ddqn");
+                if (original_ddqn_type == "SERVICE_VEHICLE" && decision_type == "RSU") {
+                    std::cout << "DDQN_PENALTY: Task " << task_id << " was bailed out by fallback. Penalizing DDQN agent." << std::endl;
+                    ddqn_status = "FAILED";
+                    ddqn_reason = "SV_FALLBACK_TO_RSU";
+                    // Override the latency to be worse than the deadline so the agent receives negative reward
+                    total_latency = deadline_seconds * 1.5; 
+                }
+
                 // Energy estimate: κ * f² * cycles  (CMOS dynamic power model)
                 double energy_j = 0.0;
                 if (decision_type == "RSU") {

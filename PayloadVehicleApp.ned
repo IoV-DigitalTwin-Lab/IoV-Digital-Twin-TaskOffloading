@@ -48,6 +48,7 @@ simple PayloadVehicleApp extends DemoBaseApplLayer
         int max_queue_size = default(50);                     // Maximum pending tasks
         int max_concurrent_tasks = default(4);                // Maximum parallel execution
         double min_cpu_guarantee = default(0.1);              // Minimum CPU fraction per task
+        double cpuConcurrencyCompletionThreshold = default(0.8); // Exclude tasks >= this completion ratio from cpu_available concurrency
         
         // ============================================================================
         // TASK OFFLOADING SYSTEM PARAMETERS

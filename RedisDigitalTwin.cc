@@ -521,6 +521,22 @@ std::map<std::string, std::string> RedisDigitalTwin::getSingleDecision(const std
     return decision;
 }
 
+std::string RedisDigitalTwin::getAgentDecisionType(const std::string& task_id, const std::string& agent_name)
+{
+    if (!redis_ctx || !is_connected) return "";
+
+    std::string key = "task:" + task_id + ":decisions";
+    std::string field = agent_name + "_type";
+    redisReply* reply = (redisReply*)redisCommand(redis_ctx, "HGET %s %s", key.c_str(), field.c_str());
+
+    std::string result = "";
+    if (reply && reply->type == REDIS_REPLY_STRING) {
+        result = reply->str;
+    }
+    if (reply) freeReplyObject(reply);
+    return result;
+}
+
 void RedisDigitalTwin::writeSingleResult(const std::string& task_id,
                                          const std::string& status,
                                          double total_latency,

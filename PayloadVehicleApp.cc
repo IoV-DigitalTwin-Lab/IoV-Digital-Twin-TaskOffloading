@@ -102,6 +102,14 @@ double estimateQueuedTaskServiceTime(const Task* task, double default_service_ti
     }
     return default_service_time_sec;
 }
+
+double getServiceTaskPriorityWeight(double qosValue) {
+    // Keep service-vehicle weighting aligned with RSU weighted-share policy.
+    double qos = std::max(0.0, std::min(1.0, qosValue));
+    if (qos >= 0.80) return 5.0; // high priority
+    if (qos >= 0.50) return 3.0; // medium priority
+    return 2.0;                  // low/background priority
+}
 }
 
 Define_Module(PayloadVehicleApp);
@@ -835,7 +843,7 @@ void PayloadVehicleApp::initializeTaskSystem() {
     cpu_total = par("cpu_total").doubleValue();
     cpu_reservation_ratio = par("cpu_reservation_ratio").doubleValue();
     cpu_allocable = cpu_total * (1.0 - cpu_reservation_ratio);
-    cpu_available = cpu_allocable;  // Initially all allocable CPU is available
+    cpu_available = cpu_allocable;  // Initialized before threshold-aware updates
     
     memory_total = par("memory_total").doubleValue();
     memory_available = memory_total;  // Initially all memory is available
@@ -844,6 +852,9 @@ void PayloadVehicleApp::initializeTaskSystem() {
     max_queue_size = par("max_queue_size").intValue();
     max_concurrent_tasks = par("max_concurrent_tasks").intValue();
     min_cpu_guarantee = par("min_cpu_guarantee").doubleValue();
+    cpuConcurrencyCompletionThreshold = par("cpuConcurrencyCompletionThreshold").doubleValue();
+    cpuConcurrencyCompletionThreshold = std::max(0.0, std::min(1.0, cpuConcurrencyCompletionThreshold));
+    cpu_available = calculateReportedCpuAvailable();
     
     // Multi-RSU Candidate Selection & Redirect Parameters
     max_candidate_rsus = par("maxCandidateRsus").intValue();
@@ -1189,8 +1200,8 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         context.cooperation_required_tag = task->cooperation_required_tag;
         
         // Local vehicle resources
-        context.local_cpu_available = cpu_available / 1e9;  // Convert Hz to GHz
-        context.local_cpu_utilization = (cpu_allocable - cpu_available) / cpu_allocable;
+        context.local_cpu_available = calculateReportedCpuAvailable() / 1e9;  // Convert Hz to GHz
+        context.local_cpu_utilization = calculateTaskCpuUtilization();
         context.local_mem_available = memory_available / 1e6;  // Convert bytes to MB
         context.local_queue_length = pending_tasks.size();
         context.local_processing_count = processing_tasks.size();
@@ -1696,12 +1707,7 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     
     // Calculate CPU allocation
     task->cpu_allocated = calculateCPUAllocation(task);
-    double allocated_sum = 0.0;
-    for (Task* t : processing_tasks) {
-        allocated_sum += t->cpu_allocated;
-    }
-    cpu_available = std::max(0.0, cpu_allocable - allocated_sum);
-    ASSERT(cpu_available >= -1e-9);
+    cpu_available = calculateReportedCpuAvailable();
     
     EV_INFO << "Resource allocation:" << endl;
     EV_INFO << "  • Memory allocated: " << (task->mem_footprint_bytes / 1e6) << " MB" << endl;
@@ -1811,6 +1817,93 @@ void PayloadVehicleApp::updateLocalServiceTimeEstimate(Task* task, double actual
     }
 }
 
+double PayloadVehicleApp::calculateTaskCompletionFraction(const Task* task) const {
+    if (!task || task->processing_start_time <= SimTime(0)) {
+        return 0.0;
+    }
+
+    const double elapsed = std::max(0.0, (simTime() - task->processing_start_time).dbl());
+
+    if (task->completion_event && task->completion_event->isScheduled()) {
+        const double time_left = std::max(0.0,
+            task->completion_event->getArrivalTime().dbl() - simTime().dbl());
+        const double estimated_total = elapsed + time_left;
+        if (estimated_total > 1e-9) {
+            return std::max(0.0, std::min(1.0, elapsed / estimated_total));
+        }
+    }
+
+    if (task->cpu_cycles > 0 && task->cpu_cycles_executed > 0) {
+        return std::max(0.0, std::min(1.0,
+            static_cast<double>(task->cpu_cycles_executed) / static_cast<double>(task->cpu_cycles)));
+    }
+
+    return 0.0;
+}
+
+size_t PayloadVehicleApp::countCpuAvailableConcurrency() const {
+    size_t concurrent = 0;
+    for (Task* task : processing_tasks) {
+        if (!task || task->state != PROCESSING) {
+            continue;
+        }
+        const double progress = calculateTaskCompletionFraction(task);
+        if (progress < cpuConcurrencyCompletionThreshold) {
+            concurrent++;
+        }
+    }
+    return concurrent;
+}
+
+double PayloadVehicleApp::calculateReportedCpuAvailable() const {
+    if (cpu_allocable <= 0.0) {
+        return 0.0;
+    }
+    const size_t concurrent = countCpuAvailableConcurrency();
+    return cpu_allocable / (static_cast<double>(concurrent) + 1.0);
+}
+
+double PayloadVehicleApp::calculateTaskCpuUtilization() const {
+    if (cpu_allocable <= 0.0) {
+        return 0.0;
+    }
+
+    double allocated_sum = 0.0;
+    for (Task* task : processing_tasks) {
+        if (task && task->state == PROCESSING) {
+            allocated_sum += std::max(0.0, task->cpu_allocated);
+        }
+    }
+    return std::max(0.0, std::min(1.0, allocated_sum / cpu_allocable));
+}
+
+double PayloadVehicleApp::getServiceCpuPoolHz() const {
+    if (cpu_allocable <= 0.0) {
+        return 0.0;
+    }
+
+    // Base reserved pool for service work.
+    const double reservation = std::max(0.0, std::min(1.0, serviceCpuReservation));
+    const double base_pool_hz = cpu_total * reservation;
+
+    // Borrow part of currently idle allocable CPU (after local processing allocations).
+    double local_allocated_hz = 0.0;
+    for (Task* task : processing_tasks) {
+        if (task && task->state == PROCESSING) {
+            local_allocated_hz += std::max(0.0, task->cpu_allocated);
+        }
+    }
+
+    const double idle_allocable_hz = std::max(0.0, cpu_allocable - local_allocated_hz);
+    const double borrow_hz = 0.7 * idle_allocable_hz;
+
+    // Keep headroom for own tasks and control traffic bursts.
+    const double hard_cap_hz = 0.9 * cpu_allocable;
+    const double adaptive_pool_hz = std::min(hard_cap_hz, base_pool_hz + borrow_hz);
+
+    return std::max(base_pool_hz, adaptive_pool_hz);
+}
+
 double PayloadVehicleApp::calculateCPUAllocation(Task* task) {
     if (processing_tasks.empty()) {
         // First task gets full allocable CPU
@@ -1859,7 +1952,7 @@ double PayloadVehicleApp::calculateCPUAllocation(Task* task) {
 
 void PayloadVehicleApp::reallocateCPUResources() {
     if (processing_tasks.empty()) {
-        cpu_available = cpu_allocable;
+        cpu_available = calculateReportedCpuAvailable();
         return;
     }
     
@@ -1906,13 +1999,7 @@ void PayloadVehicleApp::reallocateCPUResources() {
         }
     }
     
-    // Recalculate available CPU with FP-safe clamping
-    double allocated_sum = 0.0;
-    for (Task* t : processing_tasks) {
-        allocated_sum += t->cpu_allocated;
-    }
-    cpu_available = std::max(0.0, cpu_allocable - allocated_sum);
-    ASSERT(cpu_available >= -1e-9);
+    cpu_available = calculateReportedCpuAvailable();
     
     EV_INFO << "CPU available after reallocation: " << (cpu_available/1e9) << " GHz" << endl;
 }
@@ -2005,7 +2092,7 @@ void PayloadVehicleApp::handleTaskCompletion(Task* task) {
     
     // Release resources
     processing_tasks.erase(task);
-    cpu_available += task->cpu_allocated;
+    cpu_available = calculateReportedCpuAvailable();
     memory_available += task->mem_footprint_bytes;
     
     cleanupTaskEvents(task);
@@ -2098,7 +2185,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     // Release resources if was processing
     if (was_processing) {
         processing_tasks.erase(task);
-        cpu_available += task->cpu_allocated;
+        cpu_available = calculateReportedCpuAvailable();
         memory_available += task->mem_footprint_bytes;
         
         reallocateCPUResources();
@@ -2408,7 +2495,7 @@ void PayloadVehicleApp::logResourceState(const std::string& context) {
     EV_INFO << "│ CPU Total:       " << std::setw(38) << (cpu_total / 1e9) << " GHz      │" << endl;
     EV_INFO << "│ CPU Allocable:   " << std::setw(38) << (cpu_allocable / 1e9) << " GHz      │" << endl;
     EV_INFO << "│ CPU Available:   " << std::setw(38) << (cpu_available / 1e9) << " GHz      │" << endl;
-    double cpu_util = ((cpu_allocable - cpu_available) / cpu_allocable) * 100.0;
+    double cpu_util = calculateTaskCpuUtilization() * 100.0;
     EV_INFO << "│ CPU Utilization: " << std::setw(38) << cpu_util << " %        │" << endl;
     EV_INFO << "│ Memory Total:    " << std::setw(38) << (memory_total / 1e6) << " MB       │" << endl;
     EV_INFO << "│ Memory Available:" << std::setw(38) << (memory_available / 1e6) << " MB       │" << endl;
@@ -2493,6 +2580,9 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
         last_speed_update = simTime();
     }
     
+    const double reported_cpu_available = calculateReportedCpuAvailable();
+    cpu_available = reported_cpu_available;
+
     // Create VehicleResourceStatusMessage
     VehicleResourceStatusMessage* statusMsg = new VehicleResourceStatusMessage();
     
@@ -2512,9 +2602,9 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     // Resource information
     statusMsg->setCpu_total(cpu_total);
     statusMsg->setCpu_allocable(cpu_allocable);
-    statusMsg->setCpu_available(cpu_available);
+    statusMsg->setCpu_available(reported_cpu_available);
     // Task-allocation utilization (fraction of allocable CPU assigned to tasks)
-    double task_util = (cpu_allocable > 0) ? ((cpu_allocable - cpu_available) / cpu_allocable) : 0.0;
+    double task_util = calculateTaskCpuUtilization();
     // Also factor in the background vehicle CPU load (driving/safety systems modelled by
     // cpuLoadFactor).  When all tasks are force-offloaded, task_util is always 0 even
     // though the vehicle CPU is genuinely busy with on-board workloads.  We take the
@@ -3068,12 +3158,12 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
     msg->setRequest_time(simTime().dbl());
     msg->setMem_footprint_bytes(task->mem_footprint_bytes);
     msg->setCpu_cycles(task->cpu_cycles);
-    msg->setDeadline_seconds(task->relative_deadline);
+    msg->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
     msg->setQos_value(task->qos_value);
     
     // Vehicle resource state
-    msg->setLocal_cpu_available_ghz(cpu_available / 1e9);
-    msg->setLocal_cpu_utilization((cpu_allocable - cpu_available) / cpu_allocable);
+    msg->setLocal_cpu_available_ghz(calculateReportedCpuAvailable() / 1e9);
+    msg->setLocal_cpu_utilization(calculateTaskCpuUtilization());
     msg->setLocal_mem_available_mb(memory_available / 1e6);
     msg->setLocal_queue_length(pending_tasks.size());
     msg->setLocal_processing_count(processing_tasks.size());
@@ -3512,6 +3602,94 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         LAddress::L2Type anchorRsuMac = decision->getRedirect_target_rsu_mac();
         LAddress::L2Type ingressRsuMac = decision->getSenderAddress();
 
+        // Guardrail: keep SV as the preferred execution target when RSU already
+        // selected it, and only fallback on clear high-risk deadline misses.
+        // NOTE: this vehicle cannot observe the target SV queue/CPU directly;
+        // using local service queue here causes false SV->RSU fallback.
+        const double elapsed_s = std::max(0.0, (simTime() - task->created_time).dbl());
+        const double remaining_deadline_s = std::max(0.001, task->relative_deadline - elapsed_s);
+
+        // RSU predicts the chosen SV path using global DT state and candidate scoring.
+        const double rsu_pred_sv_s = std::max(0.0, decision->getEstimated_completion_time());
+
+        // Keep a lightweight local proxy only as a corroboration signal when RSU
+        // prediction is unavailable. This proxy avoids target-SV queue assumptions.
+        // Use nominal shared service capacity (not this vehicle's active service queue)
+        // to keep a conservative but stable execution-time estimate.
+        const double est_uplink_s = (static_cast<double>(task->input_size_bytes) * 8.0) / 6e6;
+        const double est_downlink_s = (static_cast<double>(task->output_size_bytes) * 8.0) / 6e6;
+        const double nominal_service_hz = std::max(1.0, cpu_total * std::max(0.25, serviceCpuReservation));
+        const double est_exec_proxy_s = static_cast<double>(task->cpu_cycles) / nominal_service_hz;
+        const double est_total_proxy_sv_s = est_uplink_s + est_exec_proxy_s + est_downlink_s + 0.02;
+
+        // Promote executed SV share by requiring stronger evidence before fallback.
+        // Higher QoS still applies tighter deadlines than medium/low QoS.
+        double risk_threshold = 1.0;
+        if (task->qos_value >= 0.8) {
+            risk_threshold = 1.18;
+        } else if (task->qos_value >= 0.6) {
+            risk_threshold = 1.40;
+        } else {
+            risk_threshold = 1.75;
+        }
+
+        // High-confidence SV selections get slightly more slack before demotion.
+        if (decision->getConfidence_score() >= 0.85) {
+            risk_threshold += 0.12;
+        }
+
+        const bool rsu_high_risk = (rsu_pred_sv_s > 0.0)
+            ? (rsu_pred_sv_s > (remaining_deadline_s * risk_threshold))
+            : false;
+        const bool proxy_high_risk = est_total_proxy_sv_s > (remaining_deadline_s * risk_threshold * 0.95);
+
+        bool shouldFallbackToRsu = false;
+        if (rsu_pred_sv_s > 0.0) {
+            // Only fallback when RSU says SV is high-risk and local proxy does not disagree.
+            shouldFallbackToRsu = rsu_high_risk && proxy_high_risk;
+        } else {
+            // No RSU prediction available: use local proxy with strict high-risk test only.
+            shouldFallbackToRsu = est_total_proxy_sv_s > (remaining_deadline_s * (risk_threshold + 0.25));
+        }
+
+        if (shouldFallbackToRsu) {
+            EV_WARN << "SV infeasible for task " << task->task_id
+                    << ": proxy_est_total=" << est_total_proxy_sv_s
+                    << "s, rsu_pred=" << rsu_pred_sv_s
+                    << "s, remaining_deadline=" << remaining_deadline_s
+                    << "s. Falling back to RSU." << endl;
+
+            sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD_FALLBACK",
+                "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+                "{\"from\":\"SERVICE_VEHICLE\",\"to\":\"RSU\","
+                "\"est_sv_total_s\":" + std::to_string(est_total_proxy_sv_s) + ","
+                "\"rsu_pred_sv_s\":" + std::to_string(rsu_pred_sv_s) + ","
+                "\"remaining_deadline_s\":" + std::to_string(remaining_deadline_s) + "}");
+
+            std::cout << "OFFLOAD_FALLBACK: Task " << task->task_id
+                      << " SV->RSU (proxy_est_sv=" << est_total_proxy_sv_s
+                      << "s, rsu_pred=" << rsu_pred_sv_s
+                      << "s, remaining=" << remaining_deadline_s << "s)" << std::endl;
+
+            if (taskTimings.find(task->task_id) != taskTimings.end()) {
+                taskTimings[task->task_id].decision_type = "RSU";
+                taskTimings[task->task_id].processor_id = "RSU";
+            }
+
+            sendTaskToRSU(task, ingressRsuMac, anchorRsuMac);
+
+            offloadedTasks[task->task_id] = task;
+            offloadedTaskTargets[task->task_id] = "RSU";
+
+            cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
+            timeoutMsg->setContextPointer(task);
+            scheduleAt(simTime() + offloadedTaskTimeout, timeoutMsg);
+            offloadedTaskTimeouts[task->task_id] = timeoutMsg;
+
+            EV_INFO << "✓ Infeasible SV offload redirected to RSU, awaiting result" << endl;
+            return;
+        }
+
         sendTaskOffloadingEvent(task->task_id, "DECISION_OFFLOAD",
             "RSU", "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             "{\"target\":\"SERVICE_VEHICLE\",\"sv_id\":\"" + serviceVehicleId + "\"}");
@@ -3648,10 +3826,10 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             redirectRequest->setRequest_time(simTime().dbl());
             redirectRequest->setMem_footprint_bytes(task->input_size_bytes);
             redirectRequest->setCpu_cycles(task->cpu_cycles);
-            redirectRequest->setDeadline_seconds(task->relative_deadline);
+            redirectRequest->setDeadline_seconds(std::max(0.001, task->relative_deadline - (simTime() - task->created_time).dbl()));
             redirectRequest->setQos_value(task->qos_value);
-            redirectRequest->setLocal_cpu_available_ghz(cpu_available / 1e9);
-            redirectRequest->setLocal_cpu_utilization((cpu_allocable - cpu_available) / cpu_allocable);
+            redirectRequest->setLocal_cpu_available_ghz(calculateReportedCpuAvailable() / 1e9);
+            redirectRequest->setLocal_cpu_utilization(calculateTaskCpuUtilization());
             redirectRequest->setLocal_mem_available_mb(memory_available / 1e6);
             redirectRequest->setLocal_queue_length(pending_tasks.size());
             redirectRequest->setLocal_processing_count(processing_tasks.size());
@@ -4224,25 +4402,31 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
 
     // ======================================================================
     // PHYSICS: Service vehicle reserves serviceCpuReservation fraction of
-    // its total CPU for serving other vehicles' tasks.  When multiple service
-    // tasks run concurrently that pool is shared equally (processor sharing).
+    // total CPU for serving others' tasks. Concurrent service tasks share
+    // that pool by QoS-derived priority weights (same 3-tier mapping as RSU).
     //
-    //   per_task_hz = (cpu_total * reservation) / N_concurrent
-    //   exec_time   = cpu_cycles / per_task_hz
+    //   cpu_task_i = (cpu_total * reservation) * weight_i / sum(weights)
+    //   exec_time  = cpu_cycles / cpu_task_i
     //
-    // Arrival of a new service task triggers reallocateServiceCPUResources()
-    // which burns down cycles already executed and reschedules all in-flight
-    // service tasks at the reduced per-task share.  Completion symmetrically
-    // speeds up the remaining tasks.  This mirrors the vehicle-local
-    // reallocateCPUResources() model.
+    // Arrival of a new service task triggers reallocateServiceCPUResources(),
+    // which burns down already-executed cycles and reschedules all in-flight
+    // service tasks with updated weighted shares.
     // ======================================================================
-    double total_service_hz = cpu_total * serviceCpuReservation;
+    double total_service_hz = getServiceCpuPoolHz();
     int n_concurrent = static_cast<int>(processingServiceTasks.size()) + 1; // +1 for this task
-    double per_task_hz = total_service_hz / n_concurrent;
+
+    double existing_weight_sum = 0.0;
+    for (Task* t : processingServiceTasks) {
+        existing_weight_sum += getServiceTaskPriorityWeight(t->qos_value);
+    }
+    double this_weight = getServiceTaskPriorityWeight(task->qos_value);
+    double total_weight = std::max(1e-9, existing_weight_sum + this_weight);
+    double per_task_hz = total_service_hz * (this_weight / total_weight);
     double processing_time = static_cast<double>(task->cpu_cycles) / per_task_hz;
 
-    EV_INFO << "  Service CPU pool: " << (total_service_hz/1e9) << " GHz / "
-            << n_concurrent << " task(s) = " << (per_task_hz/1e9) << " GHz per task" << endl;
+    EV_INFO << "  Service CPU pool: " << (total_service_hz/1e9) << " GHz across "
+            << n_concurrent << " task(s), this weight=" << this_weight
+            << ", alloc=" << (per_task_hz/1e9) << " GHz" << endl;
     EV_INFO << "  Task CPU Cycles: " << (task->cpu_cycles / 1e9) << " G" << endl;
     EV_INFO << "  Estimated Processing Time: " << processing_time << " s" << endl;
     EV_INFO << "  Deadline: " << task->relative_deadline << " s" << endl;
@@ -4281,7 +4465,8 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
         sendTaskOffloadingEvent(task->task_id, "SV_PROCESSING_STARTED", sv_id, orig_id,
             "{\"cpu_ghz\":" + std::to_string(per_task_hz / 1e9) +
             ",\"est_exec_s\":" + std::to_string(processing_time) +
-            ",\"concurrent\":" + std::to_string(n_concurrent) + "}");
+            ",\"concurrent\":" + std::to_string(n_concurrent) +
+            ",\"priority_weight\":" + std::to_string(this_weight) + "}");
     }
 
     // Slow down all other concurrent service tasks now that one more shares the pool
@@ -4293,17 +4478,25 @@ void PayloadVehicleApp::processServiceTask(Task* task) {
 
 // ============================================================================
 // SERVICE VEHICLE CPU REALLOCATION
-// Divides the reserved CPU pool equally among all concurrent service tasks
+// Divides the reserved CPU pool by QoS-derived priority weights
 // and reschedules each completion event accordingly, mirroring
 // reallocateCPUResources() for own-vehicle tasks.
 // ============================================================================
 void PayloadVehicleApp::reallocateServiceCPUResources() {
     if (processingServiceTasks.empty()) return;
 
-    double total_service_hz = cpu_total * serviceCpuReservation;
-    double per_task_hz = total_service_hz / static_cast<double>(processingServiceTasks.size());
+    double total_service_hz = getServiceCpuPoolHz();
+    double total_weight = 0.0;
+    for (Task* t : processingServiceTasks) {
+        total_weight += getServiceTaskPriorityWeight(t->qos_value);
+    }
+    if (total_weight <= 0.0) {
+        total_weight = static_cast<double>(processingServiceTasks.size());
+    }
 
     for (Task* t : processingServiceTasks) {
+        double task_weight = getServiceTaskPriorityWeight(t->qos_value);
+        double per_task_hz = total_service_hz * (task_weight / total_weight);
         if (std::abs(per_task_hz - t->cpu_allocated) < 1e6) continue;  // no meaningful change
 
         // Derive remaining cycles from the currently scheduled completion time:
@@ -4329,7 +4522,7 @@ void PayloadVehicleApp::reallocateServiceCPUResources() {
         }
 
         EV_INFO << "  SV realloc: task " << t->task_id
-                << " → " << (per_task_hz/1e9) << " GHz, "
+            << " (w=" << task_weight << ") → " << (per_task_hz/1e9) << " GHz, "
                 << (remaining/1e9) << "G cycles left, completes in " << new_exec << "s" << endl;
     }
 }

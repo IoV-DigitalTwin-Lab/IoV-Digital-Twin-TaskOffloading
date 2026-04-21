@@ -65,8 +65,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     coopPercep.computation.cpu_cycles_max       = static_cast<uint64_t>(1.8e9); // 1.8G max
     coopPercep.computation.memory_peak_bytes    = 20e6;                          // 20 MB
 
-    coopPercep.timing.deadline_seconds     = 0.250; // 250ms min deadline
-    coopPercep.timing.deadline_seconds_max = 0.400; // 400ms max deadline
+    coopPercep.timing.deadline_seconds     = 0.700; // 700ms min deadline
+    coopPercep.timing.deadline_seconds_max = 1.000; // 1.0s max deadline
     coopPercep.timing.qos_value  = QoSValues::COOPERATIVE_PERCEPTION;
     coopPercep.timing.priority   = PriorityLevel::HIGH;
 
@@ -183,8 +183,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     voiceCmd.computation.cpu_cycles_max       = static_cast<uint64_t>(650e6);  // 650M max
     voiceCmd.computation.memory_peak_bytes    = 10e6;                           // 10 MB
 
-    voiceCmd.timing.deadline_seconds     = 0.400; // 400ms min deadline
-    voiceCmd.timing.deadline_seconds_max = 0.600; // 600ms max deadline
+    voiceCmd.timing.deadline_seconds     = 0.800; // 800ms min deadline
+    voiceCmd.timing.deadline_seconds_max = 1.200; // 1.2s max deadline
     voiceCmd.timing.qos_value  = QoSValues::VOICE_COMMAND_PROCESSING;
     voiceCmd.timing.priority   = PriorityLevel::MEDIUM;
 
