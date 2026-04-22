@@ -2428,26 +2428,26 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
             const double t  = (px * dx + py * dy) / (d * d);
             if (t <= 0.01 || t >= 0.99) continue;
 
-            const VehicleDims dims = getVehicleDims(bl.vehicle_id);
+            constexpr double veh_len_m = 4.8, veh_wid_m = 1.9, veh_hgt_m = 1.5;
             const double hr = bl.heading * M_PI / 180.0;
-            const double hx = std::cos(hr), hy = std::sin(hr);
-            const double wx = -hy,          wy =  hx;
-            const double hl = 0.5 * dims.len_m, hw = 0.5 * dims.wid_m;
-            const double cx = bl.pos_x, cy = bl.pos_y;
+            const double bhx = std::cos(hr), bhy = std::sin(hr);
+            const double bwx = -bhy,         bwy =  bhx;
+            const double bhl = 0.5 * veh_len_m, bhw = 0.5 * veh_wid_m;
+            const double bcx = bl.pos_x, bcy = bl.pos_y;
             if (!segIntersects(tx_x, tx_y, rx_x, rx_y,
-                               cx + hx*hl + wx*hw, cy + hy*hl + wy*hw,
-                               cx + hx*hl - wx*hw, cy + hy*hl - wy*hw) &&
+                               bcx + bhx*bhl + bwx*bhw, bcy + bhy*bhl + bwy*bhw,
+                               bcx + bhx*bhl - bwx*bhw, bcy + bhy*bhl - bwy*bhw) &&
                 !segIntersects(tx_x, tx_y, rx_x, rx_y,
-                               cx + hx*hl - wx*hw, cy + hy*hl - wy*hw,
-                               cx - hx*hl - wx*hw, cy - hy*hl - wy*hw) &&
+                               bcx + bhx*bhl - bwx*bhw, bcy + bhy*bhl - bwy*bhw,
+                               bcx - bhx*bhl - bwx*bhw, bcy - bhy*bhl - bwy*bhw) &&
                 !segIntersects(tx_x, tx_y, rx_x, rx_y,
-                               cx - hx*hl - wx*hw, cy - hy*hl - wy*hw,
-                               cx - hx*hl + wx*hw, cy - hy*hl + wy*hw) &&
+                               bcx - bhx*bhl - bwx*bhw, bcy - bhy*bhl - bwy*bhw,
+                               bcx - bhx*bhl + bwx*bhw, bcy - bhy*bhl + bwy*bhw) &&
                 !segIntersects(tx_x, tx_y, rx_x, rx_y,
-                               cx - hx*hl + wx*hw, cy - hy*hl + wy*hw,
-                               cx + hx*hl + wx*hw, cy + hy*hl + wy*hw))
+                               bcx - bhx*bhl + bwx*bhw, bcy - bhy*bhl + bwy*bhw,
+                               bcx + bhx*bhl + bwx*bhw, bcy + bhy*bhl + bwy*bhw))
                 continue;
-            BlockerInfo bi; bi.d1 = t * d; bi.h = dims.hgt_m;
+            BlockerInfo bi; bi.d1 = t * d; bi.h = veh_hgt_m;
             blockers.push_back(bi);
         }
         if (blockers.empty()) return 0.0;
