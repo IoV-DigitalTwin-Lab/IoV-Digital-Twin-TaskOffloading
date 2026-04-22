@@ -2373,6 +2373,110 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
     }
     secondary_last_export_time[source_id] = now;
 
+    // Compute knife-edge vehicle shadow loss using current vehicle_twins states.
+    auto computeShadowLoss = [&](double tx_x, double tx_y,
+                                 double rx_x, double rx_y,
+                                 const std::string& tx_id,
+                                 const std::string& rx_id) -> double {
+        if (!secondary_vehicle_shadowing_enabled) return 0.0;
+        const double dx = rx_x - tx_x;
+        const double dy = rx_y - tx_y;
+        const double d = std::sqrt(dx * dx + dy * dy);
+        if (d < 1e-6) return 0.0;
+
+        constexpr double freq_hz  = 5.89e9;
+        constexpr double c_mps    = 299792458.0;
+        constexpr double lambda_m = c_mps / freq_hz;
+        constexpr double tx_h_m   = 1.5;
+        constexpr double rx_h_m   = 1.5;
+
+        auto cross2d = [](double ax, double ay, double bx, double by) {
+            return ax * by - ay * bx;
+        };
+        auto segIntersects = [&](double ax, double ay, double bx, double by,
+                                 double cx, double cy, double ex, double ey) {
+            const double rx2 = bx - ax, ry2 = by - ay;
+            const double sx  = ex - cx, sy  = ey - cy;
+            const double den = cross2d(rx2, ry2, sx, sy);
+            if (std::fabs(den) < 1e-12) return false;
+            const double qx = cx - ax, qy = cy - ay;
+            const double t  = cross2d(qx, qy, sx, sy) / den;
+            const double u  = cross2d(qx, qy, rx2, ry2) / den;
+            return t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0;
+        };
+        auto knifeEdgeLossDb = [&](double d1, double obs_h) -> double {
+            if (d1 <= 1e-6 || d1 >= d - 1e-6) return 0.0;
+            const double d2 = d - d1;
+            const double y  = ((rx_h_m - tx_h_m) / d) * d1 + tx_h_m;
+            const double H  = obs_h - y;
+            const double r1 = std::sqrt(lambda_m * d1 * d2 / d);
+            if (r1 <= 1e-9) return 0.0;
+            const double nu = std::sqrt(2.0) * H / r1;
+            if (nu <= -0.7) return 0.0;
+            const double inside = std::sqrt((nu - 0.1) * (nu - 0.1) + 1.0) + nu - 0.1;
+            if (inside <= 1e-12) return 0.0;
+            return 6.9 + 20.0 * std::log10(inside);
+        };
+
+        struct BlockerInfo { double d1, h; };
+        std::vector<BlockerInfo> blockers;
+        for (const auto& kvb : vehicle_twins) {
+            const VehicleDigitalTwin& bl = kvb.second;
+            if (bl.vehicle_id == tx_id || bl.vehicle_id == rx_id) continue;
+            const double px = bl.pos_x - tx_x;
+            const double py = bl.pos_y - tx_y;
+            const double t  = (px * dx + py * dy) / (d * d);
+            if (t <= 0.01 || t >= 0.99) continue;
+
+            const VehicleDims dims = getVehicleDims(bl.vehicle_id);
+            const double hr = bl.heading * M_PI / 180.0;
+            const double hx = std::cos(hr), hy = std::sin(hr);
+            const double wx = -hy,          wy =  hx;
+            const double hl = 0.5 * dims.len_m, hw = 0.5 * dims.wid_m;
+            const double cx = bl.pos_x, cy = bl.pos_y;
+            if (!segIntersects(tx_x, tx_y, rx_x, rx_y,
+                               cx + hx*hl + wx*hw, cy + hy*hl + wy*hw,
+                               cx + hx*hl - wx*hw, cy + hy*hl - wy*hw) &&
+                !segIntersects(tx_x, tx_y, rx_x, rx_y,
+                               cx + hx*hl - wx*hw, cy + hy*hl - wy*hw,
+                               cx - hx*hl - wx*hw, cy - hy*hl - wy*hw) &&
+                !segIntersects(tx_x, tx_y, rx_x, rx_y,
+                               cx - hx*hl - wx*hw, cy - hy*hl - wy*hw,
+                               cx - hx*hl + wx*hw, cy - hy*hl + wy*hw) &&
+                !segIntersects(tx_x, tx_y, rx_x, rx_y,
+                               cx - hx*hl + wx*hw, cy - hy*hl + wy*hw,
+                               cx + hx*hl + wx*hw, cy + hy*hl + wy*hw))
+                continue;
+            blockers.push_back({t * d, dims.hgt_m});
+        }
+        if (blockers.empty()) return 0.0;
+        std::sort(blockers.begin(), blockers.end(),
+                  [](const BlockerInfo& a, const BlockerInfo& b) { return a.d1 < b.d1; });
+
+        double total_loss = 0.0;
+        for (const auto& b : blockers) total_loss += knifeEdgeLossDb(b.d1, b.h);
+
+        if (blockers.size() >= 2) {
+            std::vector<double> seg;
+            seg.reserve(blockers.size() + 1);
+            double prev = 0.0;
+            for (const auto& b : blockers) { seg.push_back(std::max(1e-6, b.d1 - prev)); prev = b.d1; }
+            seg.push_back(std::max(1e-6, d - prev));
+            double prod_s = 1.0, sum_s = 0.0;
+            for (double s : seg) { prod_s *= s; sum_s += s; }
+            double prod_pair = 1.0;
+            for (size_t i = 1; i < seg.size(); ++i) prod_pair *= (seg[i] + seg[i - 1]);
+            const double denom = prod_pair * seg.front() * seg.back();
+            const double numer = prod_s * sum_s;
+            if (numer > 1e-18 && denom > 1e-18) {
+                const double ratio = numer / denom;
+                if (ratio > 1e-12) total_loss += std::max(0.0, -10.0 * std::log10(ratio));
+            }
+        }
+        return std::min(30.0, total_loss);
+    };
+
+
     insertSecondaryProgress(now);
     insertSecondaryVehicleSample(msg);
 
@@ -2413,6 +2517,14 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
         );
 
         if (redis_twin && use_redis) {
+            const double shadow_db_rsu = computeShadowLoss(
+                sourceTwin.pos_x, sourceTwin.pos_y,
+                rsu.pos_x, rsu.pos_y,
+                source_id, rsu.rsu_id);
+            const double sinr_db_rsu = estimateSinrDbWithObstacles(
+                sourceTwin.pos_x, sourceTwin.pos_y,
+                rsu.pos_x, rsu.pos_y,
+                dist, shadow_db_rsu);
             redis_twin->pushSecondaryV2RsuLinkSample(
                 secondary_run_id,
                 source_id,
@@ -2425,6 +2537,7 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
                 dist,
                 rel_speed,
                 sourceTwin.heading,
+                sinr_db_rsu,
                 secondary_redis_max_series_len
             );
         }
@@ -2450,6 +2563,14 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
         );
 
         if (redis_twin && use_redis) {
+            const double shadow_db_v2v = computeShadowLoss(
+                sourceTwin.pos_x, sourceTwin.pos_y,
+                peer.pos_x, peer.pos_y,
+                source_id, peer_id);
+            const double sinr_db_v2v = estimateSinrDbWithObstacles(
+                sourceTwin.pos_x, sourceTwin.pos_y,
+                peer.pos_x, peer.pos_y,
+                dist, shadow_db_v2v);
             redis_twin->pushSecondaryV2vLinkSample(
                 secondary_run_id,
                 source_id,
@@ -2463,6 +2584,7 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
                 rel_speed,
                 sourceTwin.heading,
                 peer.heading,
+                sinr_db_v2v,
                 secondary_redis_max_series_len
             );
         }

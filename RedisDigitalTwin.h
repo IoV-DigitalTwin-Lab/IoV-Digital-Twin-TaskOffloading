@@ -222,6 +222,7 @@ public:
                                       double distance_m,
                                       double relative_speed,
                                       double tx_heading,
+                                      double sinr_db,
                                       int max_series_len = 6000);
     void pushSecondaryV2vLinkSample(const std::string& run_id,
                                     const std::string& tx_vehicle_id,
@@ -235,6 +236,7 @@ public:
                                     double relative_speed,
                                     double tx_heading,
                                     double rx_heading,
+                                    double sinr_db,
                                     int max_series_len = 6000);
 
     // Secondary Q matrix exports (directional per-step SINR entries)

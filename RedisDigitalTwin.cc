@@ -901,15 +901,16 @@ void RedisDigitalTwin::pushSecondaryV2RsuLinkSample(const std::string& run_id,
                                                     double distance_m,
                                                     double relative_speed,
                                                     double tx_heading,
+                                                    double sinr_db,
                                                     int max_series_len) {
     if (!redis_ctx || !is_connected) return;
 
     std::string stream_key = "dt2:link:v2rsu:" + run_id + ":" + tx_vehicle_id + ":" + rsu_id + ":samples";
     redisReply* reply = (redisReply*)redisCommand(
         redis_ctx,
-        "XADD %s MAXLEN ~ %d * sim_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f relative_speed %f tx_heading %f",
+        "XADD %s MAXLEN ~ %d * sim_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f relative_speed %f tx_heading %f sinr_db %f",
         stream_key.c_str(), std::max(1, max_series_len),
-        sim_time, tx_x, tx_y, rx_x, rx_y, distance_m, relative_speed, tx_heading
+        sim_time, tx_x, tx_y, rx_x, rx_y, distance_m, relative_speed, tx_heading, sinr_db
     );
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {
@@ -931,15 +932,16 @@ void RedisDigitalTwin::pushSecondaryV2vLinkSample(const std::string& run_id,
                                                   double relative_speed,
                                                   double tx_heading,
                                                   double rx_heading,
+                                                  double sinr_db,
                                                   int max_series_len) {
     if (!redis_ctx || !is_connected) return;
 
     std::string stream_key = "dt2:link:v2v:" + run_id + ":" + tx_vehicle_id + ":" + rx_vehicle_id + ":samples";
     redisReply* reply = (redisReply*)redisCommand(
         redis_ctx,
-        "XADD %s MAXLEN ~ %d * sim_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f relative_speed %f tx_heading %f rx_heading %f",
+        "XADD %s MAXLEN ~ %d * sim_time %f tx_x %f tx_y %f rx_x %f rx_y %f distance_m %f relative_speed %f tx_heading %f rx_heading %f sinr_db %f",
         stream_key.c_str(), std::max(1, max_series_len),
-        sim_time, tx_x, tx_y, rx_x, rx_y, distance_m, relative_speed, tx_heading, rx_heading
+        sim_time, tx_x, tx_y, rx_x, rx_y, distance_m, relative_speed, tx_heading, rx_heading, sinr_db
     );
     if (reply) {
         if (reply->type == REDIS_REPLY_ERROR) {
