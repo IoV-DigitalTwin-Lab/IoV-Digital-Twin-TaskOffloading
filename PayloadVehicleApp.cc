@@ -201,8 +201,6 @@ void PayloadVehicleApp::initialize(int stage) {
             sendPayloadEvent = new cMessage("sendPayloadMessage");
         }
         scheduleAt(simTime() + firstStatusDelay, sendPayloadEvent);
-        std::cout << "CONSOLE: PayloadVehicleApp - Scheduled first payload message at time "
-              << (simTime() + firstStatusDelay) << std::endl;
         
         // Schedule periodic position monitoring for shadowing analysis
         if (!monitorPositionEvent) {
@@ -821,8 +819,6 @@ void PayloadVehicleApp::initializeTaskSystem() {
         offloadingEnabled = false;
         serviceVehicleEnabled = false;
         EV_INFO << "Motion/channel-only mode enabled: task generation and offloading disabled" << endl;
-        std::cout << "DT_SECONDARY: Motion/channel-only mode active for vehicle "
-                  << getParentModule()->getIndex() << std::endl;
         return;
     }
 
@@ -1543,8 +1539,12 @@ void PayloadVehicleApp::finish() {
     }
 
     DemoBaseApplLayer::finish();
-    EV_INFO << "==================== TASK METRICS REPORT ====================" << endl;
-    MetricsManager::getInstance().printReport();
+    // Secondary DT (motion/channel-only) does not execute tasks, so suppress
+    // repetitive zero-valued reports from every vehicle.
+    if (!motionChannelOnly && getParentModule()->getIndex() == 0) {
+        EV_INFO << "==================== TASK METRICS REPORT ====================" << endl;
+        MetricsManager::getInstance().printReport();
+    }
 }
 
 void PayloadVehicleApp::cleanupTaskEvents(Task* task) {
@@ -2663,9 +2663,11 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     populateWSM(statusMsg);
     sendDown(statusMsg);
     EV_INFO << "✓ Vehicle resource status broadcast to all RSUs" << endl;
-    std::cout << "RESOURCE_BROADCAST: Vehicle " << getParentModule()->getIndex()
-              << " broadcast status - CPU:" << (cpu_util * 100.0)
-              << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
+    if (!motionChannelOnly) {
+        std::cout << "RESOURCE_BROADCAST: Vehicle " << getParentModule()->getIndex()
+                  << " broadcast status - CPU:" << (cpu_util * 100.0)
+                  << "% Mem:" << (mem_util * 100.0) << "% Queue:" << pending_tasks.size() << std::endl;
+    }
     exportRouteProgressToRedis();
 }
 

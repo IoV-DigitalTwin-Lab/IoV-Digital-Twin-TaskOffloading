@@ -48,5 +48,16 @@ sleep "${DT2_CTRL_WARMUP_S:-0.1}"
 
 # Run the secondary digital-twin simulation.
 # Extra args are forwarded to run_sim_portable.sh.
+CONFIG_NAME="${DT2_CONFIG:-DT-Secondary-MotionChannel}"
+RUN_NUMBER="${DT2_RUN:-0}"
+TRACI_PORT="${DT2_TRACI_PORT:-10000}"
+if [[ -z "${REDIS_DB:-}" ]]; then
+    if [[ "$CONFIG_NAME" == VehicleShadowingExp_* ]]; then
+        export REDIS_DB=3
+    else
+        export REDIS_DB=0
+    fi
+fi
+
 echo "[run_secondary_dt] Starting secondary simulation..."
-./run_sim_portable.sh -u Cmdenv -c DT-Secondary-MotionChannel -r 0 --*.manager.port=10000 "$@"
+./run_sim_portable.sh -u Cmdenv -c "$CONFIG_NAME" -r "$RUN_NUMBER" --*.manager.port="$TRACI_PORT" "$@"

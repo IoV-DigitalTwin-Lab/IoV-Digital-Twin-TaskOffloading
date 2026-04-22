@@ -264,6 +264,7 @@ void MyRSUApp::initialize(int stage) {
         secondary_q_publish_enabled = par("secondaryQPublishEnabled").boolValue();
         secondary_sinr_threshold_db = par("secondarySinrThresholdDb").doubleValue();
         secondary_interference_mw = par("secondaryInterferenceMw").doubleValue();
+        secondary_vehicle_shadowing_enabled = par("secondaryVehicleShadowingEnabled").boolValue();
         secondary_q_ttl_s = par("secondaryQTTLSec").intValue();
         secondary_q_stream_maxlen = par("secondaryQStreamMaxLen").intValue();
         secondary_nakagami_enabled = par("secondaryNakagamiEnabled").boolValue();
@@ -289,8 +290,11 @@ void MyRSUApp::initialize(int stage) {
             rsu_waiting_queue_capacity = std::max(0L, par("rsuQueueCapacity").intValue());
         }
         
-        // Initialize PostgreSQL database connection (always enabled)
-        initDatabase();
+        // Initialize PostgreSQL database connection (configurable, disabled in secondary runs).
+        use_postgres = par("enablePostgres").boolValue();
+        if (use_postgres) {
+            initDatabase();
+        }
         
         // Initialize Redis Digital Twin
         use_redis = par("useRedis").boolValue();
@@ -324,7 +328,9 @@ void MyRSUApp::initialize(int stage) {
         }
 
         // Insert RSU metadata (static info) once at initialization
-        insertRSUMetadata();
+        if (use_postgres) {
+            insertRSUMetadata();
+        }
         
         // Initialize RSU-to-RSU broadcast parameters (try to get from config, use defaults if not set)
         try {
@@ -360,13 +366,8 @@ void MyRSUApp::initialize(int stage) {
         // Initialize decision checker lazily when the first task metadata arrives.
         checkDecisionMsg = nullptr;
         
-        std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
-                  << " initialized with edge resources:" << std::endl;
-        std::cout << "  - RSU ID: " << rsu_id << std::endl;
-        std::cout << "  - CPU: " << edgeCPU_GHz << " GHz" << std::endl;
-        std::cout << "  - Memory: " << edgeMemory_GB << " GB" << std::endl;
-        std::cout << "  - Max Vehicles: " << maxVehicles << std::endl;
-        std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
+        EV_INFO << "MyRSUApp initialized for RSU " << rsu_id
+            << " (CPU=" << edgeCPU_GHz << " GHz, memory=" << edgeMemory_GB << " GB)" << endl;
         
         double interval = par("beaconInterval").doubleValue();
 
@@ -376,9 +377,8 @@ void MyRSUApp::initialize(int stage) {
             scheduleAt(simTime() + 2.0, beaconMsg);
         }
 
-        // Schedule periodic terminal progress printer
+        // Periodic terminal progress reporting is disabled for quiet runs.
         progressMsg_ = new cMessage("simProgress");
-        scheduleAt(simTime() + kProgressIntervalS, progressMsg_);
 
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
         EV << "MyRSUApp: Direct PostgreSQL insertion enabled\n";
@@ -432,25 +432,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
         scheduleAt(simTime() + rsu_broadcast_interval, rsu_broadcast_timer);
     }
     else if (msg == progressMsg_) {
-        // Print per-agent results summary to stdout
-        static const std::vector<std::string> kAgents =
-            {"ddqn", "random", "greedy_comp", "min_latency", "least_queue"};
-        std::cout << "\n=== SIM PROGRESS t=" << simTime().dbl()
-                  << "s | RSU_" << rsu_id
-                  << " | rsu_tasks_processed=" << rsu_tasks_processed
-                  << " pending=" << rsu_processing_count << " ===\n";
-        for (const auto& a : kAgents) {
-            int ok   = agent_ok_.count(a)   ? agent_ok_.at(a)   : 0;
-            int fail = agent_fail_.count(a) ? agent_fail_.at(a) : 0;
-            int tot  = ok + fail;
-            double sr = tot ? 100.0 * ok / tot : 0.0;
-            std::cout << "  " << std::left << std::setw(12) << a
-                      << " OK=" << std::setw(5) << ok
-                      << " FAIL=" << std::setw(5) << fail
-                      << " (" << std::fixed << std::setprecision(1) << sr << "%)\n";
-        }
-        std::cout << "===\n";
-        scheduleAt(simTime() + kProgressIntervalS, progressMsg_);
+        // Intentionally disabled.
     }
     else if (msg == secondary_cycle_timer) {
         runSecondaryCycle();
@@ -941,24 +923,17 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         return;
     }
     
-    std::cout << "CONSOLE: MyRSUApp - ✓ Message IS DemoSafetyMessage" << std::endl;
-    
     // Shadowing diagnostics intentionally muted to avoid high-volume console noise.
     
     // Get payload from message name
     const char* nm = dsm->getName();
     std::string payload = nm ? std::string(nm) : std::string();
     
-    std::cout << "CONSOLE: MyRSUApp - Raw payload length: " << payload.length() << std::endl;
-    std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
-    
     EV << "RSU: Received message from vehicle at time " << simTime() << endl;
     
     // Note: Vehicle telemetry (position, speed) now comes with VehicleResourceStatusMessage
     // This onWSM() handler primarily receives regular beacons
     
-    std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
-
     // Explicit ownership model: onWSM path must release any frame that was
     // handled locally and not forwarded via sendDown().
     delete wsm;
@@ -1639,15 +1614,17 @@ void MyRSUApp::runSecondaryCycle() {
             const double path_loss_db = 20.0 * std::log10(4.0 * M_PI / lambda)
                                         + 10.0 * pathloss_alpha * std::log10(d_m);
             const double obstacle_loss_db = computeObstacleLossDb(interferer->pos_x, interferer->pos_y, rx_x, rx_y);
-            const double veh_shadow_db = estimateVehicleShadowLossDb(
-                interferer->pos_x,
-                interferer->pos_y,
-                rx_x,
-                rx_y,
-                step_index,
-                interferer_id,
-                desired_rx_id
-            );
+            const double veh_shadow_db = secondary_vehicle_shadowing_enabled
+                ? estimateVehicleShadowLossDb(
+                    interferer->pos_x,
+                    interferer->pos_y,
+                    rx_x,
+                    rx_y,
+                    step_index,
+                    interferer_id,
+                    desired_rx_id
+                )
+                : 0.0;
             const double lognormal_db = estimateLogNormalShadowDb(
                 interferer->pos_x,
                 interferer->pos_y,
@@ -1744,8 +1721,10 @@ void MyRSUApp::runSecondaryCycle() {
                 const double dx = step.pos_x - rsu.pos_x;
                 const double dy = step.pos_y - rsu.pos_y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
-                const double veh_shadow_db = estimateVehicleShadowLossDb(
-                    step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
+                const double veh_shadow_db = secondary_vehicle_shadowing_enabled
+                    ? estimateVehicleShadowLossDb(
+                        step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id)
+                    : 0.0;
                 const double lognormal_db = estimateLogNormalShadowDb(
                     step.pos_x, step.pos_y, rsu.pos_x, rsu.pos_y, step.step_index, src_id, rsu_id);
                 const double nakagami_db = estimateNakagamiFadingDb(
@@ -1815,9 +1794,11 @@ void MyRSUApp::runSecondaryCycle() {
                 const double dx = src_step.pos_x - peer_step.pos_x;
                 const double dy = src_step.pos_y - peer_step.pos_y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
-                const double veh_shadow_db = estimateVehicleShadowLossDb(
-                    src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
-                    src_step.step_index, src_id, peer_id);
+                const double veh_shadow_db = secondary_vehicle_shadowing_enabled
+                    ? estimateVehicleShadowLossDb(
+                        src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
+                        src_step.step_index, src_id, peer_id)
+                    : 0.0;
                 const double lognormal_db = estimateLogNormalShadowDb(
                     src_step.pos_x, src_step.pos_y, peer_step.pos_x, peer_step.pos_y,
                     src_step.step_index, src_id, peer_id);
@@ -2345,9 +2326,6 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     EV_INFO << "  Queue Length: " << twin.current_queue_length << endl;
     EV_INFO << "  Processing Count: " << twin.current_processing_count << endl;
     
-    std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
-              << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
-
     // Ownership: this message came from the air and onWSM's caller does not delete it,
     // so we must delete here.
     delete msg;
@@ -2567,8 +2545,6 @@ VehicleDigitalTwin& MyRSUApp::getOrCreateVehicleTwin(const std::string& vehicle_
         vehicle_twins[vehicle_id] = twin;
         
         EV_INFO << "✨ Created new Digital Twin for vehicle " << vehicle_id << endl;
-        std::cout << "DT_NEW: Created Digital Twin for vehicle " << vehicle_id << std::endl;
-        
         return vehicle_twins[vehicle_id];
     }
     return it->second;
@@ -2638,13 +2614,15 @@ void MyRSUApp::logDigitalTwinState() {
     
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     
-    std::cout << "DT_SUMMARY: Vehicles:" << vehicle_twins.size() 
-              << " Tasks:" << task_records.size()
-              << " Generated:" << total_generated
-              << " OnTime:" << total_completed_on_time
-              << " Late:" << total_completed_late
-              << " Failed:" << total_failed
-              << " Rejected:" << total_rejected << std::endl;
+    if (!secondary_link_context_export) {
+        std::cout << "DT_SUMMARY: Vehicles:" << vehicle_twins.size()
+                  << " Tasks:" << task_records.size()
+                  << " Generated:" << total_generated
+                  << " OnTime:" << total_completed_on_time
+                  << " Late:" << total_completed_late
+                  << " Failed:" << total_failed
+                  << " Rejected:" << total_rejected << std::endl;
+    }
 }
 
 void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event) {
@@ -3319,11 +3297,17 @@ void MyRSUApp::closeDatabase() {
         EV_INFO << "Closing PostgreSQL connection..." << endl;
         PQfinish(db_conn);
         db_conn = nullptr;
-        std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connection closed" << std::endl;
+        if (!secondary_link_context_export) {
+            std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connection closed" << std::endl;
+        }
     }
 }
 
 PGconn* MyRSUApp::getDBConnection() {
+    if (!use_postgres) {
+        return nullptr;
+    }
+
     // Reconnect if connection lost
     if (!db_conn || PQstatus(db_conn) != CONNECTION_OK) {
         EV_WARN << "Database connection lost, attempting reconnect..." << endl;
@@ -3435,7 +3419,9 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
         std::cerr << "DB_ERROR: Task metadata insert failed: " << PQerrorMessage(conn) << std::endl;
     } else {
         EV_INFO << "✓ Task metadata inserted successfully (Task: " << msg->getTask_id() << ")" << endl;
-        std::cout << "DB_INSERT: Task metadata " << msg->getTask_id() << " stored in PostgreSQL" << std::endl;
+        if (!secondary_link_context_export) {
+            std::cout << "DB_INSERT: Task metadata " << msg->getTask_id() << " stored in PostgreSQL" << std::endl;
+        }
     }
 
     if (res) PQclear(res);
@@ -3680,10 +3666,14 @@ void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
 }
 
 void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
-        std::cout << "DB_WARN: No database connection, skipping vehicle_status insert for " 
-                  << msg->getVehicle_id() << std::endl;
+        EV_WARN << "No database connection, skipping vehicle_status insert for "
+                << msg->getVehicle_id() << endl;
         return;
     }
     
@@ -3772,16 +3762,10 @@ void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
 
     if (!res) {
         EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_status for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
     } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_status for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
     } else {
         EV_INFO << "✓ Vehicle status inserted (" << vehicle_id << " @ " << update_time << "s)" << endl;
-        std::cout << "DB_INSERT: vehicle_status for " << vehicle_id 
-                  << " @ t=" << update_time << "s" << std::endl;
     }
 
     if (res) PQclear(res);
@@ -6163,30 +6147,32 @@ void MyRSUApp::insertRSUMetadata() {
     
     PGresult* res = PQexecParams(conn, query, 11, nullptr, paramValues, nullptr, nullptr, 0);
     if (!res) {
-        std::cerr << "DB_ERROR: Failed to insert RSU metadata: " << PQerrorMessage(conn) << std::endl;
+        EV_ERROR << "Failed to insert RSU metadata: " << PQerrorMessage(conn) << endl;
     } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        std::cerr << "DB_ERROR: Failed to insert RSU metadata: " << PQerrorMessage(conn) << std::endl;
+        EV_ERROR << "Failed to insert RSU metadata: " << PQerrorMessage(conn) << endl;
     } else {
         EV_INFO << "✓ RSU metadata inserted/updated for " << rsu_id_str << endl;
-        std::cout << "RSU_METADATA: " << rsu_id_str << " @ (" << pos_x << "," << pos_y << ") - " 
-                  << edgeCPU_GHz << " GHz, " << edgeMemory_GB << " GB" << std::endl;
     }
 
     if (res) PQclear(res);
 }
 
 void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
-        std::cout << "DB_WARN: No database connection, skipping vehicle_metadata insert for " 
-                  << vehicle_id << std::endl;
+        EV_WARN << "No database connection, skipping vehicle_metadata insert for "
+                << vehicle_id << endl;
         return;
     }
     
     // Get vehicle twin data if available
     auto it = vehicle_twins.find(vehicle_id);
     if (it == vehicle_twins.end()) {
-        std::cout << "DB_WARN: No twin data available for " << vehicle_id << std::endl;
+        EV_WARN << "No twin data available for vehicle metadata upsert: " << vehicle_id << endl;
         return;
     }
     
@@ -6242,15 +6228,10 @@ void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
 
     if (!res) {
         EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_metadata for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
     } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_metadata for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
     } else {
         EV_DEBUG << "✓ Vehicle metadata inserted/updated for " << vehicle_id << endl;
-        std::cout << "DB_INSERT: vehicle_metadata for " << vehicle_id << std::endl;
     }
 
     if (res) PQclear(res);
@@ -6343,8 +6324,6 @@ void MyRSUApp::broadcastRSUStatus() {
              << ", cpu_avail=" << effective_cpu_available << " GHz"
              << ", vehicles=" << vehicle_twins.size() << endl;
     
-    std::cout << "RSU_BROADCAST: " << rsu_id_str << " status - Q:" << rsu_queue_length 
-              << " P:" << rsu_processing_count << " CPU:" << effective_cpu_available << "GHz" << std::endl;
 }
 
 void MyRSUApp::handleRSUStatusBroadcast(veins::RSUStatusBroadcastMessage* msg) {

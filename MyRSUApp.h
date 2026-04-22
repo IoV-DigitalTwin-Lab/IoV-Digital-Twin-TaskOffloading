@@ -483,6 +483,7 @@ private:
     
     PGconn* db_conn = nullptr;
     std::string db_conninfo;
+    bool use_postgres = true;
     int rsu_id = 0;
     
     // ============================================================================
@@ -510,6 +511,7 @@ private:
     bool secondary_q_publish_enabled = true;
     double secondary_sinr_threshold_db = 3.0;
     double secondary_interference_mw = 0.09;
+    bool secondary_vehicle_shadowing_enabled = true;
     int secondary_q_ttl_s = 2;
     int secondary_q_stream_maxlen = 200000;
     bool secondary_nakagami_enabled = true;

@@ -29,6 +29,7 @@ simple MyRSUApp like IBaseApplLayer
         
         // Redis digital twin integration
         bool useRedis = default(true);      // Enable Redis for real-time state sync
+        bool enablePostgres = default(true); // Enable PostgreSQL persistence/logging
         string redisHost = default("127.0.0.1");  // Redis server host
         int redisPort = default(6379);       // Redis server port
         int redisDb = default(-1);           // Redis logical DB (default: RSU index)
@@ -87,6 +88,7 @@ simple MyRSUApp like IBaseApplLayer
         bool secondaryQPublishEnabled = default(true);
         double secondarySinrThresholdDb = default(3);
         double secondaryInterferenceMw = default(0.09);
+        bool secondaryVehicleShadowingEnabled = default(true);
         int secondaryQTTLSec = default(2);
         int secondaryQStreamMaxLen = default(200000);
         bool secondaryNakagamiEnabled = default(true);
