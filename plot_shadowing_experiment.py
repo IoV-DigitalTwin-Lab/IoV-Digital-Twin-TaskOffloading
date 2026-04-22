@@ -120,6 +120,15 @@ def scan_pairs(
     return result
 
 
+def _fspl_sinr(dist_m: float) -> float:
+    wavelength = C_LIGHT / FREQ_HZ
+    fspl_db = (
+        20.0 * math.log10(4.0 * math.pi / wavelength)
+        + 10.0 * PATHLOSS_ALPHA * math.log10(max(1.0, dist_m))
+    )
+    return TX_POWER_DBM - fspl_db - NOISE_DBM
+
+
 def load_link_samples(
     redis_client: redis.Redis,
     key: str,
@@ -129,20 +138,21 @@ def load_link_samples(
     rx_id: str,
     max_entries: int,
 ) -> List[Sample]:
-    """Load samples from one link stream, computing SINR via FSPL from distance."""
+    """Load samples from one link stream.
+
+    Uses sinr_db from the stream when present (written by the simulation after
+    the C++ fix); falls back to FSPL-based computation for legacy data.
+    """
     if not key or not redis_client.exists(key):
         return []
-    wavelength = C_LIGHT / FREQ_HZ
     samples: List[Sample] = []
     for idx, (_, fields) in enumerate(
         redis_client.xrange(key, min="-", max="+", count=max_entries)
     ):
         dist_m = max(1.0, safe_float(fields.get("distance_m"), 1.0))
         sim_time = safe_float(fields.get("sim_time"))
-        fspl_db = (
-            20.0 * math.log10(4.0 * math.pi / wavelength)
-            + 10.0 * PATHLOSS_ALPHA * math.log10(dist_m)
-        )
+        raw_sinr = fields.get("sinr_db")
+        sinr_db = safe_float(raw_sinr) if raw_sinr is not None else _fspl_sinr(dist_m)
         samples.append(
             Sample(
                 run_mode=run_mode,
@@ -153,7 +163,7 @@ def load_link_samples(
                 step_index=idx,
                 predicted_time=sim_time,
                 distance_m=dist_m,
-                sinr_db=TX_POWER_DBM - fspl_db - NOISE_DBM,
+                sinr_db=sinr_db,
             )
         )
     samples.sort(key=lambda s: s.predicted_time)

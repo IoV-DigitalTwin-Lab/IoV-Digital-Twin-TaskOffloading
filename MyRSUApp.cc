@@ -2447,7 +2447,8 @@ void MyRSUApp::exportSecondaryContextSamples(const VehicleResourceStatusMessage*
                                cx - hx*hl + wx*hw, cy - hy*hl + wy*hw,
                                cx + hx*hl + wx*hw, cy + hy*hl + wy*hw))
                 continue;
-            blockers.push_back({t * d, dims.hgt_m});
+            BlockerInfo bi; bi.d1 = t * d; bi.h = dims.hgt_m;
+            blockers.push_back(bi);
         }
         if (blockers.empty()) return 0.0;
         std::sort(blockers.begin(), blockers.end(),
