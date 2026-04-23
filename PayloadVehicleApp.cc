@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <array>
 
 using namespace veins;
 
@@ -16,6 +17,14 @@ namespace {
 constexpr double kDefaultV2xLinkBandwidthMbps = 6.0;
 constexpr int64_t kPacketHeaderBytes = 256;
 constexpr int64_t kResultMinPayloadBytes = 512;
+
+std::string inferVehicleTypeFromId(int vehicleIndex) {
+    static const std::array<const char*, 6> kBrands = {
+        "Toyota", "Tesla", "Nissan", "Mercedes", "BMW", "Audi"
+    };
+    if (vehicleIndex < 0) return "Toyota";
+    return kBrands[static_cast<size_t>(vehicleIndex) % kBrands.size()];
+}
 
 int64_t clampPacketBytes(uint64_t payloadBytes) {
     const int64_t maxSafe = static_cast<int64_t>(std::numeric_limits<int32_t>::max() - kPacketHeaderBytes);
@@ -53,6 +62,24 @@ std::string buildServiceResultRelayHint(veins::LAddress::L2Type targetRsuMac,
     std::ostringstream oss;
     oss << "SV_RESULT_RELAY|target=" << targetRsuMac << "|" << payload;
     return oss.str();
+}
+
+std::string normalizeServiceVehicleLookupId(const std::string& id) {
+    if (id.rfind("SV_", 0) == 0) {
+        return id.substr(3);
+    }
+    if (id.rfind("VEHICLE_", 0) == 0) {
+        return id.substr(8);
+    }
+    return id;
+}
+
+std::string canonicalServiceVehicleId(const std::string& id) {
+    const std::string raw = normalizeServiceVehicleLookupId(id);
+    if (raw.empty()) {
+        return std::string();
+    }
+    return "SV_" + raw;
 }
 
 double computeQueueUtility(const Task* task, simtime_t now) {
@@ -97,6 +124,21 @@ void PayloadVehicleApp::initialize(int stage) {
         flocHz_max = par("initFlocHz").doubleValue();
         flocHz_available = flocHz_max;  // Start with full capacity
         txPower_mW = par("initTxPower_mW").doubleValue();
+        
+        try {
+            storage_capacity_gb = par("storage_capacity_gb").doubleValue();
+        } catch (...) {
+            storage_capacity_gb = 128.0;
+        }
+        
+        try {
+            vehicle_type = par("vehicle_type").stdstringValue();
+        } catch (...) {
+            vehicle_type.clear();
+        }
+        if (vehicle_type.empty()) {
+            vehicle_type = inferVehicleTypeFromId(getParentModule()->getIndex());
+        }
         cpuLoadFactor = uniform(0.1, 0.3);  // Initial light load
         lastCpuUpdateTime = simTime().dbl();
         
@@ -243,59 +285,140 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
         return;
     }
     else if (strcmp(msg->getName(), "rsuDecisionTimeout") == 0) {
-        Task* task = (Task*)msg->getContextPointer();
-        auto it = pendingOffloadingDecisions.find(task->task_id);
-        if (it != pendingOffloadingDecisions.end()) {
-            PendingOffloadDecision pending = it->second;
-            task = it->second.task;
-            pendingOffloadingDecisions.erase(it);
-            pendingDecisionTimeouts.erase(task->task_id);
+        std::string timedOutTaskId;
+        for (const auto& kv : pendingDecisionTimeouts) {
+            if (kv.second == msg) {
+                timedOutTaskId = kv.first;
+                break;
+            }
+        }
+        if (timedOutTaskId.empty()) {
+            EV_WARN << "Ignoring stale rsuDecisionTimeout with no matching task id" << endl;
+            delete msg;
+            return;
+        }
 
-            if (pending.must_offload) {
-                EV_WARN << "RSU decision timeout for MUST_OFFLOAD task " << task->task_id
-                        << " - no local fallback" << endl;
-                task->state = FAILED;
-                tasks_failed++;
-                if (task->is_profile_task) {
-                    double latency = (simTime() - task->created_time).dbl();
-                    MetricsManager::getInstance().recordTaskFailed(task->type, latency);
+        pendingDecisionTimeouts.erase(timedOutTaskId);
+
+        auto it = pendingOffloadingDecisions.find(timedOutTaskId);
+        if (it == pendingOffloadingDecisions.end()) {
+            EV_WARN << "Timeout fired for task " << timedOutTaskId
+                    << " but no pending offloading decision exists" << endl;
+            delete msg;
+            return;
+        }
+
+        PendingOffloadDecision pending = it->second;
+        Task* task = it->second.task;
+        pendingOffloadingDecisions.erase(it);
+
+        if (!task) {
+            EV_WARN << "RSU decision timeout for task " << timedOutTaskId
+                    << " but task pointer is null" << endl;
+            delete msg;
+            return;
+        }
+
+        if (pending.must_offload) {
+            EV_WARN << "RSU decision timeout for MUST_OFFLOAD task " << task->task_id
+                    << " - no local fallback" << endl;
+            task->state = FAILED;
+            tasks_failed++;
+            if (task->is_profile_task) {
+                double latency = (simTime() - task->created_time).dbl();
+                MetricsManager::getInstance().recordTaskFailed(task->type, latency);
+            }
+            sendTaskFailureToRSU(task, "DECISION_TIMEOUT_NO_RSU_DECISION");
+            const double now_s = simTime().dbl();
+            const double waited_s = std::max(0.0, now_s - task->created_time.dbl());
+            const double timeout_budget_s = std::max(0.0, pending.rsu_timeout_budget_seconds);
+            sendTaskOffloadingEvent(task->task_id, "OFFLOAD_TIMEOUT_FAIL",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+                "{\"timeout_stage\":\"DECISION_WAIT\","
+                "\"reason_code\":\"DECISION_TIMEOUT_NO_RSU_DECISION\","
+                "\"classification\":\"MUST_OFFLOAD\","
+                "\"gate_reason\":\"" + pending.reason + "\","
+                "\"must_offload\":true,"
+                "\"timeout_budget_s\":" + std::to_string(timeout_budget_s) + ","
+                "\"waited_s\":" + std::to_string(waited_s) + ","
+                "\"remaining_deadline_s\":" + std::to_string(std::max(0.0, pending.remaining_deadline_seconds)) + "}");
+            cleanupTaskEvents(task);
+            delete task;
+        } else {
+            EV_WARN << "RSU decision timeout for task " << task->task_id
+                    << " - local fallback allowed" << endl;
+            const double now_s = simTime().dbl();
+            const double waited_s = std::max(0.0, now_s - task->created_time.dbl());
+            const double timeout_budget_s = std::max(0.0, pending.rsu_timeout_budget_seconds);
+            if (canAcceptTask(task)) {
+                sendTaskOffloadingEvent(task->task_id, "OFFLOAD_TIMEOUT_LOCAL_FALLBACK",
+                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
+                    "{\"timeout_stage\":\"DECISION_WAIT\","
+                    "\"reason_code\":\"DECISION_TIMEOUT_LOCAL_FALLBACK\","
+                    "\"classification\":\"BOTH_FEASIBLE\","
+                    "\"gate_reason\":\"" + pending.reason + "\","
+                    "\"must_offload\":false,"
+                    "\"timeout_budget_s\":" + std::to_string(timeout_budget_s) + ","
+                    "\"waited_s\":" + std::to_string(waited_s) + "}");
+                // Notify RSU so it writes task:{id}:result = FAILED to Redis.
+                // Without this, DRL's pending{} entry for this task waits 30 s
+                // for a result that never arrives (task runs locally, result goes
+                // to task:{id}:local_result which DRL drains via a separate queue).
+                sendTaskFailureToRSU(task, "LOCAL_FALLBACK_AFTER_TIMEOUT");
+                if (canStartProcessing(task)) {
+                    allocateResourcesAndStart(task);
+                } else {
+                    task->state = QUEUED;
+                    markTaskQueued(task);
+                    pending_tasks.push(task);
                 }
-                sendTaskFailureToRSU(task, "OFFLOAD_TIMEOUT_NO_LOCAL_FALLBACK");
-                sendTaskOffloadingEvent(task->task_id, "OFFLOAD_TIMEOUT_FAIL",
-                    "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
-                    "{\"classification\":\"MUST_OFFLOAD\",\"reason\":\"" + pending.reason + "\"}");
+            } else {
+                task->state = REJECTED;
+                tasks_rejected++;
+                sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT_LOCAL_REJECT");
                 cleanupTaskEvents(task);
                 delete task;
-            } else {
-                EV_WARN << "RSU decision timeout for task " << task->task_id
-                        << " - local fallback allowed" << endl;
-                if (canAcceptTask(task)) {
-                    if (canStartProcessing(task)) {
-                        allocateResourcesAndStart(task);
-                    } else {
-                        task->state = QUEUED;
-                        markTaskQueued(task);
-                        pending_tasks.push(task);
-                    }
-                } else {
-                    task->state = REJECTED;
-                    tasks_rejected++;
-                    sendTaskFailureToRSU(task, "RSU_DECISION_TIMEOUT_LOCAL_REJECT");
-                    cleanupTaskEvents(task);
-                    delete task;
-                }
             }
         }
         delete msg;
         return;
     }
     else if (strcmp(msg->getName(), "offloadedTaskTimeout") == 0) {
-        Task* task = (Task*)msg->getContextPointer();
-        auto it = offloadedTasks.find(task->task_id);
-        if (it != offloadedTasks.end()) {
-            offloadedTaskTimeouts.erase(task->task_id);
-            offloadedTasks.erase(it);
-            offloadedTaskTargets.erase(task->task_id);
+        std::string timedOutTaskId;
+        for (const auto& kv : offloadedTaskTimeouts) {
+            if (kv.second == msg) {
+                timedOutTaskId = kv.first;
+                break;
+            }
+        }
+        if (timedOutTaskId.empty()) {
+            EV_WARN << "Ignoring stale offloadedTaskTimeout with no matching task id" << endl;
+            delete msg;
+            return;
+        }
+
+        offloadedTaskTimeouts.erase(timedOutTaskId);
+
+        auto it = offloadedTasks.find(timedOutTaskId);
+        if (it == offloadedTasks.end()) {
+            EV_WARN << "Offloaded task timeout fired for " << timedOutTaskId
+                    << " but task is no longer tracked" << endl;
+            delete msg;
+            return;
+        }
+
+        Task* task = it->second;
+        offloadedTasks.erase(it);
+        auto targetIt = offloadedTaskTargets.find(timedOutTaskId);
+        std::string target = (targetIt != offloadedTaskTargets.end()) ? targetIt->second : "UNKNOWN";
+        offloadedTaskTargets.erase(timedOutTaskId);
+
+        if (!task) {
+            EV_WARN << "Offloaded task timeout for " << timedOutTaskId
+                    << " but task pointer is null" << endl;
+            delete msg;
+            return;
+        }
 
             task->state = FAILED;
             tasks_failed++;
@@ -305,15 +428,39 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                 MetricsManager::getInstance().recordTaskFailed(task->type, latency);
             }
 
-            // Distinguish timeout reason: SV left range vs RSU handover failure
-            auto targetIt = offloadedTaskTargets.find(task->task_id);
-            std::string target = (targetIt != offloadedTaskTargets.end()) ? targetIt->second : "";
-            std::string failReason = (target == "RSU") ? "HANDOVER_FAIL" : "SV_OUT_OF_RANGE";
+            // Distinguish execution timeout by target type and link observability.
+            std::string failReason;
+            if (target == "RSU") {
+                failReason = "EXEC_TIMEOUT_RSU_RESULT_MISSING";
+            } else {
+                Coord myPos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
+                Coord svPos;
+                const std::string svLookupId = normalizeServiceVehicleLookupId(target);
+                bool svPosKnown = lookupVehiclePositionById(svLookupId, svPos);
+
+                if (!svPosKnown) {
+                    failReason = "EXEC_TIMEOUT_SV_POSITION_UNKNOWN";
+                } else {
+                    double svRssi = estimateV2vRssiDbm(myPos, svPos);
+                    if (svRssi < serviceDirectRssiThresholdDbm) {
+                        failReason = "EXEC_TIMEOUT_SV_OUT_OF_DIRECT_RANGE";
+                    } else {
+                        failReason = "EXEC_TIMEOUT_SV_RESULT_MISSING";
+                    }
+                }
+            }
+
+            sendTaskOffloadingEvent(task->task_id, "OFFLOAD_TIMEOUT_FAIL",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), target,
+                "{\"timeout_stage\":\"EXECUTION_WAIT\","
+                "\"reason_code\":\"" + failReason + "\","
+                "\"target\":\"" + target + "\","
+                "\"timeout_budget_s\":" + std::to_string(std::max(0.0, offloadedTaskTimeout.dbl())) + ","
+                "\"waited_s\":" + std::to_string(std::max(0.0, latency)) + "}");
 
             sendTaskFailureToRSU(task, failReason);
             cleanupTaskEvents(task);
             delete task;
-        }
         delete msg;
         return;
     }
@@ -783,12 +930,13 @@ void PayloadVehicleApp::initializeTaskSystem() {
         sensorHealthEvent = new cMessage("taskGenSensorHealth");
     }
 
-    scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, localObjDetEvent);
-    scheduleNextTaskGeneration(TaskType::COOPERATIVE_PERCEPTION, coopPercepEvent);
-    scheduleNextTaskGeneration(TaskType::ROUTE_OPTIMIZATION, routeOptEvent);
-    scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST, fleetForecastEvent);
-    scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, voiceCommandEvent);
-    scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK, sensorHealthEvent);
+    const double startupPhase = 0.02 * static_cast<double>(getParentModule()->getIndex() % 10);
+    scheduleNextTaskGeneration(TaskType::LOCAL_OBJECT_DETECTION, localObjDetEvent, startupPhase + 0.000);
+    scheduleNextTaskGeneration(TaskType::COOPERATIVE_PERCEPTION, coopPercepEvent, startupPhase + 0.002);
+    scheduleNextTaskGeneration(TaskType::ROUTE_OPTIMIZATION, routeOptEvent, startupPhase + 0.004);
+    scheduleNextTaskGeneration(TaskType::FLEET_TRAFFIC_FORECAST, fleetForecastEvent, startupPhase + 0.006);
+    scheduleNextTaskGeneration(TaskType::VOICE_COMMAND_PROCESSING, voiceCommandEvent, startupPhase + 0.008);
+    scheduleNextTaskGeneration(TaskType::SENSOR_HEALTH_CHECK, sensorHealthEvent, startupPhase + 0.010);
     
     // ============================================================================
     // INITIALIZE OFFLOADING DECISION FRAMEWORK
@@ -985,6 +1133,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         if (!canAcceptTask(task)) {
             EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
             task->state = REJECTED;
+            task->failure_reason = "LOCAL_QUEUE_FULL";
             tasks_rejected++;
             sendTaskFailureToRSU(task, "REJECTED");
             cleanupTaskEvents(task);
@@ -1251,6 +1400,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     if (!canAcceptTask(task)) {
         EV_INFO << "❌ Task REJECTED - queue full or infeasible" << endl;
         task->state = REJECTED;
+            task->failure_reason = "LOCAL_QUEUE_FULL";
         tasks_rejected++;
         sendTaskFailureToRSU(task, "REJECTED");
         cleanupTaskEvents(task);
@@ -1398,6 +1548,10 @@ void PayloadVehicleApp::finish() {
     }
 
     DemoBaseApplLayer::finish();
+    if (motionChannelOnly) {
+        // Secondary run has task generation/offloading disabled, so skip task report output.
+        return;
+    }
     EV_INFO << "==================== TASK METRICS REPORT ====================" << endl;
     MetricsManager::getInstance().printReport();
 }
@@ -1503,6 +1657,7 @@ void PayloadVehicleApp::dropLowestPriorityTask() {
     }
 
     lowest_task->state = REJECTED;
+    lowest_task->failure_reason = "REPLACED_BY_HIGHER_PRIORITY";
     tasks_rejected++;
     sendTaskOffloadingEvent(lowest_task->task_id, "DROPPED_FROM_QUEUE",
         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
@@ -1537,6 +1692,7 @@ void PayloadVehicleApp::allocateResourcesAndStart(Task* task) {
     EV_INFO << "┌──────────────────────────────────────────────────────────────────────────┐" << endl;
     EV_INFO << "│           ALLOCATING RESOURCES AND STARTING TASK                         │" << endl;
     EV_INFO << "└──────────────────────────────────────────────────────────────────────────┘" << endl;
+    
     
     // Allocate memory
     memory_available -= task->mem_footprint_bytes;
@@ -1877,6 +2033,7 @@ void PayloadVehicleApp::processQueuedTasks() {
         if (task->isDeadlineMissed(simTime())) {
             EV_INFO << "❌ Task " << task->task_id << " deadline expired in queue" << endl;
             task->state = FAILED;
+            task->failure_reason = "DEADLINE_MISSED_IN_QUEUE";
             tasks_failed++;
             if (task->is_profile_task) {
                 double latency = (simTime() - task->created_time).dbl();
@@ -2023,6 +2180,7 @@ void PayloadVehicleApp::handleTaskDeadline(Task* task) {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     
     task->state = FAILED;
+    task->failure_reason = "DEADLINE_MISSED";
     task->completion_time = simTime();
     double wasted_time = (task->completion_time - task->created_time).dbl();
     bool was_processing = (processing_tasks.find(task) != processing_tasks.end());
@@ -2283,6 +2441,7 @@ void PayloadVehicleApp::handleServiceTaskDeadline(Task* task) {
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
     
     task->state = FAILED;
+    task->failure_reason = "SERVICE_VEHICLE_DEADLINE_MISSED";
     task->completion_time = simTime();
     double wasted_time = (task->completion_time - task->processing_start_time).dbl();
     
@@ -2500,6 +2659,11 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     statusMsg->setBattery_capacity_mAh(battery_mAh_max);
     statusMsg->setEnergy_task_j_total(task_energy_j_total);
     statusMsg->setEnergy_task_j_last(task_energy_j_last);
+    statusMsg->setVehicle_type(vehicle_type.c_str());
+    statusMsg->setTx_power_mw(txPower_mW);
+    statusMsg->setStorage_capacity_gb(storage_capacity_gb);
+    statusMsg->setMax_queue_size(static_cast<uint32_t>(max_queue_size));
+    statusMsg->setMax_concurrent_tasks(static_cast<uint32_t>(max_concurrent_tasks));
 
     // Set sender MAC so RSU can register this vehicle's L2 address from heartbeats alone.
     statusMsg->setSenderAddress(myId);
@@ -2965,6 +3129,7 @@ double PayloadVehicleApp::estimateTransmissionTime(Task* task) {
     // IEEE 802.11p DSRC Channel Rate: 3-27 Mbps (typically 6 Mbps for reliability)
     double bandwidth_mbps = kDefaultV2xLinkBandwidthMbps;  // Conservative estimate for reliable transmission
     
+    
     // Calculate transmission time based on input bytes sent over the air
     double transmission_time = (task->input_size_bytes * 8.0) / (bandwidth_mbps * 1e6);
     
@@ -3037,6 +3202,25 @@ void PayloadVehicleApp::sendOffloadingRequestToRSU(Task* task, OffloadingDecisio
             decisionStr = "UNKNOWN";
     }
     msg->setLocal_decision(decisionStr.c_str());
+
+    std::string gateClassification;
+    switch (gateResult.classification) {
+        case GateBClassification::MUST_OFFLOAD:
+            gateClassification = "MUST_OFFLOAD";
+            break;
+        case GateBClassification::MUST_LOCAL:
+            gateClassification = "MUST_LOCAL";
+            break;
+        case GateBClassification::BOTH_FEASIBLE:
+            gateClassification = "BOTH_FEASIBLE";
+            break;
+        case GateBClassification::INFEASIBLE:
+        default:
+            gateClassification = "INFEASIBLE";
+            break;
+    }
+    msg->setInitial_gate_classification(gateClassification.c_str());
+    msg->setInitial_gate_reason(gateResult.reason.c_str());
     
     // Set sender address (our MAC)
     msg->setSenderAddress(myId);
@@ -3149,8 +3333,18 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
     EV_INFO << "  Est. completion: " << msg->getEstimated_completion_time() << "s" << endl;
     EV_INFO << "  Reason: " << msg->getDecision_reason() << endl;
     
-    // Send lifecycle event
-    sendTaskOffloadingEvent(taskId, "DECISION_RECEIVED", "RSU", task->vehicle_id);
+    // Send lifecycle event with explicit wait and sender context for timeout analysis.
+    double decision_wait_s = 0.0;
+    auto timingIt = taskTimings.find(taskId);
+    if (timingIt != taskTimings.end()) {
+        decision_wait_s = std::max(0.0, simTime().dbl() - timingIt->second.request_time);
+    } else {
+        decision_wait_s = std::max(0.0, simTime().dbl() - task->created_time.dbl());
+    }
+    sendTaskOffloadingEvent(taskId, "DECISION_RECEIVED", "RSU", task->vehicle_id,
+        std::string("{\"decision_wait_s\":") + std::to_string(decision_wait_s) + ","
+        "\"decision_type\":\"" + decisionType + "\","
+        "\"rsu_sender_mac\":\"" + std::to_string(msg->getSenderAddress()) + "\"}");
     
     // Execute the real DDQN decision
     executeOffloadingDecision(task, msg);
@@ -3345,6 +3539,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         if (!canAcceptTask(task)) {
             EV_WARN << "Cannot accept task locally (queue full) - rejecting" << endl;
             task->state = REJECTED;
+            task->failure_reason = "LOCAL_QUEUE_FULL";
             tasks_rejected++;
             sendTaskFailureToRSU(task, "LOCAL_QUEUE_FULL");
             cleanupTaskEvents(task);
@@ -3411,7 +3606,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
     else if (decisionType == "SERVICE_VEHICLE") {
         EV_INFO << "🚗 Decision: OFFLOAD TO SERVICE VEHICLE" << endl;
         
-        std::string serviceVehicleId = decision->getTarget_service_vehicle_id();
+        std::string serviceVehicleId = canonicalServiceVehicleId(decision->getTarget_service_vehicle_id());
         LAddress::L2Type serviceVehicleMac = decision->getTarget_service_vehicle_mac();
         LAddress::L2Type anchorRsuMac = decision->getRedirect_target_rsu_mac();
         LAddress::L2Type ingressRsuMac = decision->getSenderAddress();
@@ -3513,7 +3708,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         
         // Track processor for completion report
         if (taskTimings.find(task->task_id) != taskTimings.end()) {
-            taskTimings[task->task_id].processor_id = "SV_" + serviceVehicleId;
+            taskTimings[task->task_id].processor_id = serviceVehicleId;
         }
         
         if (serviceVehicleMac == 0) {
@@ -3533,6 +3728,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 }
             } else {
                 task->state = REJECTED;
+                task->failure_reason = "SERVICE_VEHICLE_INVALID";
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "SERVICE_VEHICLE_INVALID");
                 cleanupTaskEvents(task);
@@ -3549,7 +3745,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         
         // Track offloaded task
         offloadedTasks[task->task_id] = task;
-        offloadedTaskTargets[task->task_id] = "SV_" + serviceVehicleId;
+        offloadedTaskTargets[task->task_id] = serviceVehicleId;
         
         // Schedule timeout for result
         cMessage* timeoutMsg = new cMessage("offloadedTaskTimeout");
@@ -3609,6 +3805,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                 // Queue full - reject
                 EV_WARN << "Cannot accept task locally (queue full) - rejecting" << endl;
                 task->state = REJECTED;
+                task->failure_reason = "REDIRECT_EXHAUSTED_QUEUE_FULL";
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "REDIRECT_EXHAUSTED_QUEUE_FULL");
                 cleanupTaskEvents(task);
@@ -3618,6 +3815,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
         else if (redirectTargetMac == 0 || redirectTargetMac == myId) {
             EV_ERROR << "Invalid redirect target MAC or self-reference - rejecting" << endl;
             task->state = REJECTED;
+            task->failure_reason = "INVALID_REDIRECT_TARGET";
             tasks_rejected++;
             sendTaskFailureToRSU(task, "INVALID_REDIRECT_TARGET");
             cleanupTaskEvents(task);
@@ -3679,6 +3877,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             else {
                 EV_ERROR << "Cannot find candidate list for task " << task->task_id << endl;
                 task->state = REJECTED;
+                task->failure_reason = "REDIRECT_CANDIDATE_LIST_NOT_FOUND";
                 tasks_rejected++;
                 sendTaskFailureToRSU(task, "REDIRECT_CANDIDATE_LIST_NOT_FOUND");
                 cleanupTaskEvents(task);
@@ -3693,11 +3892,13 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
     else if (decisionType == "REJECT") {
         EV_INFO << "❌ Decision: REJECT TASK" << endl;
         std::cout << "OFFLOAD_EXEC: Task " << task->task_id << " REJECTED by RSU" << std::endl;
+
+        std::string reason = decision->getDecision_reason();
         
         task->state = REJECTED;
+        task->failure_reason = std::string("RSU_REJECTED: ") + reason;
         tasks_rejected++;
-        
-        std::string reason = decision->getDecision_reason();
+
         sendTaskFailureToRSU(task, "RSU_REJECTED: " + reason);
         
         EV_INFO << "Task rejected - reason: " << reason << endl;
@@ -3725,6 +3926,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             }
         } else {
             task->state = REJECTED;
+            task->failure_reason = "UNKNOWN_DECISION";
             tasks_rejected++;
             sendTaskFailureToRSU(task, "UNKNOWN_DECISION");
             cleanupTaskEvents(task);
@@ -3866,7 +4068,7 @@ void PayloadVehicleApp::sendTaskToServiceVehicleViaRSU(Task* task, const std::st
     applyTaskEnergyDrain(tx_energy_j, "OFFLOAD_TX_SERVICE_VEHICLE_VIA_RSU");
 
     offloadedTasks[task->task_id] = task;
-    offloadedTaskTargets[task->task_id] = "SV_" + serviceVehicleId;
+    offloadedTaskTargets[task->task_id] = serviceVehicleId;
     sendTaskOffloadingEvent(task->task_id, "TASK_OFFLOADING",
         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
         "{\"target\":\"SERVICE_VEHICLE_VIA_RSU\",\"sv_id\":\"" + serviceVehicleId + "\","
@@ -4106,6 +4308,22 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
         }
     };
 
+    auto sendServiceFailureToOrigin = [&](const std::string& reason) {
+        TaskFailureMessage* failure = new TaskFailureMessage();
+        failure->setTask_id(task_id.c_str());
+        failure->setVehicle_id(origin_vehicle_id.c_str());
+        failure->setFailure_time(simTime().dbl());
+        failure->setFailure_reason(reason.c_str());
+        failure->setWasted_time(0.0);
+
+        if (origin_mac != 0) {
+            populateWSM((BaseFrame1609_4*)failure, origin_mac);
+            sendDown(failure);
+        } else {
+            delete failure;
+        }
+    };
+
     // Check service vehicle capacity
     int total_service_tasks = serviceTasks.size() + processingServiceTasks.size();
     if (total_service_tasks >= maxConcurrentServiceTasks) {
@@ -4116,6 +4334,7 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             origin_vehicle_id, "{\"reason\":\"capacity_full\"}");
         sendAgentRejection("RSU_QUEUE_FULL");
+        sendServiceFailureToOrigin("SERVICE_VEHICLE_QUEUE_FULL");
         delete msg;
         return;
     }
@@ -4134,6 +4353,7 @@ void PayloadVehicleApp::handleServiceTaskRequest(veins::TaskOffloadPacket* msg) 
             "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             origin_vehicle_id, "{\"reason\":\"insufficient_memory\"}");
         sendAgentRejection("RSU_QUEUE_FULL");
+        sendServiceFailureToOrigin("SERVICE_VEHICLE_INSUFFICIENT_MEMORY");
         delete msg;
         return;
     }
@@ -4338,7 +4558,21 @@ void PayloadVehicleApp::sendServiceTaskResult(Task* task, const std::string& ori
     
     // Set failure reason if task failed
     if (task->state != COMPLETED_ON_TIME && task->state != COMPLETED_LATE) {
-        result->setFailure_reason("Task processing failed");
+        if (!task->failure_reason.empty()) {
+            result->setFailure_reason(task->failure_reason.c_str());
+        } else if (task->state == FAILED) {
+            double deadline_limit = task->relative_deadline;
+            double elapsed = (task->completion_time - task->processing_start_time).dbl();
+            if (elapsed > deadline_limit) {
+                result->setFailure_reason("SERVICE_VEHICLE_DEADLINE_MISSED");
+            } else {
+                result->setFailure_reason("SERVICE_VEHICLE_PROCESSING_FAILED");
+            }
+        } else if (task->state == REJECTED) {
+            result->setFailure_reason("SERVICE_VEHICLE_REJECTED");
+        } else {
+            result->setFailure_reason("SERVICE_VEHICLE_PROCESSING_FAILED");
+        }
     } else {
         result->setFailure_reason("");
     }

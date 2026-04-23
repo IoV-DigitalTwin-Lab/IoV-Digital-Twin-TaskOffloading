@@ -204,13 +204,18 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
         result.classification = GateBClassification::MUST_OFFLOAD;
         result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
 
+        std::ostringstream reason;
         if (context.gpu_required_tag && context.cooperation_required_tag) {
-            result.reason = "STAGE2_FORCE_RSU_GPU_AND_COOP";
+            reason << "STAGE2_FORCE_RSU_GPU_AND_COOP "
+                   << "(gpu_required_tag=true, cooperation_required_tag=true)";
         } else if (context.gpu_required_tag) {
-            result.reason = "STAGE2_FORCE_RSU_GPU";
+            reason << "STAGE2_FORCE_RSU_GPU "
+                   << "(gpu_required_tag=true)";
         } else {
-            result.reason = "STAGE2_FORCE_RSU_COOP";
+            reason << "STAGE2_FORCE_RSU_COOP "
+                   << "(cooperation_required_tag=true)";
         }
+        result.reason = reason.str();
 
         last_decision_reason = result.reason;
         std::cout << "[GATE_B] " << result.reason
@@ -234,11 +239,16 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     if (context.must_local_tag || must_local_by_threshold) {
         result.classification = GateBClassification::MUST_LOCAL;
         result.decision = OffloadingDecision::EXECUTE_LOCALLY;
+        std::ostringstream reason;
         if (context.must_local_tag) {
-            result.reason = "STAGE1_FORCE_LOCAL_TAG";
+            reason << "STAGE1_FORCE_LOCAL_TAG "
+                   << "(must_local_tag=true)";
         } else {
-            result.reason = "STAGE1_FORCE_LOCAL_K1K2";
+            reason << "STAGE1_FORCE_LOCAL_K1K2 "
+                   << "(local_capacity_ok=true, compute_data_ok=true, k1=" << k1
+                   << ", k2=" << k2 << ")";
         }
+        result.reason = reason.str();
         last_decision_reason = result.reason;
         std::cout << "[GATE_B] " << result.reason
                   << " cap_ok=" << (local_capacity_ok ? "1" : "0")
@@ -250,11 +260,17 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     if (context.must_offload_tag || must_offload_by_queue) {
         result.classification = GateBClassification::MUST_OFFLOAD;
         result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        std::ostringstream reason;
         if (context.must_offload_tag) {
-            result.reason = "STAGE1_FORCE_OFFLOAD_TAG";
+            reason << "STAGE1_FORCE_OFFLOAD_TAG "
+                   << "(must_offload_tag=true)";
         } else {
-            result.reason = "STAGE1_FORCE_OFFLOAD_QUEUE_PRESSURE";
+            reason << "STAGE1_FORCE_OFFLOAD_QUEUE_PRESSURE "
+                   << "(queue_wait_s=" << queue_wait_sec
+                   << ", local_exec_s=" << t_local
+                   << ", remaining_deadline_s=" << remaining_deadline << ")";
         }
+        result.reason = reason.str();
         last_decision_reason = result.reason;
         std::cout << "[GATE_B] " << result.reason
                   << " queue_wait=" << queue_wait_sec
@@ -270,12 +286,15 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     if (!can_do_locally && can_offload) {
         result.classification = GateBClassification::MUST_OFFLOAD;
         result.decision = OffloadingDecision::OFFLOAD_TO_RSU;
+        result.reason = "GATE_B_LOCAL_MISS_OFFLOAD_OK (t_local>=remaining_deadline, t_offload<remaining_deadline)";
     } else if (can_do_locally && !can_offload) {
         result.classification = GateBClassification::MUST_LOCAL;
         result.decision = OffloadingDecision::EXECUTE_LOCALLY;
+        result.reason = "GATE_B_LOCAL_OK_OFFLOAD_MISS (t_local<remaining_deadline, t_offload>=remaining_deadline)";
     } else if (!can_do_locally && !can_offload) {
         result.classification = GateBClassification::INFEASIBLE;
         result.decision = OffloadingDecision::REJECT_TASK;
+        result.reason = "GATE_B_BOTH_MISS_DEADLINE (t_local>=remaining_deadline, t_offload>=remaining_deadline)";
     } else {
         result.classification = GateBClassification::BOTH_FEASIBLE;
 
@@ -293,24 +312,19 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
             : OffloadingDecision::EXECUTE_LOCALLY;
     }
 
-    std::ostringstream reason;
-    reason << "GateB cls=";
-    switch (result.classification) {
-        case GateBClassification::MUST_OFFLOAD: reason << "MUST_OFFLOAD"; break;
-        case GateBClassification::MUST_LOCAL: reason << "MUST_LOCAL"; break;
-        case GateBClassification::BOTH_FEASIBLE: reason << "BOTH_FEASIBLE"; break;
-        case GateBClassification::INFEASIBLE: reason << "INFEASIBLE"; break;
+    if (result.reason.empty()) {
+        if (result.classification == GateBClassification::BOTH_FEASIBLE) {
+            result.reason = (result.decision == OffloadingDecision::EXECUTE_LOCALLY)
+                ? "GATE_B_BOTH_FEASIBLE_LOCAL_SELECTED (cost_local<=cost_offload)"
+                : "GATE_B_BOTH_FEASIBLE_OFFLOAD_SELECTED (cost_offload<cost_local)";
+        } else if (result.classification == GateBClassification::MUST_OFFLOAD) {
+            result.reason = "GATE_B_MUST_OFFLOAD (offload path required by constraints)";
+        } else if (result.classification == GateBClassification::MUST_LOCAL) {
+            result.reason = "GATE_B_MUST_LOCAL (local path required by constraints)";
+        } else {
+            result.reason = "GATE_B_INFEASIBLE (neither local nor offload meets deadline)";
+        }
     }
-    reason << " tL=" << result.t_local_seconds
-           << " tO=" << result.t_offload_seconds
-           << " rem=" << result.remaining_deadline_seconds
-           << " alpha=" << gate_alpha
-           << " beta=" << gate_beta;
-    if (result.classification == GateBClassification::BOTH_FEASIBLE) {
-        reason << " cL=" << result.cost_local << " cO=" << result.cost_offload;
-    }
-
-    result.reason = reason.str();
     last_decision_reason = result.reason;
 
     std::cout << "[GATE_B] " << result.reason << std::endl;

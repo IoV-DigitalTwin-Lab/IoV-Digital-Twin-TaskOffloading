@@ -6,6 +6,49 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+CTRL_PID=""
+
+build_cpp_controller() {
+  local ctrl_bin="$SCRIPT_DIR/external_controller_cpp"
+  local ctrl_src="$SCRIPT_DIR/external_controller.cpp"
+  local cxx="${CXX:-g++}"
+  local cflags="-std=c++17 -O2"
+  local libs
+  local fallback_inc="-I/home/mihiraja/.local/include"
+  local fallback_lib="-L/home/mihiraja/.local/lib"
+
+  if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists hiredis; then
+    libs="$(pkg-config --libs hiredis)"
+    cflags="$cflags $(pkg-config --cflags hiredis)"
+  else
+    libs="$fallback_lib -lhiredis"
+    cflags="$cflags $fallback_inc"
+  fi
+
+  "$cxx" $cflags "$ctrl_src" -o "$ctrl_bin" $libs
+}
+
+extract_config_name() {
+  local prev=""
+  for arg in "$@"; do
+    if [ "$prev" = "-c" ]; then
+      echo "$arg"
+      return 0
+    fi
+    prev="$arg"
+  done
+  echo ""
+}
+
+cleanup() {
+  if [ -n "$CTRL_PID" ] && kill -0 "$CTRL_PID" 2>/dev/null; then
+    echo "Stopping external controller (PID $CTRL_PID)..."
+    kill "$CTRL_PID" 2>/dev/null || true
+    wait "$CTRL_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
 pick_first_dir() {
   for cand in "$@"; do
     if [ -d "$cand" ]; then
@@ -95,6 +138,11 @@ set +u
 source "$OMNETPP_HOME/setenv"
 set -u
 
+# Ensure locally installed hiredis is available at runtime for external_controller_cpp.
+if [ -d "/home/mihiraja/.local/lib" ]; then
+  export LD_LIBRARY_PATH="/home/mihiraja/.local/lib:${LD_LIBRARY_PATH:-}"
+fi
+
 # OMNeT++ setenv may not include SUMO's binary directory on some systems.
 if ! command -v sumo >/dev/null 2>&1; then
   if [ -x "/usr/share/sumo/bin/sumo" ]; then
@@ -110,6 +158,23 @@ fi
 export SUMO_HOME="${SUMO_HOME:-/usr/share/sumo}"
 
 cd "$SCRIPT_DIR"
+
+RUN_CONFIG="$(extract_config_name "$@")"
+AUTO_CONTROLLER="${DT2_AUTO_CONTROLLER:-1}"
+
+# For primary run, keep external predictor alive so dt2:pred keys are populated.
+if [ "$AUTO_CONTROLLER" = "1" ] && [ "$RUN_CONFIG" = "DT-PreSync" ]; then
+  if pgrep -f "[e]xternal_controller_cpp" >/dev/null 2>&1; then
+    echo "External controller already running; reusing existing process."
+  else
+    echo "Starting external controller for DT-PreSync future predictions..."
+    build_cpp_controller
+    "$SCRIPT_DIR/external_controller_cpp" "$SCRIPT_DIR" &
+    CTRL_PID=$!
+    echo "External controller PID: $CTRL_PID"
+    sleep "${DT2_CTRL_WARMUP_S:-0.1}"
+  fi
+fi
 
 NED_PATH=".:$INET_PATH/src:$VEINS_PATH/src/veins"
 # Keep NED roots deterministic to avoid duplicate loads from mixed installs.
