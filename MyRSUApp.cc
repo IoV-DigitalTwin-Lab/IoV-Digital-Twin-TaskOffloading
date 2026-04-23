@@ -35,6 +35,11 @@ void setResultPacketSize(veins::TaskResultMessage* packet, uint64_t outputBytes)
     packet->setByteLength(clampPacketBytes(payload));
 }
 
+bool isUndefinedTable(PGresult* res) {
+    const char* sqlState = res ? PQresultErrorField(res, PG_DIAG_SQLSTATE) : nullptr;
+    return sqlState && std::string(sqlState) == "42P01";
+}
+
 bool parseRouteHint(const std::string& routeHint, LAddress::L2Type& ingressRsuMac, LAddress::L2Type& processorRsuMac) {
     ingressRsuMac = 0;
     processorRsuMac = 0;
@@ -2656,30 +2661,39 @@ void MyRSUApp::initDatabase() {
             PQclear(r);
         }
 
-        // Ensure offloading_requests has all required columns (idempotent)
-        const char* offload_req_alters[] = {
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS cpu_cycles BIGINT DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS deadline_seconds DOUBLE PRECISION DEFAULT 1.0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS qos_value DOUBLE PRECISION DEFAULT 1.0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_available DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_utilization DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_mem_available DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_queue_length INTEGER DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_processing_count INTEGER DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS speed DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS local_decision TEXT DEFAULT ''",
-            "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS payload JSONB",
-            nullptr
-        };
-        for (int i = 0; offload_req_alters[i] != nullptr; ++i) {
-            PGresult* r = PQexec(db_conn, offload_req_alters[i]);
-            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
-                EV_WARN << "⚠ offloading_requests schema update failed: " << PQerrorMessage(db_conn) << endl;
+        // Ensure offloading_requests has all required columns only when the optional table exists.
+        PGresult* offloadReqExists = PQexec(db_conn, "SELECT to_regclass('public.offloading_requests') IS NOT NULL");
+        bool hasOffloadingRequests = offloadReqExists &&
+            PQresultStatus(offloadReqExists) == PGRES_TUPLES_OK &&
+            PQntuples(offloadReqExists) > 0 &&
+            std::string(PQgetvalue(offloadReqExists, 0, 0)) == "t";
+        if (offloadReqExists) PQclear(offloadReqExists);
+
+        if (hasOffloadingRequests) {
+            const char* offload_req_alters[] = {
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS cpu_cycles BIGINT DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS deadline_seconds DOUBLE PRECISION DEFAULT 1.0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS qos_value DOUBLE PRECISION DEFAULT 1.0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_available DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_utilization DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_mem_available DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_queue_length INTEGER DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_processing_count INTEGER DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS speed DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS local_decision TEXT DEFAULT ''",
+                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS payload JSONB",
+                nullptr
+            };
+            for (int i = 0; offload_req_alters[i] != nullptr; ++i) {
+                PGresult* r = PQexec(db_conn, offload_req_alters[i]);
+                if (PQresultStatus(r) != PGRES_COMMAND_OK) {
+                    EV_WARN << "⚠ offloading_requests schema update failed: " << PQerrorMessage(db_conn) << endl;
+                }
+                PQclear(r);
             }
-            PQclear(r);
         }
     }
 }
@@ -2854,8 +2868,10 @@ void MyRSUApp::insertTaskCompletion(const TaskCompletionMessage* msg) {
     PGresult* res = PQexecParams(conn, query, 8, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to insert task completion: " << PQerrorMessage(conn) << endl;
-        std::cerr << "DB_ERROR: Task completion insert failed: " << PQerrorMessage(conn) << std::endl;
+        if (!isUndefinedTable(res)) {
+            EV_WARN << "✗ Failed to insert task completion: " << PQerrorMessage(conn) << endl;
+            std::cerr << "DB_ERROR: Task completion insert failed: " << PQerrorMessage(conn) << std::endl;
+        }
     } else {
         EV_INFO << "✓ Task completion inserted successfully (Task: " << msg->getTask_id() << ")" << endl;
         std::cout << "DB_INSERT: Task completion " << msg->getTask_id() << " stored in PostgreSQL" << std::endl;
@@ -2907,8 +2923,10 @@ void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
     PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to insert task failure: " << PQerrorMessage(conn) << endl;
-        std::cerr << "DB_ERROR: Task failure insert failed: " << PQerrorMessage(conn) << std::endl;
+        if (!isUndefinedTable(res)) {
+            EV_WARN << "✗ Failed to insert task failure: " << PQerrorMessage(conn) << endl;
+            std::cerr << "DB_ERROR: Task failure insert failed: " << PQerrorMessage(conn) << std::endl;
+        }
     } else {
         EV_INFO << "✓ Task failure inserted successfully (Task: " << msg->getTask_id() << ")" << endl;
         std::cout << "DB_INSERT: Task failure " << msg->getTask_id() << " stored in PostgreSQL" << std::endl;
@@ -3327,8 +3345,10 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
     PGresult* res = PQexecParams(conn, query, 18, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
-        std::cout << "WARN: ✗ Failed to insert offloading request: " << PQerrorMessage(conn) << std::endl;
+        if (!isUndefinedTable(res)) {
+            EV_WARN << "✗ Failed to insert offloading request: " << PQerrorMessage(conn) << endl;
+            std::cout << "WARN: ✗ Failed to insert offloading request: " << PQerrorMessage(conn) << std::endl;
+        }
     } else {
         EV_INFO << "✓ Offloading request inserted successfully (Task: " << request.task_id << ")" << endl;
         std::cout << "INFO: ✓ Offloading request inserted successfully (Task: " << request.task_id << ")" << std::endl;
@@ -3428,7 +3448,9 @@ void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event
     PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
     
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to insert task offloading event: " << PQerrorMessage(conn) << endl;
+        if (!isUndefinedTable(res)) {
+            EV_WARN << "✗ Failed to insert task offloading event: " << PQerrorMessage(conn) << endl;
+        }
     } else {
         EV_DEBUG << "✓ Task offloading event inserted (Task: " << task_id << ", Type: " << event_type << ")" << endl;
     }
@@ -4627,7 +4649,9 @@ void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::strin
 
     PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
+        if (!isUndefinedTable(res)) {
+            std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
+        }
     } else {
         std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
                   << " (" << source << "->" << target << ")" << std::endl;
@@ -5494,4 +5518,3 @@ void MyRSUApp::dispatchAgentSubTask(const TaskRecord& record,
 
 
 }  // namespace complex_network
-
