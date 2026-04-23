@@ -269,6 +269,10 @@ void MyRSUApp::initialize(int stage) {
         secondary_nakagami_enabled = par("secondaryNakagamiEnabled").boolValue();
         secondary_nakagami_m = par("secondaryNakagamiM").doubleValue();
         secondary_nakagami_cell_size_m = par("secondaryNakagamiCellSize").doubleValue();
+        use_postgres = hasPar("enablePostgres") ? par("enablePostgres").boolValue() : true;
+        if (secondary_link_context_export) {
+            use_postgres = false;
+        }
         if (!secondary_use_external_predictions) {
             initializeSecondaryPredictor();
         }
@@ -289,8 +293,12 @@ void MyRSUApp::initialize(int stage) {
             rsu_waiting_queue_capacity = std::max(0L, par("rsuQueueCapacity").intValue());
         }
         
-        // Initialize PostgreSQL database connection (always enabled)
-        initDatabase();
+        // Initialize PostgreSQL database connection when enabled for this run.
+        if (use_postgres) {
+            initDatabase();
+        } else {
+            EV_INFO << "PostgreSQL disabled for this RSU app instance" << endl;
+        }
         
         // Initialize Redis Digital Twin
         use_redis = par("useRedis").boolValue();
@@ -2637,14 +2645,16 @@ void MyRSUApp::logDigitalTwinState() {
     }
     
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
-    
-    std::cout << "DT_SUMMARY: Vehicles:" << vehicle_twins.size() 
-              << " Tasks:" << task_records.size()
-              << " Generated:" << total_generated
-              << " OnTime:" << total_completed_on_time
-              << " Late:" << total_completed_late
-              << " Failed:" << total_failed
-              << " Rejected:" << total_rejected << std::endl;
+
+    if (!secondary_link_context_export) {
+        std::cout << "DT_SUMMARY: Vehicles:" << vehicle_twins.size() 
+                  << " Tasks:" << task_records.size()
+                  << " Generated:" << total_generated
+                  << " OnTime:" << total_completed_on_time
+                  << " Late:" << total_completed_late
+                  << " Failed:" << total_failed
+                  << " Rejected:" << total_rejected << std::endl;
+    }
 }
 
 void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event) {
@@ -3324,6 +3334,10 @@ void MyRSUApp::closeDatabase() {
 }
 
 PGconn* MyRSUApp::getDBConnection() {
+    if (!use_postgres) {
+        return nullptr;
+    }
+
     // Reconnect if connection lost
     if (!db_conn || PQstatus(db_conn) != CONNECTION_OK) {
         EV_WARN << "Database connection lost, attempting reconnect..." << endl;
@@ -3354,6 +3368,10 @@ PGconn* MyRSUApp::getDBConnection() {
 }
 
 void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert task metadata: No database connection" << endl;
@@ -3490,6 +3508,10 @@ void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
 }
 
 void MyRSUApp::insertTaskCompletion(const TaskCompletionMessage* msg) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert task completion: No database connection" << endl;
@@ -3592,6 +3614,10 @@ void MyRSUApp::insertTaskCompletion(const TaskCompletionMessage* msg) {
 }
 
 void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert task failure: No database connection" << endl;
@@ -3680,6 +3706,10 @@ void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
 }
 
 void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         std::cout << "DB_WARN: No database connection, skipping vehicle_status insert for " 
@@ -4022,6 +4052,10 @@ void MyRSUApp::insertSecondaryQEntry(uint64_t cycle_id,
 // ============================================================================
 
 void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert offloading request: No database connection" << endl;
@@ -4108,6 +4142,10 @@ void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
 }
 
 void MyRSUApp::insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert offloading decision: No database connection" << endl;
@@ -4203,6 +4241,10 @@ void MyRSUApp::insertOffloadingDecision(const std::string& task_id, const veins:
 }
 
 void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert task offloading event: No database connection" << endl;
@@ -4429,6 +4471,10 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
                                              double completion_time, bool success, bool completed_on_time,
                                              double deadline_seconds, uint64_t mem_footprint_bytes, uint64_t cpu_cycles,
                                              double qos_value, const std::string& result_data, const std::string& failure_reason) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         EV_WARN << "⚠ Cannot insert task completion: No database connection" << endl;
@@ -6176,6 +6222,10 @@ void MyRSUApp::insertRSUMetadata() {
 }
 
 void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
+    if (!use_postgres) {
+        return;
+    }
+
     PGconn* conn = getDBConnection();
     if (!conn) {
         std::cout << "DB_WARN: No database connection, skipping vehicle_metadata insert for " 

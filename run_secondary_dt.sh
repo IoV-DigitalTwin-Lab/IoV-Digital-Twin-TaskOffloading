@@ -17,6 +17,23 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+ensure_sim_binary_fresh() {
+    local bin="$SCRIPT_DIR/IoV-Digital-Twin-TaskOffloading"
+    local stale_src=""
+    if [[ -x "$bin" ]]; then
+        stale_src="$(find "$SCRIPT_DIR" -maxdepth 1 \( -name '*.cc' -o -name '*.h' -o -name '*.msg' -o -name '*.ned' \) -newer "$bin" -print -quit)"
+    fi
+
+    if [[ ! -x "$bin" || -n "$stale_src" ]]; then
+        echo "[run_secondary_dt] Rebuilding simulation binary (source newer than executable)..."
+        # shellcheck disable=SC1091
+        set +u
+        source /opt/omnet/omnetpp-6.1/setenv
+        set -u
+        make -C "$SCRIPT_DIR" -j"${DT2_BUILD_JOBS:-4}" MODE=release
+    fi
+}
+
 # Build C++ external controller.
 CTRL_BIN="$SCRIPT_DIR/external_controller_cpp"
 CTRL_SRC="$SCRIPT_DIR/external_controller.cpp"
@@ -37,6 +54,7 @@ build_cpp_controller() {
 }
 
 echo "[run_secondary_dt] Starting external controller (poll interval: ${DT2_POLL_INTERVAL_S}s)..."
+ensure_sim_binary_fresh
 build_cpp_controller
 "$CTRL_BIN" "$SCRIPT_DIR" &
 CTRL_PID=$!

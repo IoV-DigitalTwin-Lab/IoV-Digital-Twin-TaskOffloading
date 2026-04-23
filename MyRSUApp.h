@@ -484,6 +484,7 @@ private:
     PGconn* db_conn = nullptr;
     std::string db_conninfo;
     int rsu_id = 0;
+    bool use_postgres = true;
     
     // ============================================================================
     // REDIS DIGITAL TWIN INTEGRATION

@@ -1543,6 +1543,10 @@ void PayloadVehicleApp::finish() {
     }
 
     DemoBaseApplLayer::finish();
+    if (motionChannelOnly) {
+        // Secondary run has task generation/offloading disabled, so skip task report output.
+        return;
+    }
     EV_INFO << "==================== TASK METRICS REPORT ====================" << endl;
     MetricsManager::getInstance().printReport();
 }
