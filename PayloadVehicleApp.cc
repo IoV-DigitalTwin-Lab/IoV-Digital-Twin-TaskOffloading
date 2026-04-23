@@ -360,6 +360,11 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
                     "\"must_offload\":false,"
                     "\"timeout_budget_s\":" + std::to_string(timeout_budget_s) + ","
                     "\"waited_s\":" + std::to_string(waited_s) + "}");
+                // Notify RSU so it writes task:{id}:result = FAILED to Redis.
+                // Without this, DRL's pending{} entry for this task waits 30 s
+                // for a result that never arrives (task runs locally, result goes
+                // to task:{id}:local_result which DRL drains via a separate queue).
+                sendTaskFailureToRSU(task, "LOCAL_FALLBACK_AFTER_TIMEOUT");
                 if (canStartProcessing(task)) {
                     allocateResourcesAndStart(task);
                 } else {

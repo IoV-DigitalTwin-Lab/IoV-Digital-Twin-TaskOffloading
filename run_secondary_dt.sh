@@ -8,7 +8,34 @@ cd "$SCRIPT_DIR"
 export DT2_POLL_INTERVAL_S="${DT2_POLL_INTERVAL_S:-0.1}"
 
 CTRL_PID=""
+SIM_PID=""
 cleanup() {
+    if [[ -n "$SIM_PID" ]] && kill -0 "$SIM_PID" 2>/dev/null; then
+        echo "[run_secondary_dt] Stopping secondary simulation (PID $SIM_PID)..."
+        kill -INT "$SIM_PID" 2>/dev/null || true
+
+        local elapsed=0
+        local timeout="${DT2_SHUTDOWN_TIMEOUT_S:-15}"
+        while kill -0 "$SIM_PID" 2>/dev/null && (( elapsed < timeout )); do
+            sleep 1
+            ((elapsed++)) || true
+        done
+
+        if kill -0 "$SIM_PID" 2>/dev/null; then
+            echo "[run_secondary_dt] Secondary simulation did not stop after ${timeout}s; sending SIGTERM..."
+            kill -TERM "$SIM_PID" 2>/dev/null || true
+            sleep 2
+        fi
+
+        if kill -0 "$SIM_PID" 2>/dev/null; then
+            echo "[run_secondary_dt] Secondary simulation still alive; force killing."
+            kill -KILL "$SIM_PID" 2>/dev/null || true
+        fi
+
+        wait "$SIM_PID" 2>/dev/null || true
+        SIM_PID=""
+    fi
+
     if [[ -n "$CTRL_PID" ]] && kill -0 "$CTRL_PID" 2>/dev/null; then
         echo "[run_secondary_dt] Stopping external controller (PID $CTRL_PID)..."
         kill "$CTRL_PID" 2>/dev/null || true
@@ -67,4 +94,6 @@ sleep "${DT2_CTRL_WARMUP_S:-0.1}"
 # Run the secondary digital-twin simulation.
 # Extra args are forwarded to run_sim_portable.sh.
 echo "[run_secondary_dt] Starting secondary simulation..."
-./run_sim_portable.sh -u Cmdenv -c DT-Secondary-MotionChannel -r 0 --*.manager.port=10000 "$@"
+./run_sim_portable.sh -u Cmdenv -c DT-Secondary-MotionChannel -r 0 --*.manager.port=10000 "$@" &
+SIM_PID=$!
+wait "$SIM_PID"

@@ -692,6 +692,14 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                             "\"decision_type\":\"" + decision_type + "\","
                             "\"target\":\"" + target_id + "\"}");
                         delete dMsg;
+                        // Write FAILED to Redis so DRL's pending{} entry resolves immediately
+                        // instead of waiting 30 s for its own timeout. Vehicle has left coverage
+                        // so no execution will happen; wasted_s = time held at RSU.
+                        if (redis_twin && use_redis) {
+                            double wasted_s = std::max(0.0, simTime().dbl() - record.received_time);
+                            redis_twin->writeSingleResult(
+                                record.task_id, "FAILED", wasted_s, 0.0, "VEHICLE_DEPARTED");
+                        }
                         // MAC not found — drop from pending so we don't retry forever
                         decided.push_back(tid);
                     }
@@ -5460,9 +5468,17 @@ void MyRSUApp::tryStartQueuedRSUTasks() {
             insertLifecycleEvent(queued.task_id, "RSU_DEADLINE_EXPIRED_IN_QUEUE",
                 "RSU_" + std::to_string(rsu_id), queued.vehicle_id,
                 "{\"expiry_margin_s\":" + std::to_string(expiry_margin) + "}");
-            
+
+            // Write FAILED result to Redis so DRL training loop sees it instead of waiting
+            // 30 s for its own timeout.  wasted_s = time spent in queue past enqueue.
+            if (redis_twin && use_redis) {
+                double wasted_s = std::max(0.0, simTime().dbl() - queued.enqueue_time);
+                redis_twin->writeSingleResult(
+                    queued.task_id, "FAILED", wasted_s, 0.0, "RSU_DEADLINE_EXPIRED_IN_QUEUE");
+            }
+
             // Send failure notification to vehicle
-            sendTaskResultToVehicle(queued.task_id, queued.vehicle_id, queued.vehicle_mac, 
+            sendTaskResultToVehicle(queued.task_id, queued.vehicle_id, queued.vehicle_mac,
                                    queued.ingress_rsu_mac, false, 0.0);
             continue;  // Skip to next queued task
         }
