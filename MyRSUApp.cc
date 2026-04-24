@@ -311,7 +311,7 @@ void MyRSUApp::initialize(int stage) {
             redis_host = par("redisHost").stdstringValue();
             redis_port = par("redisPort").intValue();
             redis_db = par("redisDb").intValue();
-            // If unset or invalid, default to RSU index so each RSU gets its own DB.
+            // If unset or invalid, map RSU 0/1/2 to Redis DB 4/5/6.
             if (redis_db < 0) {
                 redis_db = rsu_id;
             }

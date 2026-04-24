@@ -3346,16 +3346,18 @@ void PayloadVehicleApp::handleOffloadingDecisionFromRSU(veins::OffloadingDecisio
         "\"decision_type\":\"" + decisionType + "\","
         "\"rsu_sender_mac\":\"" + std::to_string(msg->getSenderAddress()) + "\"}");
     
+    // Cache any shadow-evaluation payload before executing the real decision
+    // because some execution branches may consume or delete the task.
+    const std::string agentDec = msg->getAgentDecisions();
+    const LAddress::L2Type dispatchRsuMac = msg->getSenderAddress();
+    if (!agentDec.empty()) {
+        std::cout << "TV_BASELINE_DISPATCH: task=" << taskId
+                  << " agentDec=[" << agentDec << "]" << std::endl;
+        dispatchBaselineSubTasks(task, agentDec, dispatchRsuMac);
+    }
+
     // Execute the real DDQN decision
     executeOffloadingDecision(task, msg);
-
-    // Dispatch baseline agent sub-tasks (non-DDQN agents)
-    std::string agentDec = msg->getAgentDecisions();
-    std::cout << "TV_BASELINE_DISPATCH: task=" << task->task_id
-              << " agentDec=[" << agentDec << "]" << std::endl;
-    if (!agentDec.empty()) {
-        dispatchBaselineSubTasks(task, agentDec, msg->getSenderAddress());
-    }
 
     delete msg;
 }

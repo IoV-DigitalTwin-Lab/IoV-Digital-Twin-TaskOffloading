@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CTRL_PID=""
+SUMO_CFG_BACKUP=""
 
 build_cpp_controller() {
   local ctrl_bin="$SCRIPT_DIR/external_controller_cpp"
@@ -46,8 +47,113 @@ cleanup() {
     kill "$CTRL_PID" 2>/dev/null || true
     wait "$CTRL_PID" 2>/dev/null || true
   fi
+
+  if [ -n "$SUMO_CFG_BACKUP" ] && [ -f "$SUMO_CFG_BACKUP" ]; then
+    cp "$SUMO_CFG_BACKUP" "$SCRIPT_DIR/erlangen.sumo.cfg"
+  fi
 }
 trap cleanup EXIT INT TERM
+
+configure_runtime_traffic() {
+  local traffic_scale="${TRAFFIC_SCALE:-1}"
+  local flow_period_override="${FLOW_PERIOD:-}"
+  local initial_scale="${INITIAL_VEHICLE_SCALE:-$traffic_scale}"
+
+  if [ "$traffic_scale" = "1" ] && [ -z "$flow_period_override" ] && [ "$initial_scale" = "1" ]; then
+    return 0
+  fi
+
+  local runtime_dir="$SCRIPT_DIR/.runtime"
+  local route_in="$SCRIPT_DIR/erlangen.rou.xml"
+  local route_out="$runtime_dir/erlangen.runtime.rou.xml"
+  local cfg_out="$runtime_dir/erlangen.runtime.sumo.cfg"
+  local cfg_in="$SCRIPT_DIR/erlangen.sumo.cfg"
+  local cfg_backup="$runtime_dir/erlangen.sumo.cfg.bak"
+
+  mkdir -p "$runtime_dir"
+
+  python3 - "$route_in" "$route_out" "$cfg_in" "$cfg_out" \
+    "$traffic_scale" "$flow_period_override" "$initial_scale" <<'PY'
+import copy
+import math
+import sys
+import xml.etree.ElementTree as ET
+
+route_in, route_out, cfg_in, cfg_out, traffic_scale_raw, flow_period_raw, initial_scale_raw = sys.argv[1:8]
+
+traffic_scale = float(traffic_scale_raw)
+initial_scale = float(initial_scale_raw)
+flow_period_override = float(flow_period_raw) if flow_period_raw else None
+
+if traffic_scale <= 0 or initial_scale <= 0:
+    raise SystemExit("TRAFFIC_SCALE and INITIAL_VEHICLE_SCALE must be > 0")
+
+route_tree = ET.parse(route_in)
+route_root = route_tree.getroot()
+
+vehicles = [elem for elem in route_root.findall("vehicle")]
+flows = [elem for elem in route_root.findall("flow")]
+
+keep_count = max(1, int(round(len(vehicles) * initial_scale))) if vehicles else 0
+new_vehicle_elems = []
+
+for idx in range(keep_count):
+    src = vehicles[idx % len(vehicles)]
+    elem = copy.deepcopy(src)
+    if idx >= len(vehicles):
+        base_depart = float(elem.get("depart", "0"))
+        elem.set("id", f"{src.get('id', 'v')}_x{idx}")
+        elem.set("depart", f"{base_depart + 0.01 * (idx - len(vehicles) + 1):.2f}")
+    new_vehicle_elems.append(elem)
+
+for elem in vehicles:
+    route_root.remove(elem)
+
+insert_at = 0
+for idx, elem in enumerate(list(route_root)):
+    if elem.tag == "vehicle":
+        insert_at = idx
+        break
+    insert_at = idx + 1
+
+for offset, elem in enumerate(new_vehicle_elems):
+    route_root.insert(insert_at + offset, elem)
+
+for flow in flows:
+    if flow_period_override is not None:
+        new_period = flow_period_override
+    else:
+        base_period = float(flow.get("period", "1"))
+        new_period = max(1.0, base_period / traffic_scale)
+    flow.set("period", f"{new_period:.6f}".rstrip("0").rstrip("."))
+
+route_tree.write(route_out, encoding="utf-8", xml_declaration=True)
+
+cfg_tree = ET.parse(cfg_in)
+cfg_root = cfg_tree.getroot()
+input_node = cfg_root.find("input")
+if input_node is None:
+    raise SystemExit("SUMO config missing <input> section")
+
+for child in input_node:
+    if child.tag == "route-files":
+        child.set("value", route_out)
+
+cfg_tree.write(cfg_out, encoding="utf-8", xml_declaration=True)
+PY
+
+  cp "$cfg_in" "$cfg_backup"
+  cp "$cfg_out" "$cfg_in"
+  SUMO_CFG_BACKUP="$cfg_backup"
+
+  echo "Traffic scaling enabled:"
+  echo "  TRAFFIC_SCALE=${traffic_scale}"
+  echo "  INITIAL_VEHICLE_SCALE=${initial_scale}"
+  if [ -n "$flow_period_override" ]; then
+    echo "  FLOW_PERIOD=${flow_period_override}"
+  fi
+  echo "  Runtime route file: $route_out"
+}
 
 pick_first_dir() {
   for cand in "$@"; do
@@ -158,6 +264,8 @@ fi
 export SUMO_HOME="${SUMO_HOME:-/usr/share/sumo}"
 
 cd "$SCRIPT_DIR"
+
+configure_runtime_traffic
 
 RUN_CONFIG="$(extract_config_name "$@")"
 AUTO_CONTROLLER="${DT2_AUTO_CONTROLLER:-1}"
