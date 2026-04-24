@@ -1036,6 +1036,16 @@ void PayloadVehicleApp::scheduleNextTaskGeneration(TaskType type, cMessage* even
     }
 }
 
+std::string PayloadVehicleApp::canonicalVehicleId() const {
+    if (mobility) {
+        const std::string external_id = mobility->getExternalId();
+        if (!external_id.empty()) {
+            return external_id;
+        }
+    }
+    return std::to_string(getParentModule()->getIndex());
+}
+
 void PayloadVehicleApp::generateTask(TaskType type) {
     EV_INFO << "\n" << endl;
     EV_INFO << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
@@ -1043,7 +1053,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     EV_INFO << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
 
     // Create task from TaskProfile (nominal values)
-    std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+    std::string vehicle_id = canonicalVehicleId();
     Task* task = Task::createFromProfile(type, vehicle_id, task_sequence_number++);
 
     // -------------------------------------------------------------------------
@@ -2596,9 +2606,8 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     VehicleResourceStatusMessage* statusMsg = new VehicleResourceStatusMessage();
     
     // Vehicle identification
-    std::ostringstream veh_id;
-    veh_id << getParentModule()->getIndex();
-    statusMsg->setVehicle_id(veh_id.str().c_str());
+    const std::string vehicle_id = canonicalVehicleId();
+    statusMsg->setVehicle_id(vehicle_id.c_str());
     
     // Position and speed
     statusMsg->setPos_x(pos.x);
@@ -2705,7 +2714,7 @@ void PayloadVehicleApp::exportRouteProgressToRedis() {
         return;
     }
 
-    const std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+    const std::string vehicle_id = canonicalVehicleId();
     routeProgressRedisClient->updateVehicleRouteProgress(vehicle_id, simTime().dbl(), edge_id, lane_pos_m);
 }
 
@@ -2733,7 +2742,7 @@ void PayloadVehicleApp::sendObjectDetectionData(const Task* task) {
 
 void PayloadVehicleApp::handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg) {
     std::string sender_id = msg->getVehicle_id();
-    std::string self_id = std::to_string(getParentModule()->getIndex());
+    std::string self_id = canonicalVehicleId();
 
     if (sender_id == self_id) {
         delete msg;
