@@ -108,6 +108,9 @@ public:
     // Returns empty map if key not found.
     std::map<std::string, std::string> getSingleDecision(const std::string& task_id);
 
+    // Read the original decision type for a specific agent from multi-agent task:{task_id}:decisions
+    std::string getAgentDecisionType(const std::string& task_id, const std::string& agent_name);
+
     // Write single-agent execution result to task:{task_id}:result
     // status: "COMPLETED_ON_TIME" | "FAILED"
     // fail_reason: "NONE" | "DEADLINE_MISSED" | "RSU_QUEUE_FULL" |

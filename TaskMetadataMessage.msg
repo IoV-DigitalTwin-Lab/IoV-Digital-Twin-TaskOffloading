@@ -110,6 +110,13 @@ packet VehicleResourceStatusMessage extends BaseFrame1609_4 {
     double battery_capacity_mAh; // Battery capacity (mAh)
     double energy_task_j_total;  // Cumulative task-related energy (J)
     double energy_task_j_last;   // Last task-related energy charge (J)
+
+    // Static/Semi-static metadata for RSU->Postgres sync
+    string vehicle_type;         // Manufacturer/model family label
+    double tx_power_mw;          // Current TX power (mW)
+    double storage_capacity_gb;  // Storage capacity (GB)
+    uint32_t max_queue_size;     // Max pending queue size
+    uint32_t max_concurrent_tasks; // Max concurrent processing tasks
     
     // Task Queue Status
     uint32_t tasks_generated;    // Total tasks generated
@@ -155,6 +162,8 @@ packet OffloadingRequestMessage extends BaseFrame1609_4 {
     
     // Local Decision Recommendation
     string local_decision;               // "LOCAL", "OFFLOAD", or "REJECT"
+    string initial_gate_classification;  // "MUST_OFFLOAD", "MUST_LOCAL", "BOTH_FEASIBLE", "INFEASIBLE"
+    string initial_gate_reason;          // Detailed Gate A/B reason
     
     // Ranked RSU Candidates (for redirect support)
     uint64_t candidate_rsu_macs[];       // Ordered list of candidate RSU MAC addresses (best to worst)

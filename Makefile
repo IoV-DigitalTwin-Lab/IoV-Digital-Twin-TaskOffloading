@@ -2,7 +2,7 @@
 # OMNeT++/OMNEST Makefile for IoV-Digital-Twin-TaskOffloading
 #
 # This file was generated with the command:
-#  opp_makemake -f --deep -O out -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -DINET_IMPORT -DVEINS_IMPORT -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\) -lINET$$\(D\) -lveins$$\(D\) -Xcurl -Xdb -X.venv -XTask-Offloading-Algorithm
+#  opp_makemake -f --deep -O out -e cc -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -KINET4_5_PROJ=../inet4.5 -KVEINS_PROJ=/opt/omnet/veins -DINET_IMPORT -DVEINS_IMPORT -DINET_IMPORT -DVEINS_IMPORT -I. -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -I$$\(INET4_5_PROJ\)/src -I$$\(VEINS_PROJ\)/src -Isrc -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -L$$\(INET4_5_PROJ\)/src -L$$\(VEINS_PROJ\)/src -lINET$$\(D\) -lveins$$\(D\) -lINET$$\(D\) -lveins$$\(D\) -Xcurl -Xdb -X.venv -XTask-Offloading-Algorithm -Xlogs
 #
 
 # Name of target to be created (-o option)
@@ -41,8 +41,8 @@ O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 # Object files for local .cc, .msg and .sm files
 OBJS = \
     $O/EnergyModel.o \
-	$O/FuturePositionPredictor.o \
-	$O/LinkRateModel.o \
+    $O/FuturePositionPredictor.o \
+    $O/LinkRateModel.o \
     $O/MetricsManager.o \
     $O/MyRSUApp.o \
     $O/PayloadVehicleApp.o \

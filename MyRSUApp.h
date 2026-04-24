@@ -49,6 +49,13 @@ struct VehicleDigitalTwin {
     double battery_capacity_mAh = 0.0;
     double energy_task_j_total = 0.0;
     double energy_task_j_last = 0.0;
+
+    // Vehicle metadata synced from periodic beacons
+    std::string vehicle_type;
+    double tx_power_mw = 0.0;
+    double storage_capacity_gb = 128.0;
+    uint32_t max_queue_size = 50;
+    uint32_t max_concurrent_tasks = 4;
     
     double tx_power = 0.0;
     double reservation_ratio = 0.0;
@@ -106,6 +113,8 @@ struct TaskRecord {
     
     // Decision tracking (for database polling)
     bool decision_sent = false;  // Flag to avoid re-sending decisions from DB
+    bool decision_poll_miss_logged = false;
+    int decision_poll_miss_count = 0;
 };
 
 /**
@@ -349,6 +358,8 @@ private:
         LAddress::L2Type vehicle_mac;
         double request_time;
         std::string local_decision;
+        std::string initial_gate_classification;
+        std::string initial_gate_reason;
         
         // Task characteristics
         uint64_t mem_footprint_bytes;  // working memory on processing entity
@@ -380,7 +391,9 @@ private:
     
     // ML-based decision engine
     veins::OffloadingDecisionMessage* makeOffloadingDecision(const OffloadingRequest& request);
-    std::string selectBestServiceVehicle(const OffloadingRequest& request) const;
+    std::string selectBestServiceVehicle(const OffloadingRequest& request,
+                                         double* outPredictedSeconds = nullptr,
+                                         std::string* outReason = nullptr) const;
     double estimateDirectLinkRssiDbm(double distanceMeters) const;
     
     // RSU task processing (edge server)
@@ -471,6 +484,7 @@ private:
     PGconn* db_conn = nullptr;
     std::string db_conninfo;
     int rsu_id = 0;
+    bool use_postgres = true;
     
     // ============================================================================
     // REDIS DIGITAL TWIN INTEGRATION
@@ -545,6 +559,10 @@ private:
     void insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
                               const std::string& source, const std::string& target,
                               const std::string& details = "{}");
+    void updateTaskStaticTraceFromEvent(const std::string& task_id,
+                                        const std::string& event_type,
+                                        double event_time,
+                                        const std::string& details);
     void insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
                                        const std::string& decision_type, const std::string& processor_id,
                                        double request_time, double decision_time, double start_time, 

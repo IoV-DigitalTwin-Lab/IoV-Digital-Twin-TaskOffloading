@@ -65,6 +65,7 @@ public:
     bool must_offload_tag = false;    // Stage 1 rule tag: force offload
     bool gpu_required_tag = false;    // Stage 2 rule tag: requires edge acceleration
     bool cooperation_required_tag = false; // Stage 2 rule tag: requires cooperative processing
+    std::string failure_reason;       // Failure cause to persist in logs/DB
     
     // Processing State
     TaskState state;                  // Current task state

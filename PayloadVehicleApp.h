@@ -19,7 +19,6 @@
 #include <map>
 
 namespace complex_network {
-
 class PayloadVehicleApp : public veins::DemoBaseApplLayer {
 protected:
     virtual void initialize(int stage) override;
@@ -38,6 +37,7 @@ private:
     double flocHz_max = 0.0;         // Maximum CPU capacity (Hz)
     double flocHz_available = 0.0;   // Current available CPU capacity (Hz)
     double txPower_mW = 0.0;         // mW
+    double storage_capacity_gb = 128.0; // Storage capacity (GB)
     double speed = 0.0;              // Vehicle speed
     double prev_speed = 0.0;         // Previous speed for acceleration calculation
     double acceleration = 0.0;       // Current acceleration (m/s^2)
@@ -61,6 +61,7 @@ private:
     double memory_MB_max = 0.0;          // Maximum memory capacity (MB)
     double memory_MB_available = 0.0;    // Current available memory (MB)
     double memoryUsageFactor = 0.0;      // Current memory usage (0.0-1.0)
+    std::string vehicle_type = "";       // Manufacturer label for metadata tracking
     
     // ============================================================================
     // TASK PROCESSING SYSTEM (New for Digital Twin Design)
@@ -92,6 +93,7 @@ private:
     size_t max_queue_size = 50;               // Maximum pending tasks
     size_t max_concurrent_tasks = 4;          // Maximum parallel execution
     double min_cpu_guarantee = 0.1;           // 10% of allocable per task
+    double cpuConcurrencyCompletionThreshold = 0.8; // Tasks >= threshold progress are excluded from cpu_available concurrency count
     
     // Task Statistics
     uint64_t task_sequence_number = 0;        // For unique task IDs
@@ -157,6 +159,10 @@ private:
     double estimateLocalServiceTime(Task* task) const; // Estimate local execution time for a task
     double estimateLocalQueueWait(Task* task) const; // Estimate wait from tasks ahead in queue
     void updateLocalServiceTimeEstimate(Task* task, double actual_service_time_sec); // EWMA update
+    double calculateTaskCompletionFraction(const Task* task) const; // Execution progress in [0, 1]
+    size_t countCpuAvailableConcurrency() const; // Count processing tasks below completion threshold
+    double calculateReportedCpuAvailable() const; // F_allocable / (concurrent + 1)
+    double calculateTaskCpuUtilization() const; // Fraction of allocable CPU currently assigned to tasks
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
@@ -305,6 +311,7 @@ private:
     
     void handleServiceTaskRequest(veins::TaskOffloadPacket* msg);
     void processServiceTask(Task* task);
+    double getServiceCpuPoolHz() const;
     // Divide service-reserved CPU equally among all concurrent service tasks
     // and reschedule each completion event, mirroring reallocateCPUResources().
     void reallocateServiceCPUResources();

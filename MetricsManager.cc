@@ -4,6 +4,13 @@
 #include <fstream>
 #include <cmath>
 
+namespace {
+uint32_t effectiveGeneratedCount(const MetricsManager::TaskTypeMetrics& metrics) {
+    const uint32_t observed = metrics.completed_on_time + metrics.completed_late + metrics.failed;
+    return std::max(metrics.generated, observed);
+}
+}
+
 MetricsManager& MetricsManager::getInstance() {
     static MetricsManager instance;
     return instance;
@@ -53,11 +60,14 @@ void MetricsManager::recordTaskCompletion(TaskType type,
     }
     
     // Recompute aggregates
-    uint32_t completed = metrics.completed_on_time + metrics.completed_late;
-    if (metrics.generated > 0) {
-        metrics.completion_rate = (double)completed / metrics.generated;
-        metrics.on_time_rate = (double)metrics.completed_on_time / metrics.generated;
-        metrics.deadline_miss_rate = (double)(metrics.completed_late + metrics.failed) / metrics.generated;
+    const uint32_t completed = metrics.completed_on_time + metrics.completed_late;
+    const uint32_t effective_generated = effectiveGeneratedCount(metrics);
+    if (effective_generated > 0) {
+        metrics.completion_rate = static_cast<double>(completed) / effective_generated;
+        metrics.on_time_rate = static_cast<double>(metrics.completed_on_time) / effective_generated;
+        metrics.deadline_miss_rate = static_cast<double>(metrics.completed_late + metrics.failed) / effective_generated;
+    }
+    if (completed > 0) {
         metrics.avg_latency_seconds = metrics.total_latency_seconds / completed;
         metrics.avg_energy_joules = metrics.total_energy_joules / completed;
     }
@@ -72,13 +82,15 @@ void MetricsManager::recordTaskFailed(TaskType type, double e2e_latency_sec) {
     auto& metrics = task_metrics[type];
     metrics.failed++;
     metrics.total_latency_seconds += e2e_latency_sec;
+    metrics.min_latency_seconds = std::min(metrics.min_latency_seconds, e2e_latency_sec);
     metrics.max_latency_seconds = std::max(metrics.max_latency_seconds, e2e_latency_sec);
     latency_history[type].push_back(e2e_latency_sec);
     
-    if (metrics.generated > 0) {
-        metrics.completion_rate = (double)(metrics.completed_on_time + metrics.completed_late) / metrics.generated;
-        metrics.on_time_rate = (double)metrics.completed_on_time / metrics.generated;
-        metrics.deadline_miss_rate = (double)(metrics.completed_late + metrics.failed) / metrics.generated;
+    const uint32_t effective_generated = effectiveGeneratedCount(metrics);
+    if (effective_generated > 0) {
+        metrics.completion_rate = static_cast<double>(metrics.completed_on_time + metrics.completed_late) / effective_generated;
+        metrics.on_time_rate = static_cast<double>(metrics.completed_on_time) / effective_generated;
+        metrics.deadline_miss_rate = static_cast<double>(metrics.completed_late + metrics.failed) / effective_generated;
     }
 }
 
@@ -107,7 +119,7 @@ MetricsManager::SystemMetrics MetricsManager::getSystemMetrics() const {
     for (const auto& [type, metrics] : task_metrics) {
         sys.total_energy_all_tasks += metrics.total_energy_joules;
         sys.total_latency_all_tasks += metrics.total_latency_seconds;
-        sys.total_tasks_generated += metrics.generated;
+        sys.total_tasks_generated += effectiveGeneratedCount(metrics);
         sys.total_tasks_completed += (metrics.completed_on_time + metrics.completed_late);
     }
     
@@ -219,8 +231,9 @@ void MetricsManager::printTaskMetricsTable() const {
     std::cout << std::string(90, '-') << std::endl;
     
     for (const auto& [type, metrics] : task_metrics) {
+        const uint32_t effective_generated = effectiveGeneratedCount(metrics);
         std::cout << std::setw(30) << taskTypeName(type)
-                  << std::setw(12) << metrics.generated
+                  << std::setw(12) << effective_generated
                   << std::setw(12) << metrics.completed_on_time
                   << std::setw(12) << metrics.completed_late
                   << std::setw(12) << metrics.failed
@@ -316,9 +329,10 @@ void MetricsManager::exportToCSV(const std::string& filename) const {
     for (const auto& [type, metrics] : task_metrics) {
         auto breakdown = getEnergyBreakdown(type);
         auto percentiles = getLatencyPercentiles(type);
+        const uint32_t effective_generated = effectiveGeneratedCount(metrics);
         
         csv << taskTypeName(type) << ","
-            << metrics.generated << ","
+            << effective_generated << ","
             << metrics.completed_on_time << ","
             << metrics.completed_late << ","
             << metrics.failed << ","
