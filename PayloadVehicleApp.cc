@@ -1036,16 +1036,6 @@ void PayloadVehicleApp::scheduleNextTaskGeneration(TaskType type, cMessage* even
     }
 }
 
-std::string PayloadVehicleApp::canonicalVehicleId() const {
-    if (mobility) {
-        const std::string external_id = mobility->getExternalId();
-        if (!external_id.empty()) {
-            return external_id;
-        }
-    }
-    return std::to_string(getParentModule()->getIndex());
-}
-
 void PayloadVehicleApp::generateTask(TaskType type) {
     EV_INFO << "\n" << endl;
     EV_INFO << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
@@ -1053,7 +1043,7 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     EV_INFO << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
 
     // Create task from TaskProfile (nominal values)
-    std::string vehicle_id = canonicalVehicleId();
+    std::string vehicle_id = std::to_string(getParentModule()->getIndex());
     Task* task = Task::createFromProfile(type, vehicle_id, task_sequence_number++);
 
     // -------------------------------------------------------------------------
@@ -2606,8 +2596,9 @@ void PayloadVehicleApp::sendResourceStatusToRSU() {
     VehicleResourceStatusMessage* statusMsg = new VehicleResourceStatusMessage();
     
     // Vehicle identification
-    const std::string vehicle_id = canonicalVehicleId();
-    statusMsg->setVehicle_id(vehicle_id.c_str());
+    std::ostringstream veh_id;
+    veh_id << getParentModule()->getIndex();
+    statusMsg->setVehicle_id(veh_id.str().c_str());
     
     // Position and speed
     statusMsg->setPos_x(pos.x);

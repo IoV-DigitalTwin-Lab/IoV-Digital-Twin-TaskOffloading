@@ -167,7 +167,6 @@ private:
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
     void applyTaskEnergyDrain(double energy_joules, const std::string& source);
-    std::string canonicalVehicleId() const; // Prefer SUMO/TraCI vehicle ID over OMNeT module index
     void exportRouteProgressToRedis();       // Export minimal route anchor for external predictor
 
     // Route-progress Redis export (separate from heartbeat)
