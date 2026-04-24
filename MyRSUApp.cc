@@ -683,6 +683,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         }
                         
                         record.decision_sent = true;
+                        result_awaiting_[record.task_id] = simTime();
                         decided.push_back(tid);  // remove from pending after decision sent
                         decisions_sent++;
 
@@ -705,7 +706,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                             redis_twin->writeSingleResult(
                                 record.task_id, "FAILED", wasted_s, 0.0, "VEHICLE_DEPARTED");
                         }
-                        // MAC not found — drop from pending so we don't retry forever
+                        // MAC not found — drop from pending so we don't retry forever.
+                        // Mark decision_sent so the periodic GC can reclaim the record.
+                        record.decision_sent = true;
                         decided.push_back(tid);
                     }
                 } else {
@@ -717,6 +720,22 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                             "\"miss_count\":" + std::to_string(record.decision_poll_miss_count) + ","
                             "\"source\":\"" + ((redis_twin && use_redis) ? "REDIS" : "POSTGRES") + "\"}");
                         record.decision_poll_miss_logged = true;
+                    }
+                    // 600 misses * 50ms timer interval = 30 sim-seconds — matches Python's
+                    // REDIS_RESULT_TIMEOUT so C++ gives up exactly when Python does.
+                    // Write FAILED so any in-flight Python watcher gets a definitive answer
+                    // and drop the task from pending to prevent unbounded polling.
+                    if (record.decision_poll_miss_count >= 600) {
+                        if (redis_twin && use_redis) {
+                            double wasted_s = std::max(0.0, simTime().dbl() - record.received_time);
+                            redis_twin->writeSingleResult(
+                                record.task_id, "FAILED", wasted_s, 0.0, "DECISION_POLL_EXHAUSTED");
+                        }
+                        insertLifecycleEvent(record.task_id, "DECISION_POLL_EXHAUSTED",
+                            "RSU_" + std::to_string(rsu_id), record.vehicle_id,
+                            std::string("{\"miss_count\":") + std::to_string(record.decision_poll_miss_count) + "}");
+                        record.decision_sent = true;
+                        decided.push_back(tid);
                     }
                 }
             }  // end scoped decision-logic block
@@ -746,14 +765,54 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
             }
         }
 
+        // Sweep sv_subtask_pending_: SV agent subtasks that never returned a result
+        // (SV unreachable, out of range, or message dropped).
+        if (redis_twin && use_redis) {
+            for (auto it = sv_subtask_pending_.begin(); it != sv_subtask_pending_.end(); ) {
+                if ((simTime() - it->second).dbl() > sv_subtask_timeout_s) {
+                    EV_WARN << "[TIMEOUT] SV subtask " << it->first
+                            << " timed out after " << sv_subtask_timeout_s << "s" << endl;
+                    redis_twin->writeSingleResult(
+                        it->first, "FAILED", sv_subtask_timeout_s, 0.0, "SV_RESULT_TIMEOUT");
+                    it = sv_subtask_pending_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            // Sweep result_awaiting_: regular offloaded tasks whose completion/failure
+            // message was never received (vehicle drove out of RSU range, message lost).
+            for (auto it = result_awaiting_.begin(); it != result_awaiting_.end(); ) {
+                if ((simTime() - it->second).dbl() > result_awaiting_timeout_s) {
+                    auto recIt = task_records.find(it->first);
+                    const bool already_resolved = (recIt != task_records.end())
+                                                  && (recIt->second.completed || recIt->second.failed);
+                    if (!already_resolved) {
+                        EV_WARN << "[TIMEOUT] Task " << it->first
+                                << " result never received after " << result_awaiting_timeout_s
+                                << "s — writing FAILED to Redis" << endl;
+                        std::cout << "RESULT_LOST: task=" << it->first
+                                  << " no completion/failure from vehicle in "
+                                  << result_awaiting_timeout_s << "s" << std::endl;
+                        double waited = (simTime() - it->second).dbl();
+                        redis_twin->writeSingleResult(
+                            it->first, "FAILED", waited, 0.0, "RESULT_NEVER_RECEIVED");
+                    }
+                    it = result_awaiting_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
         if (decisions_found > 0) {
             EV_INFO << "📊 Decision poll: " << decisions_found << " found, "
                     << decisions_sent << " sent" << endl;
         }
 
-        // Reschedule only while decisions are pending. New metadata arrivals
-        // will re-arm the timer, so we avoid unnecessary high-frequency polling.
-        if (!pending_decision_ids_.empty()) {
+        // Keep alive while decisions are pending OR while awaiting execution results.
+        // New metadata arrivals will re-arm the timer if it has stopped.
+        if (!pending_decision_ids_.empty() || !result_awaiting_.empty() || !sv_subtask_pending_.empty()) {
             scheduleAt(simTime() + 0.05, checkDecisionMsg);
         }
 
@@ -2097,6 +2156,7 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
     if (it != task_records.end()) {
         TaskRecord& record = it->second;
         record.completed = true;
+        result_awaiting_.erase(task_id);
         record.completion_time = msg->getCompletion_time();
         record.processing_time = msg->getProcessing_time();
         record.completed_on_time = msg->getCompleted_on_time();
@@ -2140,6 +2200,23 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
                           << " type=" << msg->getTask_type_name()
                           << " status=" << (record.completed_on_time ? "COMPLETED_ON_TIME" : "FAILED")
                           << std::endl;
+
+                // This task was in the offload flow (task_records entry exists), so the DRL
+                // has it in pending{} and is polling task:{id}:result.  Write the result now
+                // so the DRL gets an answer instead of timing out after 30 s.
+                // This covers local fallbacks that didn't call sendTaskFailureToRSU first
+                // (SV_INVALID, REDIRECT_EXHAUSTED, gate-A RSSI override, etc.).
+                redis_twin->writeSingleResult(
+                    task_id,
+                    record.completed_on_time ? "COMPLETED_ON_TIME" : "FAILED",
+                    latency,
+                    0.0,
+                    fail_reason
+                );
+                std::cout << "LOCAL_FALLBACK_RESULT: task=" << task_id
+                          << " written to task:result for DRL"
+                          << " status=" << (record.completed_on_time ? "COMPLETED_ON_TIME" : "FAILED")
+                          << " reason=" << fail_reason << std::endl;
             }
         }
 
@@ -2182,6 +2259,18 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
                       << " latency=" << latency << "s"
                       << std::endl;
         } else {
+            // Offloaded task whose record was GC'd after 120s. Write result to Redis
+            // so the DRL's pending{} entry resolves instead of timing out.
+            if (redis_twin && use_redis) {
+                double latency = msg->getProcessing_time();
+                bool on_time = msg->getCompleted_on_time();
+                redis_twin->writeSingleResult(
+                    task_id,
+                    on_time ? "COMPLETED_ON_TIME" : "FAILED",
+                    latency, 0.0,
+                    on_time ? "NONE" : "DEADLINE_MISSED");
+            }
+            result_awaiting_.erase(task_id);
             EV_INFO << "⚠ Task record not found for task " << task_id << endl;
             std::cout << "DT_WARNING: RSU received completion for unknown task " << task_id << std::endl;
         }
@@ -2216,6 +2305,7 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
     if (it != task_records.end()) {
         TaskRecord& record = it->second;
         record.failed = true;
+        result_awaiting_.erase(task_id);
         record.completion_time = msg->getFailure_time();
         record.failure_reason = reason;
         
@@ -2258,11 +2348,17 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
         }
         twin.last_update_time = simTime().dbl();
     } else {
-        // Expected for locally-executed tasks: the vehicle sends TaskFailureMessage for
-        // DEADLINE_MISSED and REJECTED tasks even when task_records has no entry
-        // (local tasks are never registered there).  The local result has already been
-        // written to Redis via the paired TaskCompletionMessage; this path is redundant.
-        EV_INFO << "⚠ Task failure for unregistered task (likely local): " << task_id << endl;
+        // Task record not found: either a pure-local task (never registered in task_records)
+        // or an offloaded task whose record was GC'd. Write FAILED to Redis in both cases —
+        // harmless for local tasks (Python never tracked them), necessary for GC'd offloaded
+        // tasks so the DRL pending{} entry resolves instead of hitting its 60-s timeout.
+        if (redis_twin && use_redis) {
+            double wasted = msg->getWasted_time();
+            redis_twin->writeSingleResult(task_id, "FAILED", wasted, 0.0, reason);
+        }
+        result_awaiting_.erase(task_id);
+        EV_INFO << "⚠ Task failure for unregistered task: " << task_id
+                << " reason=" << reason << endl;
     }
 
     updateDigitalTwinStatistics();
@@ -5192,6 +5288,9 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
             "RSU_" + std::to_string(rsu_id), vehicle_id,
             "{\"queue_capacity\":" + std::to_string(rsu_waiting_queue_capacity) + "}");
         rsu_tasks_rejected++;
+        if (redis_twin && use_redis) {
+            redis_twin->writeSingleResult(task_id, "FAILED", 0.0, 0.0, "RSU_QUEUE_FULL");
+        }
         sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, ingress_rsu_mac, false, 0.0);
         return;
     }
@@ -5228,6 +5327,9 @@ void MyRSUApp::processTaskOnRSU(const std::string& task_id, veins::TaskOffloadPa
             "{\"memory_required_mb\":" + std::to_string(mem_footprint_bytes / (1024.0 * 1024.0)) + ","
             "\"memory_available_mb\":" + std::to_string(getEffectiveRSUMemoryAvailable() * 1024.0) + "}");
         rsu_tasks_rejected++;
+        if (redis_twin && use_redis) {
+            redis_twin->writeSingleResult(task_id, "FAILED", 0.0, 0.0, "RSU_MEMORY_FULL");
+        }
         sendTaskResultToVehicle(task_id, vehicle_id, vehicle_mac, ingress_rsu_mac, false, 0.0);
         return;
     }

@@ -3718,6 +3718,10 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             // Fallback to local execution
             EV_INFO << "Falling back to LOCAL execution" << endl;
             if (canAcceptTask(task)) {
+                // Notify RSU immediately so it writes task:{id}:result = FAILED to Redis.
+                // Without this the DRL pending{} entry waits the full 30s timeout, because
+                // the task will complete locally and only write task:{id}:local_result.
+                sendTaskFailureToRSU(task, "SV_INVALID_LOCAL_FALLBACK");
                 if (canStartProcessing(task)) {
                     allocateResourcesAndStart(task);
                 } else {
@@ -3787,6 +3791,10 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
             
             // Fallback to local execution
             if (canAcceptTask(task)) {
+                // Notify RSU immediately so it writes task:{id}:result = FAILED to Redis.
+                // Without this the DRL pending{} entry waits the full 30s timeout, because
+                // the task will complete locally and only write task:{id}:local_result.
+                sendTaskFailureToRSU(task, "REDIRECT_EXHAUSTED_LOCAL_FALLBACK");
                 if (canStartProcessing(task)) {
                     allocateResourcesAndStart(task);
                 } else {
@@ -3797,7 +3805,7 @@ void PayloadVehicleApp::executeOffloadingDecision(Task* task, veins::OffloadingD
                         "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "SELF",
                         "{\"reason\":\"REDIRECT_EXHAUSTED_FALLBACK\"}");
                 }
-                
+
                 // Track fallback
                 if (taskTimings.find(task->task_id) != taskTimings.end()) {
                     taskTimings[task->task_id].processor_id = "VEHICLE_FALLBACK_" + std::to_string(getParentModule()->getIndex());

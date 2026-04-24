@@ -328,6 +328,14 @@ private:
     // has been pending longer than sv_subtask_timeout_s (SV unreachable / message dropped).
     std::map<std::string, simtime_t> sv_subtask_pending_;
     static constexpr double sv_subtask_timeout_s = 5.0;
+
+    // Regular offloaded tasks: task_id → simtime when decision was dispatched to vehicle.
+    // Added when record.decision_sent = true; erased when the RSU receives the result.
+    // checkDecisionMsg writes FAILED to Redis for entries older than result_awaiting_timeout_s
+    // so Python never blocks on a task whose completion message was lost (vehicle out of range,
+    // message dropped, or SV execution never returned).
+    std::map<std::string, simtime_t> result_awaiting_;
+    static constexpr double result_awaiting_timeout_s = 5.0;
     
     // Digital Twin Management Methods
     void handleTaskMetadata(TaskMetadataMessage* msg);
