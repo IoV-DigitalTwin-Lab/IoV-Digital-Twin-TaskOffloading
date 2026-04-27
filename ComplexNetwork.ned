@@ -15,8 +15,6 @@ import inet.environment.common.PhysicalEnvironment;
 import inet.physicallayer.wireless.common.obstacleloss.DielectricObstacleLoss;
 import inet.visualizer.canvas.integrated.IntegratedCanvasVisualizer;
 
-// Phase 4: Enhanced network with advanced environmental modeling and visualization
-// NOTE: Does not extend Scenario to use regular TraCIScenarioManager (supports all SUMO versions)
 network ComplexNetwork
 {
     parameters:
@@ -26,7 +24,6 @@ network ComplexNetwork
         @display("bgb=7000,7000");
         
     submodules:
-        // Veins core components (from Scenario.ned)
         obstacles: ObstacleControl {
             @display("p=240,50");
         }
@@ -43,7 +40,7 @@ network ComplexNetwork
                 playgroundSizeZ = parent.playgroundSizeZ;
                 @display("p=30,0;i=misc/globe");
         }
-        // Use regular TraCIScenarioManager (supports all SUMO API versions)
+
         manager: TraCIScenarioManagerForker {
             @display("p=512,128");
         }
@@ -53,27 +50,23 @@ network ComplexNetwork
         node[0]: Car {
         }
         
-        // INET components
+
         configurator: Ipv4NetworkConfigurator {
             @display("p=50,50;i=block/cogwheel");
         }
         
-        // Enhanced Physical environment for advanced obstacle modeling
         physicalEnvironment: PhysicalEnvironment {
             @display("p=50,150;i=misc/town;is=l");
         }
-        
-        // INET Radio Medium for advanced propagation models  
+         
         inetRadioMedium: Ieee80211ScalarRadioMedium {
             @display("p=580,50;i=misc/sun;is=l");
         }
         
-        // Vehicle Obstacle Control for dynamic vehicle-to-vehicle shadowing
         vehicleObstacles: VehicleObstacleControl {
             @display("p=50,250;i=misc/town2;is=l");
         }
         
-        // Integrated Canvas Visualizer for obstacles and communication
         visualizer: IntegratedCanvasVisualizer {
             @display("p=50,350;i=block/app2;is=l");
         }

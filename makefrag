@@ -2,11 +2,6 @@
 # Ensure libcurl is linked (needed by rsu_http_poster)
 LIBS += -L/lib/x86_64-linux-gnu -l:libcurl.so.4
 
-# PostgreSQL support (needed by MyRSUApp)
-CFLAGS += -I/home/mihiraja/.local/include
-INCLUDE_PATH += -I/home/mihiraja/postgres/src/include
-LIBS += -lpq
-
 # Hiredis (Redis C client) installed in user-local prefix
 INCLUDE_PATH += -I/home/mihiraja/.local/include
 LIBS += $(LDFLAG_LIBPATH)/home/mihiraja/.local/lib -lhiredis

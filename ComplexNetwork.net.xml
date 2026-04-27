@@ -364,7 +364,6 @@
     <edge id=":J9_1" function="internal">
         <lane id=":J9_1_0" index="0" speed="3.90" length="2.58" shape="-96.80,-198.40 -97.50,-198.30 -98.00,-198.00 -98.30,-197.50 -98.40,-196.80"/>
     </edge>
-
     <edge id="-E0" from="J1" to="J0" priority="-1">
         <lane id="-E0_0" index="0" speed="13.89" length="89.60" shape="-7.20,101.60 -96.80,101.60"/>
     </edge>
