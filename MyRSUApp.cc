@@ -825,6 +825,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 double energy_j = 2e-27 * f_hz * static_cast<double>(pending.cpu_cycles);
 
                 double total_latency = pending.exec_time_s;
+                if (task_records.count(orig_id)) {
+                    total_latency = std::max(0.0, simTime().dbl() - task_records.at(orig_id).created_time);
+                }
                 std::string status = "COMPLETED_ON_TIME";
                 if (task_records.count(orig_id)) {
                     double deadline = task_records.at(orig_id).deadline_seconds;
@@ -850,6 +853,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
             // Write DDQN metrics for real task completed on RSU
             if (redis_twin && use_redis) {
                 double total_latency = pending.exec_time_s;
+                if (task_records.count(task_id)) {
+                    total_latency = std::max(0.0, simTime().dbl() - task_records.at(task_id).created_time);
+                }
                 std::string ddqn_status = "COMPLETED_ON_TIME";
                 if (task_records.count(task_id)) {
                     double deadline = task_records.at(task_id).deadline_seconds;
