@@ -32,6 +32,7 @@ private:
     veins::LAddress::L2Type myMacAddress;  // Store our own MAC address
     bool messageSent = false;              // To send only once
     bool motionChannelOnly = false;        // Secondary DT mode: mobility + channel only
+    bool terminalVerboseLogs = false; 
     
     // Vehicle data members (similar to VehicleApp)
     double flocHz_max = 0.0;         // Maximum CPU capacity (Hz)

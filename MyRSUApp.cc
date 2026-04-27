@@ -129,6 +129,15 @@ bool parseServiceResultRelayHint(const std::string& payload, LAddress::L2Type& t
     return true;
 }
 
+bool shouldAlwaysPrintLifecycleEvent(const std::string& eventType) {
+    return eventType.find("FAIL") != std::string::npos
+        || eventType.find("TIMEOUT") != std::string::npos
+        || eventType.find("REJECT") != std::string::npos
+        || eventType.find("DROPPED") != std::string::npos
+        || eventType.find("ERROR") != std::string::npos
+        || eventType.find("LOST") != std::string::npos;
+}
+
 std::string extractCanonicalVehicleId(const std::string& id) {
     if (id.rfind("SV_", 0) == 0) {
         return id.substr(3);
@@ -247,6 +256,7 @@ void MyRSUApp::initialize(int stage) {
         edgeMemory_GB = par("edgeMemory_GB").doubleValue();
         maxVehicles = par("maxVehicles").intValue();
         processingDelay_ms = par("processingDelay_ms").doubleValue();
+        terminalVerboseLogs = hasPar("terminalVerboseLogs") ? par("terminalVerboseLogs").boolValue() : false;
         directLinkTxPower_mW = par("directLinkTxPower_mW").doubleValue();
         directLinkCarrierFrequency_Hz = par("directLinkCarrierFrequency_Hz").doubleValue();
         directLinkAntennaHeight_m = par("directLinkAntennaHeight_m").doubleValue();
@@ -319,8 +329,10 @@ void MyRSUApp::initialize(int stage) {
             if (redis_twin->isConnected()) {
                 EV_INFO << "✓ Redis Digital Twin connected at " << redis_host << ":" << redis_port
                         << " db=" << redis_db << std::endl;
-                std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected (db="
-                          << redis_db << ")" << std::endl;
+                if (terminalVerboseLogs) {
+                    std::cout << "✓ RSU[" << rsu_id << "] Redis Digital Twin connected (db="
+                              << redis_db << ")" << std::endl;
+                }
             } else {
                 EV_WARN << "✗ Redis connection failed, continuing without digital twin" << std::endl;
                 std::cerr << "⚠ RSU[" << rsu_id << "] Redis connection failed" << std::endl;
@@ -333,7 +345,9 @@ void MyRSUApp::initialize(int stage) {
         if (rsu_id == 0 && redis_twin && use_redis) {
             std::string offload_mode_str = par("offloadMode").stdstringValue();
             redis_twin->writeSimConfig(offload_mode_str);
-            std::cout << "RSU[0] sim:offload_mode=" << offload_mode_str << " written to Redis" << std::endl;
+            if (terminalVerboseLogs) {
+                std::cout << "RSU[0] sim:offload_mode=" << offload_mode_str << " written to Redis" << std::endl;
+            }
         }
 
         // Insert RSU metadata (static info) once at initialization
@@ -373,13 +387,15 @@ void MyRSUApp::initialize(int stage) {
         // Initialize decision checker lazily when the first task metadata arrives.
         checkDecisionMsg = nullptr;
         
-        std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName() 
-                  << " initialized with edge resources:" << std::endl;
-        std::cout << "  - RSU ID: " << rsu_id << std::endl;
-        std::cout << "  - CPU: " << edgeCPU_GHz << " GHz" << std::endl;
-        std::cout << "  - Memory: " << edgeMemory_GB << " GB" << std::endl;
-        std::cout << "  - Max Vehicles: " << maxVehicles << std::endl;
-        std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
+        if (terminalVerboseLogs) {
+            std::cout << "CONSOLE: MyRSUApp " << getParentModule()->getFullName()
+                      << " initialized with edge resources:" << std::endl;
+            std::cout << "  - RSU ID: " << rsu_id << std::endl;
+            std::cout << "  - CPU: " << edgeCPU_GHz << " GHz" << std::endl;
+            std::cout << "  - Memory: " << edgeMemory_GB << " GB" << std::endl;
+            std::cout << "  - Max Vehicles: " << maxVehicles << std::endl;
+            std::cout << "  - Base Processing Delay: " << processingDelay_ms << " ms" << std::endl;
+        }
         
         double interval = par("beaconInterval").doubleValue();
 
@@ -527,8 +543,10 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         record.decision_poll_miss_logged = false;
                         EV_INFO << "✓ Single-agent decision for task " << record.task_id
                                 << ": type=" << decision_type << " target=" << target_id << endl;
-                        std::cout << "ML_DECISION: Task " << record.task_id
-                                  << " -> " << decision_type << " target=" << target_id << std::endl;
+                        if (terminalVerboseLogs) {
+                            std::cout << "ML_DECISION: Task " << record.task_id
+                                      << " -> " << decision_type << " target=" << target_id << std::endl;
+                        }
                         } else {
                         auto multi = redis_twin->getMultiAgentDecisions(record.task_id);
                         if (!multi.empty() && multi.count("ddqn_type")) {
@@ -542,9 +560,11 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                             agentDecisionsPayload = multi.count("agents") ? multi.at("agents") : "";
                             EV_INFO << "✓ Multi-agent DDQN decision for task " << record.task_id
                                 << ": type=" << decision_type << " target=" << target_id << endl;
-                            std::cout << "ML_DECISION: Task " << record.task_id
-                                  << " -> " << decision_type << " target=" << target_id
-                                  << " [compat:task:{id}:decisions]" << std::endl;
+                            if (terminalVerboseLogs) {
+                                std::cout << "ML_DECISION: Task " << record.task_id
+                                          << " -> " << decision_type << " target=" << target_id
+                                          << " [compat:task:{id}:decisions]" << std::endl;
+                            }
                         }
                     }
                     // When Redis is active, only use single-agent decision.
@@ -1021,7 +1041,9 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
         return;
     }
     
-    std::cout << "CONSOLE: MyRSUApp - ✓ Message IS DemoSafetyMessage" << std::endl;
+    if (terminalVerboseLogs) {
+        std::cout << "CONSOLE: MyRSUApp - ✓ Message IS DemoSafetyMessage" << std::endl;
+    }
     
     // Shadowing diagnostics intentionally muted to avoid high-volume console noise.
     
@@ -1029,15 +1051,19 @@ void MyRSUApp::onWSM(BaseFrame1609_4* wsm) {
     const char* nm = dsm->getName();
     std::string payload = nm ? std::string(nm) : std::string();
     
-    std::cout << "CONSOLE: MyRSUApp - Raw payload length: " << payload.length() << std::endl;
-    std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
+    if (terminalVerboseLogs) {
+        std::cout << "CONSOLE: MyRSUApp - Raw payload length: " << payload.length() << std::endl;
+        std::cout << "CONSOLE: MyRSUApp - Raw payload: '" << payload << "'" << std::endl;
+    }
     
     EV << "RSU: Received message from vehicle at time " << simTime() << endl;
     
     // Note: Vehicle telemetry (position, speed) now comes with VehicleResourceStatusMessage
     // This onWSM() handler primarily receives regular beacons
     
-    std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
+    if (terminalVerboseLogs) {
+        std::cout << "***** MyRSUApp - onWSM() COMPLETED *****\n" << std::endl;
+    }
 
     // Explicit ownership model: onWSM path must release any frame that was
     // handled locally and not forwarded via sendDown().
@@ -2462,8 +2488,10 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
     EV_INFO << "  Queue Length: " << twin.current_queue_length << endl;
     EV_INFO << "  Processing Count: " << twin.current_processing_count << endl;
     
-    std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0) 
-              << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+    if (terminalVerboseLogs) {
+        std::cout << "DT_UPDATE: Vehicle " << vehicle_id << " - CPU:" << (twin.cpu_utilization * 100.0)
+                  << "% Mem:" << (twin.mem_utilization * 100.0) << "% Queue:" << twin.current_queue_length << std::endl;
+    }
 
     // Ownership: this message came from the air and onWSM's caller does not delete it,
     // so we must delete here.
@@ -2684,7 +2712,9 @@ VehicleDigitalTwin& MyRSUApp::getOrCreateVehicleTwin(const std::string& vehicle_
         vehicle_twins[vehicle_id] = twin;
         
         EV_INFO << "✨ Created new Digital Twin for vehicle " << vehicle_id << endl;
-        std::cout << "DT_NEW: Created Digital Twin for vehicle " << vehicle_id << std::endl;
+        if (terminalVerboseLogs) {
+            std::cout << "DT_NEW: Created Digital Twin for vehicle " << vehicle_id << std::endl;
+        }
         
         return vehicle_twins[vehicle_id];
     }
@@ -2755,7 +2785,7 @@ void MyRSUApp::logDigitalTwinState() {
     
     EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
 
-    if (!secondary_link_context_export) {
+    if (terminalVerboseLogs && !secondary_link_context_export) {
         std::cout << "DT_SUMMARY: Vehicles:" << vehicle_twins.size() 
                   << " Tasks:" << task_records.size()
                   << " Generated:" << total_generated
@@ -2904,6 +2934,7 @@ void MyRSUApp::initDatabase() {
         std::cerr << "⚠ RSU[" << rsu_id << "] DB connection failed: " << PQerrorMessage(db_conn) << std::endl;
         PQfinish(db_conn);
         db_conn = nullptr;
+        use_postgres = false;  // disable so no reconnection attempts or close messages
     } else {
         EV_INFO << "✓ PostgreSQL connection established successfully" << endl;
         std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connected" << std::endl;
@@ -3429,6 +3460,7 @@ DROP TABLE IF EXISTS public.task_offloading_events;
 }
 
 void MyRSUApp::closeDatabase() {
+    if (!use_postgres) return;
     if (db_conn) {
         EV_INFO << "Closing PostgreSQL connection..." << endl;
         PQfinish(db_conn);
@@ -4835,8 +4867,10 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
     // When using Redis/DRL, decisions come from the checkDecisionMsg timer.
     if (redis_twin && use_redis) {
         EV_INFO << "Redis/DRL active — decision will be provided via checkDecisionMsg timer" << endl;
-        std::cout << "RSU_OFFLOAD: Task " << task_id
-                  << " — awaiting DRL decision via Redis (heuristic skipped)" << std::endl;
+        if (terminalVerboseLogs) {
+            std::cout << "RSU_OFFLOAD: Task " << task_id
+                      << " — awaiting DRL decision via Redis (heuristic skipped)" << std::endl;
+        }
     } else {
         // Legacy heuristic path (no DRL)
         veins::OffloadingDecisionMessage* decision = makeOffloadingDecision(request);
@@ -4855,8 +4889,10 @@ void MyRSUApp::handleOffloadingRequest(veins::OffloadingRequestMessage* msg) {
                 std::string("{\"decision_type\":\"") + decision->getDecision_type() + "\"}");
 
             EV_INFO << "✓ Offloading decision sent back to vehicle " << vehicle_id << endl;
-            std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id
-                      << ": " << decision->getDecision_type() << std::endl;
+            if (terminalVerboseLogs) {
+                std::cout << "RSU_OFFLOAD: Decision sent for task " << task_id
+                          << ": " << decision->getDecision_type() << std::endl;
+            }
         } else {
             EV_ERROR << "Failed to create offloading decision" << endl;
         }
@@ -5890,8 +5926,10 @@ void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::strin
             std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
         }
     } else {
-        std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
-                  << " (" << source << "->" << target << ")" << std::endl;
+        if (terminalVerboseLogs || shouldAlwaysPrintLifecycleEvent(event_type)) {
+            std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
+                      << " (" << source << "->" << target << ")" << std::endl;
+        }
     }
     if (res) PQclear(res);
 
@@ -5932,8 +5970,10 @@ void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
     // Store event in Digital Twin database
     insertTaskOffloadingEvent(msg);
     
-    std::cout << "RSU_EVENT: " << event_type << " for task " << task_id 
-              << " (" << source << " → " << target << ")" << std::endl;
+    if (terminalVerboseLogs || shouldAlwaysPrintLifecycleEvent(event_type)) {
+        std::cout << "RSU_EVENT: " << event_type << " for task " << task_id
+                  << " (" << source << " → " << target << ")" << std::endl;
+    }
     
     delete msg;
 }
@@ -6134,9 +6174,11 @@ void MyRSUApp::handleTaskResultWithCompletion(TaskResultMessage* msg) {
                     energy_j = 5e-27 * f_hz * f_hz * static_cast<double>(cpu_cycles);
                 }
                 redis_twin->writeSingleResult(task_id, ddqn_status, total_latency, energy_j, ddqn_reason);
-                std::cout << "RSU_OFFLOAD_RESULT: task=" << task_id
-                          << " status=" << ddqn_status << " reason=" << ddqn_reason
-                          << " latency=" << total_latency << "s" << std::endl;
+                if (terminalVerboseLogs || ddqn_status == "FAILED") {
+                    std::cout << "RSU_OFFLOAD_RESULT: task=" << task_id
+                              << " status=" << ddqn_status << " reason=" << ddqn_reason
+                              << " latency=" << total_latency << "s" << std::endl;
+                }
             }
         }
 

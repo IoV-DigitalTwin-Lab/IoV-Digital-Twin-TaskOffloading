@@ -26,6 +26,7 @@ simple MyRSUApp like IBaseApplLayer
         bool sendWSA = default(false);
     double wsaInterval @unit(s) = default(1s);
         int currentOfferedServiceId = default(42);
+        bool terminalVerboseLogs = default(false);                  // print high-volume terminal logs when true
         
         // Redis digital twin integration
         bool useRedis = default(true);      // Enable Redis for real-time state sync

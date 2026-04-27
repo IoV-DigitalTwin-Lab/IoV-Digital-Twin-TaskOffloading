@@ -229,6 +229,7 @@ private:
     // Set true at the start of finish() to prevent handleTaskMetadata() from
     // rescheduling checkDecisionMsg while the module is being torn down.
     bool isFinishing = false;
+    bool terminalVerboseLogs = false;
 
     // Periodic terminal progress printer
     cMessage* progressMsg_ = nullptr;
