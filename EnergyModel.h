@@ -13,13 +13,14 @@ using complex_network::TaskProfileDatabase;
  * Based on RADiT paper energy consumption formulation
  * 
  * Key components:
- * 1. Local execution: E = κ_vehicle × f² × c
+ * 1. Local execution: E = κ_vehicle × f × c
  * 2. Transmission: E = P_tx × t_tx
- * 3. RSU computation: E = κ_rsu × f² × c
+ * 3. RSU computation: E = κ_rsu × f × c
  */
 
 namespace EnergyConstants {
-    // Switching capacitance coefficient (Joules per (Hz × bits × cycles))
+   // Dynamic energy coefficient for CMOS model E = kappa * f * cycles.
+   // Units: Joules / (Hz * cycles)
     // Vehicle (Jetson Nano-class): κ_v ≈ 5e-27
     // RSU (High-performance server): κ_m ≈ 2e-27 (more efficient CPU)
     constexpr double KAPPA_VEHICLE = 5e-27;      // C² per V (vehicle)
@@ -35,7 +36,7 @@ namespace EnergyConstants {
     // Idle power (device on but not computing)
     constexpr double IDLE_POWER = 0.2;           // Watts
     
-    // Frequency scaling (affects energy quadratically in this model)
+   // Frequency scaling (affects dynamic energy linearly in this model)
     // Typical: 1.0 GHz to 1.5 GHz for Jetson Nano   
     constexpr double FREQ_NOMINAL = 1.0e9;       // Hz (1.0 GHz)
     constexpr double FREQ_MAX = 1.5e9;           // Hz (1.5 GHz, boost)
@@ -56,7 +57,7 @@ public:
     
     /**
      * Calculate energy for local task execution
-        * E_loc = κ_vehicle × f² × c
+      * E_loc = κ_vehicle × f × c
      * 
      * @param cpu_cycles: task CPU cycles (from TaskProfile)
         * @param data_size_bytes: task input data in bytes (kept for API compatibility)
@@ -84,7 +85,7 @@ public:
     
     /**
      * Calculate RSU computation energy
-        * E_rsu = κ_rsu × f² × c
+      * E_rsu = κ_rsu × f × c
      * 
      * @param cpu_cycles: task CPU cycles
         * @param data_size_bytes: task input data (kept for API compatibility)
@@ -131,7 +132,7 @@ public:
     
 private:
     /**
-     * Dynamic compute-energy core (CMOS-style): E = κ × f² × cycles.
+      * Dynamic compute-energy core (CMOS-style): E = κ × f × cycles.
      */
     double energyFormula(double kappa,
                         double frequency_hz,

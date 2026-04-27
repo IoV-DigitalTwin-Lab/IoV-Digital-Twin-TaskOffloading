@@ -11,12 +11,12 @@ EnergyCalculator::~EnergyCalculator() {
 double EnergyCalculator::energyFormula(double kappa,
                                        double frequency_hz,
                                        uint64_t cpu_cycles) {
-    // Compute-energy model: E = kappa * f^2 * cycles
+    // Compute-energy model: E = kappa * f * cycles
     if (frequency_hz <= 0.0 || cpu_cycles == 0) {
         return 0.0;
     }
 
-    return kappa * frequency_hz * frequency_hz * static_cast<double>(cpu_cycles);
+    return kappa * frequency_hz * static_cast<double>(cpu_cycles);
 }
 
 double EnergyCalculator::calcLocalExecutionEnergy(uint64_t cpu_cycles,
@@ -24,7 +24,7 @@ double EnergyCalculator::calcLocalExecutionEnergy(uint64_t cpu_cycles,
                                                   double execution_time_sec,
                                                   double freq_allocated_hz,
                                                   double freq_actual_hz) {
-    // Local execution on vehicle: E_loc = kappa_vehicle * f^2 * cycles
+    // Local execution on vehicle: E_loc = kappa_vehicle * f * cycles
     (void)data_size_bytes;
     (void)execution_time_sec;
     double effective_freq_hz = (freq_actual_hz > 0.0) ? freq_actual_hz : freq_allocated_hz;
@@ -55,7 +55,7 @@ double EnergyCalculator::calcRSUComputationEnergy(uint64_t cpu_cycles,
                                                  double execution_time_sec,
                                                  double freq_allocated_hz,
                                                  double freq_actual_hz) {
-    // RSU computation energy: E_rsu = kappa_rsu * f^2 * cycles
+    // RSU computation energy: E_rsu = kappa_rsu * f * cycles
     (void)data_size_bytes;
     (void)execution_time_sec;
     double effective_freq_hz = (freq_actual_hz > 0.0) ? freq_actual_hz : freq_allocated_hz;
