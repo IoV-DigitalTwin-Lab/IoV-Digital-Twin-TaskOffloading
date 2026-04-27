@@ -36,11 +36,6 @@ void setResultPacketSize(veins::TaskResultMessage* packet, uint64_t outputBytes)
     packet->setByteLength(clampPacketBytes(payload));
 }
 
-bool isUndefinedTable(PGresult* res) {
-    const char* sqlState = res ? PQresultErrorField(res, PG_DIAG_SQLSTATE) : nullptr;
-    return sqlState && std::string(sqlState) == "42P01";
-}
-
 bool parseRouteHint(const std::string& routeHint, LAddress::L2Type& ingressRsuMac, LAddress::L2Type& processorRsuMac) {
     ingressRsuMac = 0;
     processorRsuMac = 0;
@@ -284,10 +279,6 @@ void MyRSUApp::initialize(int stage) {
         secondary_nakagami_enabled = par("secondaryNakagamiEnabled").boolValue();
         secondary_nakagami_m = par("secondaryNakagamiM").doubleValue();
         secondary_nakagami_cell_size_m = par("secondaryNakagamiCellSize").doubleValue();
-        use_postgres = hasPar("enablePostgres") ? par("enablePostgres").boolValue() : true;
-        if (secondary_link_context_export) {
-            use_postgres = false;
-        }
         if (!secondary_use_external_predictions) {
             initializeSecondaryPredictor();
         }
@@ -306,13 +297,6 @@ void MyRSUApp::initialize(int stage) {
         rsu_max_concurrent = par("rsuMaxConcurrent").intValue();
         if (hasPar("rsuQueueCapacity")) {
             rsu_waiting_queue_capacity = std::max(0L, par("rsuQueueCapacity").intValue());
-        }
-        
-        // Initialize PostgreSQL database connection when enabled for this run.
-        if (use_postgres) {
-            initDatabase();
-        } else {
-            EV_INFO << "PostgreSQL disabled for this RSU app instance" << endl;
         }
         
         // Initialize Redis Digital Twin
@@ -410,7 +394,6 @@ void MyRSUApp::initialize(int stage) {
         scheduleAt(simTime() + kProgressIntervalS, progressMsg_);
 
         EV << "RSU initialized with beacon interval: " << interval << "s" << endl;
-        EV << "MyRSUApp: Direct PostgreSQL insertion enabled\n";
     }
 }
 
@@ -568,34 +551,10 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         }
                     }
                     // When Redis is active, only use single-agent decision.
-                    // Don't fall back to PostgreSQL — wait for agent to respond.
+                    // Do not use any legacy storage fallback path.
                 }
 
-                // Fallback to PostgreSQL/legacy only when Redis is NOT active
-                if (!found_decision && !(redis_twin && use_redis)) {
-                    PGconn* conn = getDBConnection();
-                    if (conn) {
-                        std::string query =
-                            "SELECT decision_type, "
-                            "COALESCE(payload->>'target',''), "
-                            "COALESCE(NULLIF(payload->>'confidence_score','')::double precision, 0.8) "
-                            "FROM task_runtime_events "
-                            "WHERE task_id = '" + record.task_id + "' AND stage = 'DECISION' "
-                            "ORDER BY event_time DESC LIMIT 1";
-                        PGresult* res = PQexec(conn, query.c_str());
-
-                        if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
-                            decision_type = PQgetvalue(res, 0, 0);
-                            target_id = PQgetvalue(res, 0, 1);
-                            confidence = std::stod(PQgetvalue(res, 0, 2));
-                            found_decision = true;
-
-                            EV_INFO << "✓ Found ML decision in PostgreSQL for task " << record.task_id
-                                    << ": " << decision_type << endl;
-                        }
-                        PQclear(res);
-                    }
-                }
+                // No legacy persistence fallback. Decision dispatch is Redis-only.
                 
                 // Send decision if found
                 if (found_decision) {
@@ -657,7 +616,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                     dMsg->setSenderAddress(myId);  // RSU MAC address
                     dMsg->setAgentDecisions(agentDecisionsPayload.c_str());  // baseline decisions
 
-                    // Persist DRL decisions to PostgreSQL so dashboard/history stay complete
+                    // Persist DRL decisions through the active runtime path.
                     // even when runtime decisions come from Redis.
                     if (decision_from_redis) {
                         const double rsu_wait_s = std::max(0.0, simTime().dbl() - record.received_time);
@@ -738,7 +697,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                             "RSU_" + std::to_string(rsu_id), record.vehicle_id,
                             std::string("{\"reason_code\":\"DECISION_TIMEOUT_REDIS_NO_DECISION\",") +
                             "\"miss_count\":" + std::to_string(record.decision_poll_miss_count) + ","
-                            "\"source\":\"" + ((redis_twin && use_redis) ? "REDIS" : "POSTGRES") + "\"}");
+                            "\"source\":\"" + ((redis_twin && use_redis) ? "REDIS" : "NONE") + "\"}");
                         record.decision_poll_miss_logged = true;
                     }
                     // 600 misses * 50ms timer interval = 30 sim-seconds — matches Python's
@@ -1083,9 +1042,6 @@ void MyRSUApp::finish() {
         delete redis_twin;
         redis_twin = nullptr;
     }
-    
-    // Close PostgreSQL connection
-    closeDatabase();
     
     EV << "MyRSUApp: stopping RSUHttpPoster...\n";
     // Null self-message pointers — deleteModule() handles FES cleanup.
@@ -2014,6 +1970,7 @@ void MyRSUApp::handleMessage(cMessage* msg) {
     if (offloadReq) {
         EV_INFO << "Received OffloadingRequestMessage" << endl;
         handleOffloadingRequest(offloadReq);
+        delete offloadReq;
         return;
     }
     
@@ -2148,7 +2105,7 @@ void MyRSUApp::handleTaskMetadata(TaskMetadataMessage* msg) {
         std::cout << "REDIS_PUSH: Task " << task_id << " pushed to ML request queue" << std::endl;
     }
     
-    // Insert into PostgreSQL for dashboard and historical data
+    // Optional persistence hook (disabled in this build)
     insertTaskMetadata(msg);
     
     std::cout << "DT_TASK: RSU received metadata for task " << task_id 
@@ -2246,7 +2203,7 @@ void MyRSUApp::handleTaskCompletion(TaskCompletionMessage* msg) {
             }
         }
 
-        // Insert into PostgreSQL database
+        // Optional persistence hook (disabled in this build)
         insertTaskCompletion(msg);
         
         // Update vehicle digital twin
@@ -2360,7 +2317,7 @@ void MyRSUApp::handleTaskFailure(TaskFailureMessage* msg) {
             redis_twin->writeSingleResult(task_id, "FAILED", wasted, 0.0, reason);
         }
         
-        // Insert into PostgreSQL database
+        // Optional persistence hook (disabled in this build)
         insertTaskFailure(msg);
         
         // Update vehicle digital twin
@@ -2472,7 +2429,7 @@ void MyRSUApp::handleVehicleResourceStatus(VehicleResourceStatusMessage* msg) {
         );
     }
     
-    // Insert into PostgreSQL database (real-time status)
+    // Optional persistence hook (disabled in this build)
     insertVehicleStatus(msg);
     
     // Insert/update vehicle metadata (first time or periodic update)
@@ -2815,1206 +2772,31 @@ void MyRSUApp::logTaskRecord(const TaskRecord& record, const std::string& event)
 }
 
 // ============================================================================
-// POSTGRESQL DATABASE IMPLEMENTATION
+// OPTIONAL PERSISTENCE HOOKS (disabled in this build)
 // ============================================================================
 
-void MyRSUApp::initDatabase() {
-    // Try to get database connection string from environment variable.
-    // NOTE: Only use DATABASE_URL if it is complete (contains "password=").
-    // The common `export $(grep -v '^#' .env | xargs)` pattern truncates
-    // space-separated values, so DATABASE_URL may arrive as just "host=localhost"
-    // without the password.  We therefore validate before trusting the env var.
-    const char* db_env = std::getenv("DATABASE_URL");
-    bool found = false;
-
-    if (db_env && strstr(db_env, "password=") != nullptr) {
-        db_conninfo = std::string(db_env);
-        EV_INFO << "Using DATABASE_URL from environment variable" << endl;
-        found = true;
-    }
-
-    if (!found) {
-        // Try to read DATABASE_URL from .env file
-        EV_INFO << "DATABASE_URL env var missing/incomplete, reading from .env file..." << endl;
-        std::ifstream envFile(".env");
-        if (envFile.is_open()) {
-            std::string line;
-            while (std::getline(envFile, line)) {
-                // Strip trailing carriage-return (Windows line endings)
-                if (!line.empty() && line.back() == '\r') line.pop_back();
-                if (line.empty() || line[0] == '#') continue;
-                if (line.find("DATABASE_URL=") == 0) {
-                    db_conninfo = line.substr(13); // Skip "DATABASE_URL="
-                    found = true;
-                    EV_INFO << "Found DATABASE_URL in .env file" << endl;
-                    break;
-                }
-            }
-            envFile.close();
-        }
-    }
-
-    if (!found) {
-        // Last resort: build conninfo from individual POSTGRES_DB_* variables.
-        // These single-word values survive the xargs export trick without truncation.
-        auto readEnvVar = [](const std::string& name) -> std::string {
-            const char* v = std::getenv(name.c_str());
-            return v ? std::string(v) : std::string();
-        };
-
-        std::map<std::string, std::string> pgVars;
-        pgVars["host"]     = readEnvVar("POSTGRES_DB_HOST");
-        pgVars["port"]     = readEnvVar("POSTGRES_DB_PORT");
-        pgVars["dbname"]   = readEnvVar("POSTGRES_DB_NAME");
-        pgVars["user"]     = readEnvVar("POSTGRES_DB_USER");
-        pgVars["password"] = readEnvVar("POSTGRES_DB_PASSWORD");
-
-        // If env vars are missing, fall back to the individual keys in .env
-        if (pgVars["host"].empty() || pgVars["password"].empty()) {
-            std::ifstream envFile2(".env");
-            if (envFile2.is_open()) {
-                std::map<std::string, std::string> keyMap = {
-                    {"POSTGRES_DB_HOST", "host"}, {"POSTGRES_DB_PORT", "port"},
-                    {"POSTGRES_DB_NAME", "dbname"}, {"POSTGRES_DB_USER", "user"},
-                    {"POSTGRES_DB_PASSWORD", "password"}
-                };
-                std::string line;
-                while (std::getline(envFile2, line)) {
-                    if (!line.empty() && line.back() == '\r') line.pop_back();
-                    if (line.empty() || line[0] == '#') continue;
-                    for (auto& kv : keyMap) {
-                        std::string prefix = kv.first + "=";
-                        if (line.find(prefix) == 0)
-                            pgVars[kv.second] = line.substr(prefix.size());
-                    }
-                }
-                envFile2.close();
-            }
-        }
-
-        if (!pgVars["host"].empty() && !pgVars["password"].empty()) {
-            std::ostringstream conn;
-            conn << "host=" << pgVars["host"];
-            if (!pgVars["port"].empty())   conn << " port="   << pgVars["port"];
-            if (!pgVars["dbname"].empty()) conn << " dbname=" << pgVars["dbname"];
-            if (!pgVars["user"].empty())   conn << " user="   << pgVars["user"];
-            conn << " password=" << pgVars["password"];
-            db_conninfo = conn.str();
-            found = true;
-            EV_INFO << "Built connection string from POSTGRES_DB_* variables" << endl;
-        }
-    }
-
-    if (!found) {
-        EV_ERROR << "ERROR: No valid PostgreSQL connection info found!" << endl;
-        EV_ERROR << "Set DATABASE_URL (with password=) or POSTGRES_DB_* variables "
-                    "in your environment or .env file." << endl;
-        throw cRuntimeError("Missing PostgreSQL configuration");
-    }
-    
-    EV_INFO << "╔══════════════════════════════════════════════════════════════════════════╗" << endl;
-    EV_INFO << "║              INITIALIZING POSTGRESQL CONNECTION                          ║" << endl;
-    EV_INFO << "╚══════════════════════════════════════════════════════════════════════════╝" << endl;
-    EV_INFO << "Database: " << db_conninfo << endl;
-    
-    // Add connection timeout - use proper format based on connection string type
-    std::string conninfo_with_timeout;
-    if (db_conninfo.find("://") != std::string::npos) {
-        // URL-style connection string - use ? or & for parameters
-        conninfo_with_timeout = db_conninfo + 
-            (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
-    } else {
-        // Key=value style - append with space
-        conninfo_with_timeout = db_conninfo + " connect_timeout=5";
-    }
-    db_conn = PQconnectdb(conninfo_with_timeout.c_str());
-    
-    if (PQstatus(db_conn) != CONNECTION_OK) {
-        EV_WARN << "✗ PostgreSQL connection failed: " << PQerrorMessage(db_conn) << endl;
-        std::cerr << "⚠ RSU[" << rsu_id << "] DB connection failed: " << PQerrorMessage(db_conn) << std::endl;
-        PQfinish(db_conn);
-        db_conn = nullptr;
-        use_postgres = false;  // disable so no reconnection attempts or close messages
-    } else {
-        EV_INFO << "✓ PostgreSQL connection established successfully" << endl;
-        std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connected" << std::endl;
-
-        auto execSql = [&](const std::string& sql, const char* label) -> bool {
-            PGresult* res = PQexec(db_conn, sql.c_str());
-            const bool ok = (res && PQresultStatus(res) == PGRES_COMMAND_OK);
-            if (!ok) {
-                EV_WARN << "⚠ PostgreSQL step failed (" << label << "): "
-                        << PQerrorMessage(db_conn) << endl;
-            }
-            if (res) PQclear(res);
-            return ok;
-        };
-
-        // Keep all DDL/DML targeting the same schema regardless of role-level search_path.
-        execSql("CREATE SCHEMA IF NOT EXISTS public", "create-public-schema");
-        execSql("SET search_path TO public", "set-search-path-public");
-
-        auto runInitSqlFromFile = [&]() -> bool {
-            const char* candidates[] = {
-                "db/init.sql",
-                "./db/init.sql",
-                "../db/init.sql",
-                nullptr
-            };
-
-            std::string initSqlPath;
-            for (int i = 0; candidates[i] != nullptr; ++i) {
-                std::ifstream f(candidates[i]);
-                if (f.is_open()) {
-                    initSqlPath = candidates[i];
-                    f.close();
-                    break;
-                }
-            }
-
-            if (initSqlPath.empty()) {
-                EV_WARN << "⚠ Could not find db/init.sql; using built-in schema bootstrap" << endl;
-                return false;
-            }
-
-            std::ifstream in(initSqlPath);
-            std::string sql((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            in.close();
-
-            PGresult* initRes = PQexec(db_conn, sql.c_str());
-            const bool ok = (initRes && PQresultStatus(initRes) == PGRES_COMMAND_OK);
-            if (!ok) {
-                EV_WARN << "⚠ Failed to bootstrap DB schema from " << initSqlPath
-                        << ": " << PQerrorMessage(db_conn) << endl;
-            } else {
-                EV_INFO << "✓ DB schema bootstrapped from " << initSqlPath << endl;
-            }
-            if (initRes) PQclear(initRes);
-            return ok;
-        };
-
-        // First try full schema bootstrap from file. If path issues occur, we still
-        // create the core runtime tables below.
-        runInitSqlFromFile();
-
-        const char* coreSchemaSql = R"SQL(
-CREATE TABLE IF NOT EXISTS public.vehicle_status (
-    id BIGSERIAL PRIMARY KEY,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    update_time DOUBLE PRECISION,
-    pos_x DOUBLE PRECISION,
-    pos_y DOUBLE PRECISION,
-    speed DOUBLE PRECISION,
-    heading DOUBLE PRECISION,
-    acceleration DOUBLE PRECISION,
-    cpu_total DOUBLE PRECISION,
-    cpu_allocable DOUBLE PRECISION,
-    cpu_available DOUBLE PRECISION,
-    cpu_utilization DOUBLE PRECISION,
-    mem_total DOUBLE PRECISION,
-    mem_available DOUBLE PRECISION,
-    mem_utilization DOUBLE PRECISION,
-    queue_length INTEGER,
-    processing_count INTEGER,
-    tasks_generated INTEGER,
-    tasks_completed_on_time INTEGER,
-    tasks_completed_late INTEGER,
-    tasks_failed INTEGER,
-    tasks_rejected INTEGER,
-    avg_completion_time DOUBLE PRECISION,
-    deadline_miss_ratio DOUBLE PRECISION,
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.task_metadata (
-    id BIGSERIAL PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    mem_footprint_bytes BIGINT,
-    cpu_cycles BIGINT,
-    qos_value DOUBLE PRECISION,
-    created_time DOUBLE PRECISION,
-    deadline_seconds DOUBLE PRECISION,
-    received_time DOUBLE PRECISION,
-    task_type_name TEXT,
-    task_type_id INTEGER DEFAULT 0,
-    input_size_bytes BIGINT DEFAULT 0,
-    output_size_bytes BIGINT DEFAULT 0,
-    is_offloadable BOOLEAN DEFAULT TRUE,
-    is_safety_critical BOOLEAN DEFAULT FALSE,
-    priority_level INTEGER DEFAULT 2,
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.offloaded_task_completions (
-    id BIGSERIAL PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    vehicle_id TEXT NOT NULL,
-    rsu_id INTEGER,
-    decision_type TEXT NOT NULL,
-    processor_id TEXT,
-    request_time DOUBLE PRECISION,
-    decision_time DOUBLE PRECISION,
-    start_time DOUBLE PRECISION,
-    completion_time DOUBLE PRECISION,
-    decision_latency DOUBLE PRECISION,
-    processing_latency DOUBLE PRECISION,
-    total_latency DOUBLE PRECISION,
-    success BOOLEAN,
-    completed_on_time BOOLEAN,
-    deadline_seconds DOUBLE PRECISION,
-    mem_footprint_bytes BIGINT,
-    cpu_cycles BIGINT,
-    qos_value DOUBLE PRECISION,
-    result_data TEXT,
-    failure_reason TEXT,
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.rsu_status (
-    id BIGSERIAL PRIMARY KEY,
-    rsu_id VARCHAR(255) NOT NULL,
-    update_time DOUBLE PRECISION NOT NULL,
-    cpu_total DOUBLE PRECISION,
-    cpu_allocable DOUBLE PRECISION,
-    cpu_available DOUBLE PRECISION,
-    cpu_utilization DOUBLE PRECISION,
-    memory_total DOUBLE PRECISION,
-    memory_available DOUBLE PRECISION,
-    memory_utilization DOUBLE PRECISION,
-    queue_length INTEGER,
-    processing_count INTEGER,
-    max_concurrent_tasks INTEGER,
-    tasks_received INTEGER,
-    tasks_processed INTEGER,
-    tasks_failed INTEGER,
-    tasks_rejected INTEGER,
-    avg_processing_time DOUBLE PRECISION,
-    avg_queue_time DOUBLE PRECISION,
-    success_rate DOUBLE PRECISION,
-    connected_vehicles_count INTEGER,
-    payload JSONB,
-    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS public.rsu_metadata (
-    id SERIAL PRIMARY KEY,
-    rsu_id VARCHAR(255) UNIQUE NOT NULL,
-    pos_x DOUBLE PRECISION,
-    pos_y DOUBLE PRECISION,
-    pos_z DOUBLE PRECISION,
-    coverage_radius DOUBLE PRECISION,
-    cpu_capacity_ghz DOUBLE PRECISION,
-    memory_capacity_gb DOUBLE PRECISION,
-    storage_capacity_gb DOUBLE PRECISION,
-    bandwidth_mbps DOUBLE PRECISION,
-    max_vehicles INTEGER,
-    transmission_power_mw DOUBLE PRECISION,
-    base_processing_delay_ms DOUBLE PRECISION,
-    max_task_size_mb DOUBLE PRECISION,
-    supported_task_types TEXT[],
-    deployment_time TIMESTAMP,
-    location_name VARCHAR(255),
-    deployment_type VARCHAR(100),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    payload JSONB
-);
-
-CREATE TABLE IF NOT EXISTS public.vehicle_metadata (
-    id SERIAL PRIMARY KEY,
-    vehicle_id VARCHAR(255) UNIQUE NOT NULL,
-    cpu_capacity_ghz DOUBLE PRECISION,
-    memory_capacity_mb DOUBLE PRECISION,
-    storage_capacity_gb DOUBLE PRECISION,
-    battery_capacity_kwh DOUBLE PRECISION,
-    transmission_power_mw DOUBLE PRECISION,
-    max_communication_range_m DOUBLE PRECISION,
-    supported_protocols TEXT[],
-    vehicle_type VARCHAR(100),
-    service_vehicle BOOLEAN DEFAULT false,
-    offloading_enabled BOOLEAN DEFAULT true,
-    max_concurrent_tasks INTEGER,
-    max_queue_size INTEGER,
-    average_velocity DOUBLE PRECISION,
-    first_seen_time DOUBLE PRECISION,
-    last_seen_time DOUBLE PRECISION,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    payload JSONB
-);
-
-CREATE INDEX IF NOT EXISTS idx_vehicle_status_vehicle_time ON public.vehicle_status (vehicle_id, update_time);
-CREATE INDEX IF NOT EXISTS idx_vehicle_status_rsu ON public.vehicle_status (rsu_id, update_time);
-CREATE INDEX IF NOT EXISTS idx_task_metadata_vehicle ON public.task_metadata (vehicle_id, created_time);
-CREATE INDEX IF NOT EXISTS idx_task_metadata_task_id ON public.task_metadata (task_id);
-
-CREATE TABLE IF NOT EXISTS public.task_static_metadata (
-    task_id TEXT PRIMARY KEY,
-    creator_vehicle_id TEXT NOT NULL,
-    initial_rsu_id INTEGER,
-    created_time DOUBLE PRECISION,
-    task_type_name TEXT,
-    task_type_id INTEGER DEFAULT 0,
-    input_size_bytes BIGINT DEFAULT 0,
-    output_size_bytes BIGINT DEFAULT 0,
-    mem_footprint_bytes BIGINT,
-    cpu_cycles BIGINT,
-    deadline_seconds DOUBLE PRECISION,
-    qos_value DOUBLE PRECISION,
-    is_offloadable BOOLEAN DEFAULT TRUE,
-    is_safety_critical BOOLEAN DEFAULT FALSE,
-    priority_level INTEGER DEFAULT 2,
-    initial_gate_classification TEXT,
-    initial_gate_reason TEXT,
-    decision_type TEXT,
-    target_rsu_id INTEGER,
-    target_sv_id TEXT,
-    decision_node_rsu_id INTEGER,
-    request_received_time DOUBLE PRECISION,
-    decision_in_process_time DOUBLE PRECISION,
-    decision_sent_time DOUBLE PRECISION,
-    decision_received_time DOUBLE PRECISION,
-    decision_poll_miss_count INTEGER DEFAULT 0,
-    rsu_wait_s DOUBLE PRECISION,
-    decision_wait_s DOUBLE PRECISION,
-    decision_delivery_s DOUBLE PRECISION,
-    decision_timeout_stage TEXT,
-    decision_timeout_reason TEXT,
-    decision_timeout_budget_s DOUBLE PRECISION,
-    decision_timeout_waited_s DOUBLE PRECISION,
-    drl_dequeued_wall_s DOUBLE PRECISION,
-    drl_state_ready_wall_s DOUBLE PRECISION,
-    drl_decision_written_wall_s DOUBLE PRECISION,
-    drl_result_timeout_discard_wall_s DOUBLE PRECISION,
-    drl_result_timeout_s DOUBLE PRECISION,
-    completion_time DOUBLE PRECISION,
-    processing_start_time DOUBLE PRECISION,
-    processing_time_s DOUBLE PRECISION,
-    success BOOLEAN,
-    failure_reason TEXT,
-    processor_id TEXT,
-    completed_on_time BOOLEAN,
-    payload JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.task_runtime_events (
-    id BIGSERIAL PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    event_time DOUBLE PRECISION,
-    stage TEXT,
-    event_type TEXT NOT NULL,
-    source_entity_id TEXT,
-    target_entity_id TEXT,
-    rsu_id INTEGER,
-    decision_type TEXT,
-    processor_id TEXT,
-    status TEXT,
-    reason_code TEXT,
-    reason_detail TEXT,
-    timeout_stage TEXT,
-    timeout_budget_s DOUBLE PRECISION,
-    waited_s DOUBLE PRECISION,
-    processing_time_s DOUBLE PRECISION,
-    total_latency_s DOUBLE PRECISION,
-    completed_on_time BOOLEAN,
-    payload JSONB,
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_task_static_metadata_vehicle ON public.task_static_metadata (creator_vehicle_id, created_time);
-CREATE INDEX IF NOT EXISTS idx_task_static_metadata_decision ON public.task_static_metadata (decision_type, decision_node_rsu_id);
-CREATE INDEX IF NOT EXISTS idx_task_static_metadata_success ON public.task_static_metadata (success, completion_time);
-CREATE INDEX IF NOT EXISTS idx_task_runtime_events_task_time ON public.task_runtime_events (task_id, event_time);
-CREATE INDEX IF NOT EXISTS idx_task_runtime_events_type_time ON public.task_runtime_events (event_type, event_time);
-CREATE INDEX IF NOT EXISTS idx_offloaded_completions_task_id ON public.offloaded_task_completions (task_id);
-CREATE INDEX IF NOT EXISTS idx_offloaded_completions_vehicle ON public.offloaded_task_completions (vehicle_id, completion_time);
-CREATE INDEX IF NOT EXISTS idx_offloaded_completions_decision ON public.offloaded_task_completions (decision_type, success);
-CREATE INDEX IF NOT EXISTS idx_offloaded_completions_rsu ON public.offloaded_task_completions (rsu_id, completion_time);
-CREATE INDEX IF NOT EXISTS idx_rsu_status_rsu_time ON public.rsu_status (rsu_id, update_time);
-CREATE INDEX IF NOT EXISTS idx_rsu_status_received ON public.rsu_status (received_at);
-CREATE INDEX IF NOT EXISTS idx_rsu_metadata_location ON public.rsu_metadata (pos_x, pos_y);
-CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_type ON public.vehicle_metadata (vehicle_type);
-CREATE INDEX IF NOT EXISTS idx_vehicle_metadata_service ON public.vehicle_metadata (service_vehicle);
-
-DROP TABLE IF EXISTS public.task_events;
-DROP TABLE IF EXISTS public.offloading_requests;
-DROP TABLE IF EXISTS public.offloading_decisions;
-DROP TABLE IF EXISTS public.task_offloading_events;
-)SQL";
-
-        execSql(coreSchemaSql, "core-runtime-schema-bootstrap");
-
-        PGresult* verifyRes = PQexec(db_conn,
-            "SELECT "
-            "to_regclass('public.vehicle_status') IS NOT NULL, "
-            "to_regclass('public.task_metadata') IS NOT NULL, "
-            "to_regclass('public.task_static_metadata') IS NOT NULL, "
-            "to_regclass('public.task_runtime_events') IS NOT NULL, "
-            "to_regclass('public.offloaded_task_completions') IS NOT NULL, "
-            "to_regclass('public.rsu_status') IS NOT NULL, "
-            "to_regclass('public.rsu_metadata') IS NOT NULL, "
-            "to_regclass('public.vehicle_metadata') IS NOT NULL");
-        if (verifyRes && PQresultStatus(verifyRes) == PGRES_TUPLES_OK && PQntuples(verifyRes) == 1) {
-            bool all_ok = true;
-            for (int col = 0; col < 8; ++col) {
-                const char* v = PQgetvalue(verifyRes, 0, col);
-                bool ok = (v && (strcmp(v, "t") == 0 || strcmp(v, "true") == 0));
-                all_ok = all_ok && ok;
-            }
-            if (!all_ok) {
-                EV_ERROR << "✗ PostgreSQL schema verification failed; one or more core tables are missing" << endl;
-            } else {
-                EV_INFO << "✓ PostgreSQL core schema verified" << endl;
-            }
-        } else {
-            EV_WARN << "⚠ PostgreSQL schema verification query failed: " << PQerrorMessage(db_conn) << endl;
-        }
-        if (verifyRes) PQclear(verifyRes);
-
-        // Bootstrap schema on fresh databases: if core tables are missing,
-        // execute db/init.sql once before running ALTER-based migrations.
-        PGresult* existsRes = PQexec(db_conn,
-            "SELECT to_regclass('public.vehicle_status') IS NOT NULL");
-        bool schema_ready = false;
-        if (existsRes && PQresultStatus(existsRes) == PGRES_TUPLES_OK && PQntuples(existsRes) == 1) {
-            const char* v = PQgetvalue(existsRes, 0, 0);
-            schema_ready = (v && (strcmp(v, "t") == 0 || strcmp(v, "true") == 0));
-        }
-        if (existsRes) PQclear(existsRes);
-
-        if (!schema_ready) {
-            EV_WARN << "PostgreSQL schema not found; attempting bootstrap from db/init.sql" << endl;
-
-            const char* candidates[] = {"db/init.sql", "./db/init.sql", nullptr};
-            std::string initSqlPath;
-            for (int i = 0; candidates[i] != nullptr; ++i) {
-                std::ifstream f(candidates[i]);
-                if (f.is_open()) {
-                    initSqlPath = candidates[i];
-                    f.close();
-                    break;
-                }
-            }
-
-            if (!initSqlPath.empty()) {
-                std::ifstream in(initSqlPath);
-                std::string sql((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                in.close();
-
-                PGresult* initRes = PQexec(db_conn, sql.c_str());
-                if (!initRes || PQresultStatus(initRes) != PGRES_COMMAND_OK) {
-                    EV_ERROR << "✗ Failed to bootstrap DB schema from " << initSqlPath
-                             << ": " << PQerrorMessage(db_conn) << endl;
-                } else {
-                    EV_INFO << "✓ DB schema bootstrapped from " << initSqlPath << endl;
-                }
-                if (initRes) PQclear(initRes);
-            } else {
-                EV_ERROR << "✗ Could not find db/init.sql for schema bootstrap" << endl;
-            }
-        }
-
-        // Ensure acceleration column exists (idempotent — safe to run every startup)
-        PGresult* altRes = PQexec(db_conn,
-            "ALTER TABLE vehicle_status ADD COLUMN IF NOT EXISTS "
-            "acceleration DOUBLE PRECISION DEFAULT 0");
-        if (PQresultStatus(altRes) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ Could not add acceleration column: " << PQerrorMessage(db_conn) << endl;
-        }
-        PQclear(altRes);
-
-        // Ensure task_metadata has all required columns (idempotent)
-        const char* task_meta_alters[] = {
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_name TEXT DEFAULT ''",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS task_type_id INTEGER DEFAULT 0",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS input_size_bytes BIGINT DEFAULT 0",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS output_size_bytes BIGINT DEFAULT 0",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_offloadable BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS is_safety_critical BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE task_metadata ADD COLUMN IF NOT EXISTS priority_level INTEGER DEFAULT 0",
-            nullptr
-        };
-        for (int i = 0; task_meta_alters[i] != nullptr; ++i) {
-            PGresult* r = PQexec(db_conn, task_meta_alters[i]);
-            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
-                EV_WARN << "⚠ task_metadata schema update failed: " << PQerrorMessage(db_conn) << endl;
-            }
-            PQclear(r);
-        }
-
-        // Ensure offloaded_task_completions has all required columns (idempotent)
-        const char* offload_comp_alters[] = {
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS cpu_cycles BIGINT DEFAULT 0",
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS deadline_seconds DOUBLE PRECISION DEFAULT 1.0",
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS qos_value DOUBLE PRECISION DEFAULT 1.0",
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS completed_on_time BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS decision_latency DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE offloaded_task_completions ADD COLUMN IF NOT EXISTS processing_latency DOUBLE PRECISION DEFAULT 0",
-            nullptr
-        };
-        for (int i = 0; offload_comp_alters[i] != nullptr; ++i) {
-            PGresult* r = PQexec(db_conn, offload_comp_alters[i]);
-            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
-                EV_WARN << "⚠ offloaded_task_completions schema update failed: " << PQerrorMessage(db_conn) << endl;
-            }
-            PQclear(r);
-        }
-
-        // Ensure offloading_requests has all required columns only when the optional table exists.
-        PGresult* offloadReqExists = PQexec(db_conn, "SELECT to_regclass('public.offloading_requests') IS NOT NULL");
-        bool hasOffloadingRequests = offloadReqExists &&
-            PQresultStatus(offloadReqExists) == PGRES_TUPLES_OK &&
-            PQntuples(offloadReqExists) > 0 &&
-            std::string(PQgetvalue(offloadReqExists, 0, 0)) == "t";
-        if (offloadReqExists) PQclear(offloadReqExists);
-
-        if (hasOffloadingRequests) {
-            const char* offload_req_alters[] = {
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS mem_footprint_bytes BIGINT DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS cpu_cycles BIGINT DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS deadline_seconds DOUBLE PRECISION DEFAULT 1.0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS qos_value DOUBLE PRECISION DEFAULT 1.0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_available DOUBLE PRECISION DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_cpu_utilization DOUBLE PRECISION DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_mem_available DOUBLE PRECISION DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_queue_length INTEGER DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS vehicle_processing_count INTEGER DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS speed DOUBLE PRECISION DEFAULT 0",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS local_decision TEXT DEFAULT ''",
-                "ALTER TABLE offloading_requests ADD COLUMN IF NOT EXISTS payload JSONB",
-                nullptr
-            };
-            for (int i = 0; offload_req_alters[i] != nullptr; ++i) {
-                PGresult* r = PQexec(db_conn, offload_req_alters[i]);
-                if (PQresultStatus(r) != PGRES_COMMAND_OK) {
-                    EV_WARN << "⚠ offloading_requests schema update failed: " << PQerrorMessage(db_conn) << endl;
-                }
-                PQclear(r);
-            }
-        }
-
-        // Ensure vehicle_metadata has latest sync columns (idempotent)
-        const char* vehicle_meta_alters[] = {
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS storage_capacity_gb DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS battery_capacity_kwh DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS transmission_power_mw DOUBLE PRECISION DEFAULT 0",
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(100)",
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS max_concurrent_tasks INTEGER DEFAULT 0",
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS max_queue_size INTEGER DEFAULT 0",
-            "ALTER TABLE vehicle_metadata ADD COLUMN IF NOT EXISTS average_velocity DOUBLE PRECISION DEFAULT 0",
-            nullptr
-        };
-        for (int i = 0; vehicle_meta_alters[i] != nullptr; ++i) {
-            PGresult* r = PQexec(db_conn, vehicle_meta_alters[i]);
-            if (PQresultStatus(r) != PGRES_COMMAND_OK) {
-                EV_WARN << "⚠ vehicle_metadata schema update failed: " << PQerrorMessage(db_conn) << endl;
-            }
-            PQclear(r);
-        }
-
-        // Backward compatibility for old schema using average_speed_kmh / velocity.
-        // If both columns exist, preserve old values by backfilling average_velocity first.
-        PGresult* renameRes = PQexec(db_conn,
-            "DO $$ BEGIN "
-            "IF EXISTS (SELECT 1 FROM information_schema.columns "
-            "           WHERE table_name='vehicle_metadata' AND column_name='average_speed_kmh') THEN "
-            "  IF EXISTS (SELECT 1 FROM information_schema.columns "
-            "             WHERE table_name='vehicle_metadata' AND column_name='average_velocity') THEN "
-            "    EXECUTE 'UPDATE vehicle_metadata SET average_velocity = COALESCE(average_velocity, average_speed_kmh)'; "
-            "    EXECUTE 'ALTER TABLE vehicle_metadata DROP COLUMN average_speed_kmh'; "
-            "  ELSE "
-            "    EXECUTE 'ALTER TABLE vehicle_metadata RENAME COLUMN average_speed_kmh TO average_velocity'; "
-            "  END IF; "
-            "END IF; "
-            "IF EXISTS (SELECT 1 FROM information_schema.columns "
-            "           WHERE table_name='vehicle_metadata' AND column_name='velocity') THEN "
-            "  IF EXISTS (SELECT 1 FROM information_schema.columns "
-            "             WHERE table_name='vehicle_metadata' AND column_name='average_velocity') THEN "
-            "    EXECUTE 'UPDATE vehicle_metadata SET average_velocity = COALESCE(average_velocity, velocity)'; "
-            "    EXECUTE 'ALTER TABLE vehicle_metadata DROP COLUMN velocity'; "
-            "  ELSE "
-            "    EXECUTE 'ALTER TABLE vehicle_metadata RENAME COLUMN velocity TO average_velocity'; "
-            "  END IF; "
-            "END IF; "
-            "IF EXISTS (SELECT 1 FROM information_schema.columns "
-            "           WHERE table_name='vehicle_metadata' AND column_name='cpu_available_ghz') THEN "
-            "  EXECUTE 'ALTER TABLE vehicle_metadata DROP COLUMN cpu_available_ghz'; "
-            "END IF; "
-            "END $$;");
-        if (PQresultStatus(renameRes) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ vehicle_metadata migration failed: " << PQerrorMessage(db_conn) << endl;
-        }
-        PQclear(renameRes);
-    }
-}
-
-void MyRSUApp::closeDatabase() {
-    if (!use_postgres) return;
-    if (db_conn) {
-        EV_INFO << "Closing PostgreSQL connection..." << endl;
-        PQfinish(db_conn);
-        db_conn = nullptr;
-        std::cout << "✓ RSU[" << rsu_id << "] PostgreSQL connection closed" << std::endl;
-    }
-}
-
-PGconn* MyRSUApp::getDBConnection() {
-    if (!use_postgres) {
-        return nullptr;
-    }
-
-    // Reconnect if connection lost
-    if (!db_conn || PQstatus(db_conn) != CONNECTION_OK) {
-        EV_WARN << "Database connection lost, attempting reconnect..." << endl;
-        if (db_conn) {
-            PQfinish(db_conn);
-        }
-        // Add connection timeout - use proper format based on connection string type
-        std::string conninfo_with_timeout;
-        if (db_conninfo.find("://") != std::string::npos) {
-            // URL-style connection string - use ? or & for parameters
-            conninfo_with_timeout = db_conninfo + 
-                (db_conninfo.find('?') != std::string::npos ? "&" : "?") + "connect_timeout=5";
-        } else {
-            // Key=value style - append with space
-            conninfo_with_timeout = db_conninfo + " connect_timeout=5";
-        }
-        db_conn = PQconnectdb(conninfo_with_timeout.c_str());
-        
-        if (PQstatus(db_conn) != CONNECTION_OK) {
-            EV_WARN << "✗ Reconnection failed: " << PQerrorMessage(db_conn) << endl;
-            PQfinish(db_conn);
-            db_conn = nullptr;
-            return nullptr;
-        }
-        EV_INFO << "✓ Database reconnected successfully" << endl;
-    }
-    return db_conn;
-}
-
 void MyRSUApp::insertTaskMetadata(const TaskMetadataMessage* msg) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert task metadata: No database connection" << endl;
-        return;
-    }
-    
-    EV_INFO << "📤 Inserting task metadata into PostgreSQL..." << endl;
-    
-    // Prepare JSON payload
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"task_id\":\"" << msg->getTask_id() << "\","
-                 << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
-                 << "\"mem_footprint_bytes\":" << msg->getMem_footprint_bytes() << ","
-                 << "\"cpu_cycles\":" << msg->getCpu_cycles() << ","
-                 << "\"qos_value\":" << msg->getQos_value() << ","
-                 << "\"created_time\":" << msg->getCreated_time() << ","
-                 << "\"deadline_seconds\":" << msg->getDeadline_seconds() << ","
-                 << "\"received_time\":" << simTime().dbl() << ","
-                 << "\"task_type_name\":\"" << msg->getTask_type_name() << "\","
-                 << "\"task_type_id\":" << msg->getTask_type_id() << ","
-                 << "\"input_size_bytes\":" << msg->getInput_size_bytes() << ","
-                 << "\"output_size_bytes\":" << msg->getOutput_size_bytes() << ","
-                 << "\"is_offloadable\":" << (msg->getIs_offloadable() ? "true" : "false") << ","
-                 << "\"is_safety_critical\":" << (msg->getIs_safety_critical() ? "true" : "false") << ","
-                 << "\"priority_level\":" << msg->getPriority_level()
-                 << "}";
-    
-    const char* paramValues[17];
-    std::string task_id = msg->getTask_id();
-    std::string vehicle_id = msg->getVehicle_id();
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string task_size = std::to_string(msg->getMem_footprint_bytes());
-    std::string cpu_cycles = std::to_string(msg->getCpu_cycles());
-    std::string qos = std::to_string(msg->getQos_value());
-    std::string created = std::to_string(msg->getCreated_time());
-    std::string deadline = std::to_string(msg->getDeadline_seconds());
-    std::string received = std::to_string(simTime().dbl());
-    std::string task_type_name = msg->getTask_type_name();
-    std::string task_type_id = std::to_string(msg->getTask_type_id());
-    std::string input_size = std::to_string(msg->getInput_size_bytes());
-    std::string output_size = std::to_string(msg->getOutput_size_bytes());
-    std::string is_offloadable = msg->getIs_offloadable() ? "t" : "f";
-    std::string is_safety_critical = msg->getIs_safety_critical() ? "t" : "f";
-    std::string priority_level = std::to_string(msg->getPriority_level());
-    std::string payload = payload_json.str();
-    
-    paramValues[0] = task_id.c_str();
-    paramValues[1] = vehicle_id.c_str();
-    paramValues[2] = rsu_id_str.c_str();
-    paramValues[3] = task_size.c_str();
-    paramValues[4] = cpu_cycles.c_str();
-    paramValues[5] = qos.c_str();
-    paramValues[6] = created.c_str();
-    paramValues[7] = deadline.c_str();
-    paramValues[8] = received.c_str();
-    paramValues[9] = task_type_name.c_str();
-    paramValues[10] = task_type_id.c_str();
-    paramValues[11] = input_size.c_str();
-    paramValues[12] = output_size.c_str();
-    paramValues[13] = is_offloadable.c_str();
-    paramValues[14] = is_safety_critical.c_str();
-    paramValues[15] = priority_level.c_str();
-    paramValues[16] = payload.c_str();
-    
-    const char* query = "INSERT INTO task_metadata (task_id, vehicle_id, rsu_id, mem_footprint_bytes, "
-                        "cpu_cycles, qos_value, created_time, deadline_seconds, received_time, "
-                        "task_type_name, task_type_id, input_size_bytes, output_size_bytes, "
-                        "is_offloadable, is_safety_critical, priority_level, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)";
-    
-    PGresult* res = PQexecParams(conn, query, 17, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_WARN << "✗ Failed to insert task metadata: " << PQerrorMessage(conn) << endl;
-        std::cerr << "DB_ERROR: Task metadata insert failed: " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to insert task metadata: " << PQerrorMessage(conn) << endl;
-        std::cerr << "DB_ERROR: Task metadata insert failed: " << PQerrorMessage(conn) << std::endl;
-    } else {
-        EV_INFO << "✓ Task metadata inserted successfully (Task: " << msg->getTask_id() << ")" << endl;
-        std::cout << "DB_INSERT: Task metadata " << msg->getTask_id() << " stored in PostgreSQL" << std::endl;
-    }
-
-    if (res) PQclear(res);
-
-    // Dual-write immutable task fields into the new consolidated static table.
-    const char* staticValues[16];
-    staticValues[0] = task_id.c_str();
-    staticValues[1] = vehicle_id.c_str();
-    staticValues[2] = rsu_id_str.c_str();
-    staticValues[3] = created.c_str();
-    staticValues[4] = task_type_name.c_str();
-    staticValues[5] = task_type_id.c_str();
-    staticValues[6] = input_size.c_str();
-    staticValues[7] = output_size.c_str();
-    staticValues[8] = task_size.c_str();
-    staticValues[9] = cpu_cycles.c_str();
-    staticValues[10] = deadline.c_str();
-    staticValues[11] = qos.c_str();
-    staticValues[12] = is_offloadable.c_str();
-    staticValues[13] = is_safety_critical.c_str();
-    staticValues[14] = priority_level.c_str();
-    staticValues[15] = payload.c_str();
-
-    const char* staticQuery =
-        "INSERT INTO task_static_metadata ("
-        "task_id, creator_vehicle_id, initial_rsu_id, created_time, task_type_name, task_type_id, "
-        "input_size_bytes, output_size_bytes, mem_footprint_bytes, cpu_cycles, deadline_seconds, qos_value, "
-        "is_offloadable, is_safety_critical, priority_level, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb) "
-        "ON CONFLICT (task_id) DO UPDATE SET "
-        "creator_vehicle_id=EXCLUDED.creator_vehicle_id, "
-        "initial_rsu_id=EXCLUDED.initial_rsu_id, "
-        "created_time=EXCLUDED.created_time, "
-        "task_type_name=EXCLUDED.task_type_name, "
-        "task_type_id=EXCLUDED.task_type_id, "
-        "input_size_bytes=EXCLUDED.input_size_bytes, "
-        "output_size_bytes=EXCLUDED.output_size_bytes, "
-        "mem_footprint_bytes=EXCLUDED.mem_footprint_bytes, "
-        "cpu_cycles=EXCLUDED.cpu_cycles, "
-        "deadline_seconds=EXCLUDED.deadline_seconds, "
-        "qos_value=EXCLUDED.qos_value, "
-        "is_offloadable=EXCLUDED.is_offloadable, "
-        "is_safety_critical=EXCLUDED.is_safety_critical, "
-        "priority_level=EXCLUDED.priority_level, "
-        "payload=EXCLUDED.payload";
-
-    PGresult* staticRes = PQexecParams(conn, staticQuery, 16, nullptr, staticValues, nullptr, nullptr, 0);
-    if (!staticRes || PQresultStatus(staticRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to upsert task_static_metadata: " << PQerrorMessage(conn) << endl;
-    }
-    if (staticRes) PQclear(staticRes);
+    (void)msg;
 }
 
 void MyRSUApp::insertTaskCompletion(const TaskCompletionMessage* msg) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert task completion: No database connection" << endl;
-        return;
-    }
-    
-    EV_INFO << "📤 Inserting task completion into PostgreSQL..." << endl;
-    
-    // Prepare JSON payload
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"task_id\":\"" << msg->getTask_id() << "\","
-                 << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
-                 << "\"completion_time\":" << msg->getCompletion_time() << ","
-                 << "\"processing_time\":" << msg->getProcessing_time() << ","
-                 << "\"cpu_allocated\":" << msg->getCpu_allocated() << ","
-                 << "\"completed_on_time\":" << (msg->getCompleted_on_time() ? "true" : "false")
-                 << "}";
-    
-    std::string task_id = msg->getTask_id();
-    std::string vehicle_id = msg->getVehicle_id();
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string event_type = "COMPLETED";
-    std::string completion = std::to_string(msg->getCompletion_time());
-    std::string processing = std::to_string(msg->getProcessing_time());
-    std::string on_time = msg->getCompleted_on_time() ? "t" : "f";
-    std::string payload = payload_json.str();
-
-    const char* summaryValues[11];
-    std::string decision_local = msg->getIs_local_execution() ? "LOCAL" : "";
-    std::string processor = msg->getIs_local_execution() ? ("VEHICLE_" + vehicle_id) : "";
-    std::string success = "t";
-    std::string failure_reason = "";
-    std::string completion_d = std::to_string(msg->getCompletion_time());
-    std::string processing_d = std::to_string(msg->getProcessing_time());
-    std::string processing_start = std::to_string(msg->getCompletion_time() - msg->getProcessing_time());
-    summaryValues[0] = task_id.c_str();
-    summaryValues[1] = decision_local.c_str();
-    summaryValues[2] = rsu_id_str.c_str();
-    summaryValues[3] = completion_d.c_str();
-    summaryValues[4] = processing_start.c_str();
-    summaryValues[5] = processing_d.c_str();
-    summaryValues[6] = success.c_str();
-    summaryValues[7] = failure_reason.c_str();
-    summaryValues[8] = processor.c_str();
-    summaryValues[9] = on_time.c_str();
-    summaryValues[10] = payload.c_str();
-
-    const char* summaryQuery =
-        "UPDATE task_static_metadata SET "
-        "decision_type=COALESCE(decision_type, NULLIF($2, '')), "
-        "decision_node_rsu_id=COALESCE(decision_node_rsu_id, $3::integer), "
-        "completion_time=$4::double precision, "
-        "processing_start_time=$5::double precision, "
-        "processing_time_s=$6::double precision, "
-        "success=$7::boolean, "
-        "failure_reason=NULLIF($8, ''), "
-        "processor_id=COALESCE(processor_id, NULLIF($9, '')), "
-        "completed_on_time=$10::boolean, "
-        "payload=$11::jsonb "
-        "WHERE task_id=$1";
-
-    PGresult* summaryRes = PQexecParams(conn, summaryQuery, 11, nullptr, summaryValues, nullptr, nullptr, 0);
-    if (!summaryRes || PQresultStatus(summaryRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to update task_static_metadata on completion: " << PQerrorMessage(conn) << endl;
-    }
-    if (summaryRes) PQclear(summaryRes);
-
-    const char* rtValues[13];
-    std::string stage = "RESULT";
-    std::string source = "VEHICLE_" + vehicle_id;
-    std::string target = "RSU_" + std::to_string(rsu_id);
-    std::string status = "SUCCESS";
-    std::string reason_code = "NONE";
-    rtValues[0] = task_id.c_str();
-    rtValues[1] = completion.c_str();
-    rtValues[2] = stage.c_str();
-    rtValues[3] = event_type.c_str();
-    rtValues[4] = source.c_str();
-    rtValues[5] = target.c_str();
-    rtValues[6] = rsu_id_str.c_str();
-    rtValues[7] = status.c_str();
-    rtValues[8] = reason_code.c_str();
-    rtValues[9] = processing.c_str();
-    rtValues[10] = completion.c_str();
-    rtValues[11] = on_time.c_str();
-    rtValues[12] = payload.c_str();
-
-    const char* rtQuery =
-        "INSERT INTO task_runtime_events ("
-        "task_id, event_time, stage, event_type, source_entity_id, target_entity_id, rsu_id, "
-        "status, reason_code, processing_time_s, total_latency_s, completed_on_time, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::boolean, $13::jsonb)";
-
-    PGresult* rtRes = PQexecParams(conn, rtQuery, 13, nullptr, rtValues, nullptr, nullptr, 0);
-    if (!rtRes || PQresultStatus(rtRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert task_runtime_events completion row: " << PQerrorMessage(conn) << endl;
-    }
-    if (rtRes) PQclear(rtRes);
+    (void)msg;
 }
 
 void MyRSUApp::insertTaskFailure(const TaskFailureMessage* msg) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert task failure: No database connection" << endl;
-        return;
-    }
-    
-    EV_INFO << "📤 Inserting task failure into PostgreSQL..." << endl;
-    
-    // Prepare JSON payload
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"task_id\":\"" << msg->getTask_id() << "\","
-                 << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
-                 << "\"failure_time\":" << msg->getFailure_time() << ","
-                 << "\"failure_reason\":\"" << msg->getFailure_reason() << "\","
-                 << "\"wasted_time\":" << msg->getWasted_time()
-                 << "}";
-    
-    std::string task_id = msg->getTask_id();
-    std::string vehicle_id = msg->getVehicle_id();
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string event_type = "FAILED";
-    std::string failure_time = std::to_string(msg->getFailure_time());
-    std::string reason = msg->getFailure_reason();
-    std::string payload = payload_json.str();
-
-    const char* summaryValues[6];
-    std::string success = "f";
-    std::string summary_proc_time = "0";
-    summaryValues[0] = task_id.c_str();
-    summaryValues[1] = failure_time.c_str();
-    summaryValues[2] = summary_proc_time.c_str();
-    summaryValues[3] = success.c_str();
-    summaryValues[4] = reason.c_str();
-    summaryValues[5] = rsu_id_str.c_str();
-
-    const char* summaryQuery =
-        "UPDATE task_static_metadata SET "
-        "decision_node_rsu_id=COALESCE(decision_node_rsu_id, $6::integer), "
-        "completion_time=$2::double precision, "
-        "processing_time_s=$3::double precision, "
-        "success=$4::boolean, "
-        "failure_reason=$5, "
-        "completed_on_time=false "
-        "WHERE task_id=$1";
-
-    PGresult* summaryRes = PQexecParams(conn, summaryQuery, 6, nullptr, summaryValues, nullptr, nullptr, 0);
-    if (!summaryRes || PQresultStatus(summaryRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to update task_static_metadata on failure: " << PQerrorMessage(conn) << endl;
-    }
-    if (summaryRes) PQclear(summaryRes);
-
-    const char* rtValues[13];
-    std::string stage = "RESULT";
-    std::string source = "VEHICLE_" + vehicle_id;
-    std::string target = "RSU_" + std::to_string(rsu_id);
-    std::string status = "FAILED";
-    std::string reason_detail = reason;
-    std::string proc_time = "0";
-    std::string completed_on_time = "f";
-    rtValues[0] = task_id.c_str();
-    rtValues[1] = failure_time.c_str();
-    rtValues[2] = stage.c_str();
-    rtValues[3] = event_type.c_str();
-    rtValues[4] = source.c_str();
-    rtValues[5] = target.c_str();
-    rtValues[6] = rsu_id_str.c_str();
-    rtValues[7] = status.c_str();
-    rtValues[8] = reason.c_str();
-    rtValues[9] = reason_detail.c_str();
-    rtValues[10] = proc_time.c_str();
-    rtValues[11] = completed_on_time.c_str();
-    rtValues[12] = payload.c_str();
-
-    const char* rtQuery =
-        "INSERT INTO task_runtime_events ("
-        "task_id, event_time, stage, event_type, source_entity_id, target_entity_id, rsu_id, "
-        "status, reason_code, reason_detail, processing_time_s, completed_on_time, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::boolean, $13::jsonb)";
-
-    PGresult* rtRes = PQexecParams(conn, rtQuery, 13, nullptr, rtValues, nullptr, nullptr, 0);
-    if (!rtRes || PQresultStatus(rtRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert task_runtime_events failure row: " << PQerrorMessage(conn) << endl;
-    }
-    if (rtRes) PQclear(rtRes);
+    (void)msg;
 }
 
 void MyRSUApp::insertVehicleStatus(const VehicleResourceStatusMessage* msg) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        std::cout << "DB_WARN: No database connection, skipping vehicle_status insert for " 
-                  << msg->getVehicle_id() << std::endl;
-        return;
-    }
-    
-    // Prepare JSON payload with all status info
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"vehicle_id\":\"" << msg->getVehicle_id() << "\","
-                 << "\"pos_x\":" << msg->getPos_x() << ","
-                 << "\"pos_y\":" << msg->getPos_y() << ","
-                 << "\"speed\":" << msg->getSpeed() << ","
-                 << "\"cpu_total\":" << msg->getCpu_total() << ","
-                 << "\"cpu_allocable\":" << msg->getCpu_allocable() << ","
-                 << "\"cpu_available\":" << msg->getCpu_available() << ","
-                 << "\"cpu_utilization\":" << msg->getCpu_utilization() << ","
-                 << "\"mem_total\":" << msg->getMem_total() << ","
-                 << "\"mem_available\":" << msg->getMem_available() << ","
-                 << "\"mem_utilization\":" << msg->getMem_utilization() << ","
-                 << "\"avg_completion_time\":" << msg->getAvg_completion_time() << ","
-                 << "\"deadline_miss_ratio\":" << msg->getDeadline_miss_ratio()
-                 << "}";
-    
-    const char* paramValues[25];
-    std::string vehicle_id = msg->getVehicle_id();
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string update_time = std::to_string(simTime().dbl());
-    std::string pos_x = std::to_string(msg->getPos_x());
-    std::string pos_y = std::to_string(msg->getPos_y());
-    std::string speed = std::to_string(msg->getSpeed());
-    std::string acceleration = std::to_string(msg->getAcceleration());
-    std::string heading = std::to_string(msg->getHeading());
-    std::string cpu_total_str = std::to_string(msg->getCpu_total());
-    std::string cpu_allocable = std::to_string(msg->getCpu_allocable());
-    std::string cpu_available = std::to_string(msg->getCpu_available());
-    std::string cpu_util = std::to_string(msg->getCpu_utilization());
-    std::string mem_total_str = std::to_string(msg->getMem_total());
-    std::string mem_available = std::to_string(msg->getMem_available());
-    std::string mem_util = std::to_string(msg->getMem_utilization());
-    std::string queue_len = std::to_string(msg->getCurrent_queue_length());
-    std::string proc_count = std::to_string(msg->getCurrent_processing_count());
-    std::string tasks_gen = std::to_string(msg->getTasks_generated());
-    std::string tasks_ok = std::to_string(msg->getTasks_completed_on_time());
-    std::string tasks_late = std::to_string(msg->getTasks_completed_late());
-    std::string tasks_fail = std::to_string(msg->getTasks_failed());
-    std::string tasks_reject = std::to_string(msg->getTasks_rejected());
-    std::string avg_comp_time = std::to_string(msg->getAvg_completion_time());
-    std::string deadline_miss = std::to_string(msg->getDeadline_miss_ratio());
-    std::string payload = payload_json.str();
-    
-    paramValues[0] = vehicle_id.c_str();
-    paramValues[1] = rsu_id_str.c_str();
-    paramValues[2] = update_time.c_str();
-    paramValues[3] = pos_x.c_str();
-    paramValues[4] = pos_y.c_str();
-    paramValues[5] = speed.c_str();
-    paramValues[6] = acceleration.c_str();
-    paramValues[7] = heading.c_str();
-    paramValues[8] = cpu_total_str.c_str();
-    paramValues[9] = cpu_allocable.c_str();
-    paramValues[10] = cpu_available.c_str();
-    paramValues[11] = cpu_util.c_str();
-    paramValues[12] = mem_total_str.c_str();
-    paramValues[13] = mem_available.c_str();
-    paramValues[14] = mem_util.c_str();
-    paramValues[15] = queue_len.c_str();
-    paramValues[16] = proc_count.c_str();
-    paramValues[17] = tasks_gen.c_str();
-    paramValues[18] = tasks_ok.c_str();
-    paramValues[19] = tasks_late.c_str();
-    paramValues[20] = tasks_fail.c_str();
-    paramValues[21] = tasks_reject.c_str();
-    paramValues[22] = avg_comp_time.c_str();
-    paramValues[23] = deadline_miss.c_str();
-    paramValues[24] = payload.c_str();
-    
-    const char* query = "INSERT INTO vehicle_status (vehicle_id, rsu_id, update_time, "
-                        "pos_x, pos_y, speed, acceleration, heading, "
-                        "cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
-                        "mem_total, mem_available, mem_utilization, "
-                        "queue_length, processing_count, "
-                        "tasks_generated, tasks_completed_on_time, tasks_completed_late, "
-                        "tasks_failed, tasks_rejected, avg_completion_time, deadline_miss_ratio, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, "
-                        "$16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb)";
-    
-    PGresult* res = PQexecParams(conn, query, 25, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_status for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert vehicle status: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_status for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
-    } else {
-        EV_INFO << "✓ Vehicle status inserted (" << vehicle_id << " @ " << update_time << "s)" << endl;
-        std::cout << "DB_INSERT: vehicle_status for " << vehicle_id 
-                  << " @ t=" << update_time << "s" << std::endl;
-    }
-
-    if (res) PQclear(res);
+    (void)msg;
 }
 
 void MyRSUApp::insertSecondaryProgress(double sim_time) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    const char* paramValues[4];
-    std::string run_id = secondary_run_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string sim_time_str = std::to_string(sim_time);
-    std::string interval_str = std::to_string(secondary_link_sample_interval);
-
-    paramValues[0] = run_id.c_str();
-    paramValues[1] = rsu_id_str.c_str();
-    paramValues[2] = sim_time_str.c_str();
-    paramValues[3] = interval_str.c_str();
-
-    const char* query = "INSERT INTO dt_secondary_progress (run_id, rsu_id, sim_time, sample_interval_s) "
-                        "VALUES ($1, $2, $3, $4)";
-
-    PGresult* res = PQexecParams(conn, query, 4, nullptr, paramValues, nullptr, nullptr, 0);
-    PQclear(res);
+    (void)sim_time;
 }
 
 void MyRSUApp::insertSecondaryVehicleSample(const VehicleResourceStatusMessage* msg) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"speed\":" << msg->getSpeed() << ","
-                 << "\"heading\":" << msg->getHeading() << ","
-                 << "\"acceleration\":" << msg->getAcceleration()
-                 << "}";
-
-    const char* paramValues[10];
-    std::string run_id = secondary_run_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string vehicle_id = msg->getVehicle_id();
-    std::string sim_time = std::to_string(simTime().dbl());
-    std::string pos_x = std::to_string(msg->getPos_x());
-    std::string pos_y = std::to_string(msg->getPos_y());
-    std::string speed = std::to_string(msg->getSpeed());
-    std::string heading = std::to_string(msg->getHeading());
-    std::string acceleration = std::to_string(msg->getAcceleration());
-    std::string payload = payload_json.str();
-
-    paramValues[0] = run_id.c_str();
-    paramValues[1] = rsu_id_str.c_str();
-    paramValues[2] = vehicle_id.c_str();
-    paramValues[3] = sim_time.c_str();
-    paramValues[4] = pos_x.c_str();
-    paramValues[5] = pos_y.c_str();
-    paramValues[6] = speed.c_str();
-    paramValues[7] = heading.c_str();
-    paramValues[8] = acceleration.c_str();
-    paramValues[9] = payload.c_str();
-
-    const char* query = "INSERT INTO dt_vehicle_state_samples (run_id, rsu_id, vehicle_id, sim_time, "
-                        "pos_x, pos_y, speed, heading, acceleration, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)";
-
-    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
-    PQclear(res);
+    (void)msg;
 }
 
 void MyRSUApp::insertSecondaryLinkSample(const std::string& link_type,
@@ -4029,53 +2811,18 @@ void MyRSUApp::insertSecondaryLinkSample(const std::string& link_type,
                                          double relative_speed,
                                          double tx_heading,
                                          double rx_heading) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"distance_m\":" << distance_m << ","
-                 << "\"relative_speed\":" << relative_speed << ","
-                 << "\"tx_heading\":" << tx_heading << ","
-                 << "\"rx_heading\":" << rx_heading
-                 << "}";
-
-    const char* paramValues[15];
-    std::string run_id = secondary_run_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string sim_time_str = std::to_string(sim_time);
-    std::string tx_x = std::to_string(tx_pos_x);
-    std::string tx_y = std::to_string(tx_pos_y);
-    std::string rx_x = std::to_string(rx_pos_x);
-    std::string rx_y = std::to_string(rx_pos_y);
-    std::string dist = std::to_string(distance_m);
-    std::string rel = std::to_string(relative_speed);
-    std::string tx_h = std::to_string(tx_heading);
-    std::string rx_h = std::to_string(rx_heading);
-    std::string payload = payload_json.str();
-
-    paramValues[0] = run_id.c_str();
-    paramValues[1] = rsu_id_str.c_str();
-    paramValues[2] = link_type.c_str();
-    paramValues[3] = tx_entity_id.c_str();
-    paramValues[4] = rx_entity_id.c_str();
-    paramValues[5] = sim_time_str.c_str();
-    paramValues[6] = tx_x.c_str();
-    paramValues[7] = tx_y.c_str();
-    paramValues[8] = rx_x.c_str();
-    paramValues[9] = rx_y.c_str();
-    paramValues[10] = dist.c_str();
-    paramValues[11] = rel.c_str();
-    paramValues[12] = tx_h.c_str();
-    paramValues[13] = rx_h.c_str();
-    paramValues[14] = payload.c_str();
-
-    const char* query = "INSERT INTO dt_link_context_samples (run_id, rsu_id, link_type, tx_entity_id, rx_entity_id, "
-                        "sim_time, tx_pos_x, tx_pos_y, rx_pos_x, rx_pos_y, distance_m, relative_speed, tx_heading, rx_heading, payload) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)";
-
-    PGresult* res = PQexecParams(conn, query, 15, nullptr, paramValues, nullptr, nullptr, 0);
-    PQclear(res);
+    (void)link_type;
+    (void)tx_entity_id;
+    (void)rx_entity_id;
+    (void)sim_time;
+    (void)tx_pos_x;
+    (void)tx_pos_y;
+    (void)rx_pos_x;
+    (void)rx_pos_y;
+    (void)distance_m;
+    (void)relative_speed;
+    (void)tx_heading;
+    (void)rx_heading;
 }
 
 void MyRSUApp::insertSecondaryQCycle(uint64_t cycle_id,
@@ -4083,48 +2830,11 @@ void MyRSUApp::insertSecondaryQCycle(uint64_t cycle_id,
                                      int trajectory_count,
                                      int candidate_count,
                                      int entry_count) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    const char* paramValues[11];
-    std::string run_id = secondary_run_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string cycle_id_str = std::to_string(cycle_id);
-    std::string sim_time_str = std::to_string(sim_time);
-    std::string horizon_s = std::to_string(secondary_prediction_horizon_s);
-    std::string step_s = std::to_string(secondary_prediction_step_s);
-    std::string sinr_threshold = std::to_string(secondary_sinr_threshold_db);
-    std::string traj_count = std::to_string(trajectory_count);
-    std::string cand_count = std::to_string(candidate_count);
-    std::string ent_count = std::to_string(entry_count);
-
-    paramValues[0] = run_id.c_str();
-    paramValues[1] = rsu_id_str.c_str();
-    paramValues[2] = cycle_id_str.c_str();
-    paramValues[3] = sim_time_str.c_str();
-    paramValues[4] = horizon_s.c_str();
-    paramValues[5] = step_s.c_str();
-    paramValues[6] = sinr_threshold.c_str();
-    paramValues[7] = traj_count.c_str();
-    paramValues[8] = cand_count.c_str();
-    paramValues[9] = ent_count.c_str();
-    paramValues[10] = ent_count.c_str();
-
-    const char* query =
-        "INSERT INTO dt_secondary_q_cycles "
-        "(run_id, rsu_id, cycle_id, sim_time, prediction_horizon_s, prediction_step_s, sinr_threshold_db, trajectory_count, candidate_count, entry_count) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
-        "ON CONFLICT (run_id, rsu_id, cycle_id) DO UPDATE SET "
-        "sim_time = EXCLUDED.sim_time, "
-        "prediction_horizon_s = EXCLUDED.prediction_horizon_s, "
-        "prediction_step_s = EXCLUDED.prediction_step_s, "
-        "sinr_threshold_db = EXCLUDED.sinr_threshold_db, "
-        "trajectory_count = EXCLUDED.trajectory_count, "
-        "candidate_count = EXCLUDED.candidate_count, "
-        "entry_count = EXCLUDED.entry_count";
-
-    PGresult* res = PQexecParams(conn, query, 10, nullptr, paramValues, nullptr, nullptr, 0);
-    PQclear(res);
+    (void)cycle_id;
+    (void)sim_time;
+    (void)trajectory_count;
+    (void)candidate_count;
+    (void)entry_count;
 }
 
 void MyRSUApp::insertSecondaryQEntry(uint64_t cycle_id,
@@ -4139,466 +2849,41 @@ void MyRSUApp::insertSecondaryQEntry(uint64_t cycle_id,
                                      double rx_pos_y,
                                      double distance_m,
                                      double sinr_db) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    const char* paramValues[13];
-    std::string run_id = secondary_run_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string cycle_id_str = std::to_string(cycle_id);
-    std::string step_str = std::to_string(step_index);
-    std::string pred_time = std::to_string(predicted_time);
-    std::string tx_x = std::to_string(tx_pos_x);
-    std::string tx_y = std::to_string(tx_pos_y);
-    std::string rx_x = std::to_string(rx_pos_x);
-    std::string rx_y = std::to_string(rx_pos_y);
-    std::string dist = std::to_string(distance_m);
-    std::string sinr = std::to_string(sinr_db);
-
-    paramValues[0] = run_id.c_str();
-    paramValues[1] = rsu_id_str.c_str();
-    paramValues[2] = cycle_id_str.c_str();
-    paramValues[3] = link_type.c_str();
-    paramValues[4] = tx_entity_id.c_str();
-    paramValues[5] = rx_entity_id.c_str();
-    paramValues[6] = step_str.c_str();
-    paramValues[7] = pred_time.c_str();
-    paramValues[8] = tx_x.c_str();
-    paramValues[9] = tx_y.c_str();
-    paramValues[10] = rx_x.c_str();
-    paramValues[11] = rx_y.c_str();
-    paramValues[12] = dist.c_str();
-
-    const char* query =
-        "INSERT INTO dt_secondary_q_entries "
-        "(run_id, rsu_id, cycle_id, link_type, tx_entity_id, rx_entity_id, step_index, predicted_time, tx_pos_x, tx_pos_y, rx_pos_x, rx_pos_y, distance_m, sinr_db) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)";
-
-    const char* extendedParamValues[14] = {
-        paramValues[0], paramValues[1], paramValues[2], paramValues[3], paramValues[4], paramValues[5],
-        paramValues[6], paramValues[7], paramValues[8], paramValues[9], paramValues[10], paramValues[11],
-        paramValues[12], sinr.c_str()
-    };
-
-    PGresult* res = PQexecParams(conn, query, 14, nullptr, extendedParamValues, nullptr, nullptr, 0);
-    PQclear(res);
+    (void)cycle_id;
+    (void)link_type;
+    (void)tx_entity_id;
+    (void)rx_entity_id;
+    (void)step_index;
+    (void)predicted_time;
+    (void)tx_pos_x;
+    (void)tx_pos_y;
+    (void)rx_pos_x;
+    (void)rx_pos_y;
+    (void)distance_m;
+    (void)sinr_db;
 }
-// ============================================================================
-// OFFLOADING DATABASE INSERTIONS
-// ============================================================================
 
 void MyRSUApp::insertOffloadingRequest(const OffloadingRequest& request) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert offloading request: No database connection" << endl;
-        std::cout << "WARN: ⚠ Cannot insert offloading request: No database connection" << std::endl;
-        return;
-    }
-    
-    EV_INFO << "📤 Inserting offloading request into database for task " << request.task_id << endl;
-    std::cout << "INFO: 📤 Inserting offloading request into database for task " << request.task_id << std::endl;
-    
-    // Prepare JSON payload
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"task_id\":\"" << request.task_id << "\","
-                 << "\"vehicle_id\":\"" << request.vehicle_id << "\","
-                 << "\"local_decision\":\"" << request.local_decision << "\","
-                 << "\"initial_gate_classification\":\"" << request.initial_gate_classification << "\"," 
-                 << "\"initial_gate_reason\":\"" << request.initial_gate_reason << "\"," 
-                 << "\"mem_footprint_bytes\":" << request.mem_footprint_bytes << ","
-                 << "\"cpu_cycles\":" << request.cpu_cycles << ","
-                 << "\"deadline_seconds\":" << request.deadline_seconds << ","
-                 << "\"qos_value\":" << request.qos_value
-                 << "}";
-    
-    const char* paramValues[11];
-    std::string task_id = request.task_id;
-
-
-    std::string vehicle_id = request.vehicle_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string request_time = std::to_string(request.request_time);
-    std::string task_size = std::to_string(request.mem_footprint_bytes);
-    std::string cpu_cycles = std::to_string(request.cpu_cycles);
-    std::string deadline = std::to_string(request.deadline_seconds);
-    std::string qos = std::to_string(request.qos_value);
-    std::string gate_class = request.initial_gate_classification.empty() ? "UNKNOWN" : request.initial_gate_classification;
-    std::string gate_reason = request.initial_gate_reason.empty() ? request.local_decision : request.initial_gate_reason;
-    std::string payload = payload_json.str();
-    
-    paramValues[0] = task_id.c_str();
-    paramValues[1] = vehicle_id.c_str();
-    paramValues[2] = rsu_id_str.c_str();
-    paramValues[3] = request_time.c_str();
-    paramValues[4] = task_size.c_str();
-    paramValues[5] = cpu_cycles.c_str();
-    paramValues[6] = deadline.c_str();
-    paramValues[7] = qos.c_str();
-    paramValues[8] = gate_class.c_str();
-    paramValues[9] = gate_reason.c_str();
-    paramValues[10] = payload.c_str();
-    
-    const char* query =
-        "INSERT INTO task_static_metadata ("
-        "task_id, creator_vehicle_id, initial_rsu_id, created_time, "
-        "mem_footprint_bytes, cpu_cycles, deadline_seconds, qos_value, "
-        "initial_gate_classification, initial_gate_reason, payload) "
-        "VALUES ($1, $2, $3::integer, $4::double precision, $5::bigint, $6::bigint, $7::double precision, $8::double precision, $9, $10, $11::jsonb) "
-        "ON CONFLICT (task_id) DO UPDATE SET "
-        "creator_vehicle_id=EXCLUDED.creator_vehicle_id, "
-        "initial_rsu_id=EXCLUDED.initial_rsu_id, "
-        "created_time=EXCLUDED.created_time, "
-        "mem_footprint_bytes=EXCLUDED.mem_footprint_bytes, "
-        "cpu_cycles=EXCLUDED.cpu_cycles, "
-        "deadline_seconds=EXCLUDED.deadline_seconds, "
-        "qos_value=EXCLUDED.qos_value, "
-        "initial_gate_classification=COALESCE(NULLIF(task_static_metadata.initial_gate_classification, ''), EXCLUDED.initial_gate_classification), "
-        "initial_gate_reason=COALESCE(NULLIF(task_static_metadata.initial_gate_reason, ''), EXCLUDED.initial_gate_reason), "
-        "payload=EXCLUDED.payload";
-    
-    PGresult* res = PQexecParams(conn, query, 11, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_WARN << "✗ Failed to persist offloading request in task_static_metadata: " << PQerrorMessage(conn) << endl;
-        std::cout << "WARN: ✗ Failed to persist offloading request in task_static_metadata: " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to persist offloading request in task_static_metadata: " << PQerrorMessage(conn) << endl;
-        std::cout << "WARN: ✗ Failed to persist offloading request in task_static_metadata: " << PQerrorMessage(conn) << std::endl;
-    } else {
-        EV_INFO << "✓ Offloading request persisted in task_static_metadata (Task: " << request.task_id << ")" << endl;
-        std::cout << "INFO: ✓ Offloading request persisted in task_static_metadata (Task: " << request.task_id << ")" << std::endl;
-    }
-
-    if (res) PQclear(res);
+    (void)request;
 }
 
 void MyRSUApp::insertOffloadingDecision(const std::string& task_id, const veins::OffloadingDecisionMessage* decision) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert offloading decision: No database connection" << endl;
-        return;
-    }
-    
-    EV_DEBUG << "📤 Inserting offloading decision into PostgreSQL..." << endl;
-    
-    // Prepare JSON payload
-    std::ostringstream payload_json;
-    payload_json << "{"
-                 << "\"task_id\":\"" << decision->getTask_id() << "\","
-                 << "\"decision_type\":\"" << decision->getDecision_type() << "\","
-                 << "\"confidence_score\":" << decision->getConfidence_score() << ","
-                 << "\"estimated_completion_time\":" << decision->getEstimated_completion_time() << ","
-                 << "\"decision_reason\":\"" << decision->getDecision_reason() << "\""
-                 << "}";
-    
-    const char* paramValues[7];
-    std::string task_id_str = task_id;
-    std::string vehicle_id = decision->getVehicle_id();
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string decision_time = std::to_string(decision->getDecision_time());
-    std::string decision_type = decision->getDecision_type();
-    std::string target_sv = canonicalServiceVehicleId(decision->getTarget_service_vehicle_id());
-    std::string reason = decision->getDecision_reason();
-    std::string payload = payload_json.str();
-    std::string target_rsu = (decision_type == "RSU") ? rsu_id_str : "";
-    
-    paramValues[0] = task_id_str.c_str();
-    paramValues[1] = decision_type.c_str();
-    paramValues[2] = target_rsu.c_str();
-    paramValues[3] = target_sv.c_str();
-    paramValues[4] = rsu_id_str.c_str();
-    paramValues[5] = reason.c_str();
-    paramValues[6] = payload.c_str();
-    
-    const char* query =
-        "UPDATE task_static_metadata SET "
-        "decision_type=$2, "
-        "target_rsu_id=NULLIF($3, '')::integer, "
-        "target_sv_id=NULLIF($4, ''), "
-        "decision_node_rsu_id=$5::integer, "
-        "processor_id=CASE "
-        "  WHEN $2='LOCAL' THEN creator_vehicle_id "
-        "  WHEN $2='RSU' THEN CONCAT('RSU_', $3) "
-        "  WHEN $2='SERVICE_VEHICLE' THEN NULLIF($4, '') "
-        "  ELSE processor_id END, "
-        "failure_reason=CASE WHEN $2='REJECT' THEN $6 ELSE failure_reason END, "
-        "payload=$7::jsonb "
-        "WHERE task_id=$1";
-    
-    PGresult* res = PQexecParams(conn, query, 7, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_WARN << "✗ Failed to update decision in task_static_metadata: " << PQerrorMessage(conn) << endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to update decision in task_static_metadata: " << PQerrorMessage(conn) << endl;
-    } else {
-        EV_DEBUG << "✓ Offloading decision persisted in task_static_metadata (Task: " << task_id << ")" << endl;
-    }
-
-    if (res) PQclear(res);
-
-    const char* rtValues[11];
-    std::string stage = "DECISION";
-    std::string source = "RSU_" + std::to_string(rsu_id);
-    std::string target = "VEHICLE_" + vehicle_id;
-    std::string status = "IN_PROGRESS";
-    rtValues[0] = task_id_str.c_str();
-    rtValues[1] = decision_time.c_str();
-    rtValues[2] = stage.c_str();
-    rtValues[3] = decision_type.c_str();
-    rtValues[4] = source.c_str();
-    rtValues[5] = target.c_str();
-    rtValues[6] = rsu_id_str.c_str();
-    rtValues[7] = decision_type.c_str();
-    rtValues[8] = status.c_str();
-    rtValues[9] = reason.c_str();
-    rtValues[10] = payload.c_str();
-
-    const char* rtQuery =
-        "INSERT INTO task_runtime_events ("
-        "task_id, event_time, stage, event_type, source_entity_id, target_entity_id, rsu_id, "
-        "decision_type, status, reason_detail, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)";
-
-    PGresult* rtRes = PQexecParams(conn, rtQuery, 11, nullptr, rtValues, nullptr, nullptr, 0);
-    if (!rtRes || PQresultStatus(rtRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert task_runtime_events decision row: " << PQerrorMessage(conn) << endl;
-    }
-    if (rtRes) PQclear(rtRes);
+    (void)task_id;
+    (void)decision;
 }
 
 void MyRSUApp::insertTaskOffloadingEvent(const veins::TaskOffloadingEvent* event) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert task offloading event: No database connection" << endl;
-        return;
-    }
-
-    EV_DEBUG << "📤 Inserting task offloading event into task_runtime_events..." << endl;
-
-    std::string task_id = event->getTask_id();
-    std::string event_type = event->getEvent_type();
-    std::string event_time = std::to_string(event->getEvent_time());
-    std::string source_entity = event->getSource_entity_id();
-    std::string target_entity = event->getTarget_entity_id();
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string event_details = event->getEvent_details();
-    const std::string status = classifyLifecycleStatus(event_type);
-    const std::string reason_code = extractJsonStringValue(event_details, "reason_code");
-    const std::string reason_detail = extractJsonStringValue(event_details, "reason_detail");
-    const std::string timeout_stage = extractJsonStringValue(event_details, "timeout_stage");
-    const std::string timeout_budget_s = extractJsonNumberValue(event_details, "timeout_budget_s");
-    const std::string waited_s = extractJsonNumberValue(event_details, "waited_s");
-
-    const char* paramValues[14];
-
-    // Dual-write lifecycle event into consolidated runtime timeline.
-    std::string stage = "OFFLOADING";
-    paramValues[0] = task_id.c_str();
-    paramValues[1] = event_time.c_str();
-    paramValues[2] = stage.c_str();
-    paramValues[3] = event_type.c_str();
-    paramValues[4] = source_entity.c_str();
-    paramValues[5] = target_entity.c_str();
-    paramValues[6] = rsu_id_str.c_str();
-    paramValues[7] = status.c_str();
-    paramValues[8] = reason_code.c_str();
-    paramValues[9] = reason_detail.c_str();
-    paramValues[10] = timeout_stage.c_str();
-    paramValues[11] = timeout_budget_s.c_str();
-    paramValues[12] = waited_s.c_str();
-    paramValues[13] = event_details.c_str();
-
-    const char* rtQuery =
-        "INSERT INTO task_runtime_events ("
-        "task_id, event_time, stage, event_type, source_entity_id, target_entity_id, rsu_id, "
-        "status, reason_code, reason_detail, timeout_stage, timeout_budget_s, waited_s, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''), "
-        "NULLIF($11, ''), NULLIF($12, '')::double precision, NULLIF($13, '')::double precision, $14::jsonb)";
-
-    PGresult* rtRes = PQexecParams(conn, rtQuery, 14, nullptr, paramValues, nullptr, nullptr, 0);
-    if (!rtRes || PQresultStatus(rtRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert task_runtime_events lifecycle row: " << PQerrorMessage(conn) << endl;
-    }
-    if (rtRes) PQclear(rtRes);
-
-    updateTaskStaticTraceFromEvent(task_id, event_type, event->getEvent_time(), event_details);
+    (void)event;
 }
 
 void MyRSUApp::updateTaskStaticTraceFromEvent(const std::string& task_id,
                                               const std::string& event_type,
                                               double event_time,
                                               const std::string& details) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    const std::string event_time_s = std::to_string(event_time);
-    const std::string reason_code = extractJsonStringValue(details, "reason_code");
-    const std::string timeout_stage = extractJsonStringValue(details, "timeout_stage");
-    const std::string timeout_budget_s = extractJsonNumberValue(details, "timeout_budget_s");
-    const std::string waited_s = extractJsonNumberValue(details, "waited_s");
-    const std::string miss_count = extractJsonNumberValue(details, "miss_count");
-    const std::string rsu_wait_s = extractJsonNumberValue(details, "rsu_wait_s");
-    const std::string decision_wait_s = extractJsonNumberValue(details, "decision_wait_s");
-    const std::string decision_delivery_s = extractJsonNumberValue(details, "decision_delivery_s");
-    const std::string drl_dequeued_wall_s = extractJsonNumberValue(details, "drl_dequeued_wall_s");
-    const std::string drl_state_ready_wall_s = extractJsonNumberValue(details, "drl_state_ready_wall_s");
-    const std::string drl_decision_written_wall_s = extractJsonNumberValue(details, "drl_decision_written_wall_s");
-    const std::string drl_result_timeout_discard_wall_s = extractJsonNumberValue(details, "drl_result_timeout_discard_wall_s");
-    const std::string drl_result_timeout_s = extractJsonNumberValue(details, "drl_result_timeout_s");
-
-    const char* traceValues[7] = {
-        task_id.c_str(),
-        drl_dequeued_wall_s.c_str(),
-        drl_state_ready_wall_s.c_str(),
-        drl_decision_written_wall_s.c_str(),
-        drl_result_timeout_discard_wall_s.c_str(),
-        drl_result_timeout_s.c_str(),
-        event_time_s.c_str()
-    };
-    const char* traceQuery =
-        "UPDATE task_static_metadata SET "
-        "drl_dequeued_wall_s=COALESCE(NULLIF($2, '')::double precision, drl_dequeued_wall_s), "
-        "drl_state_ready_wall_s=COALESCE(NULLIF($3, '')::double precision, drl_state_ready_wall_s), "
-        "drl_decision_written_wall_s=COALESCE(NULLIF($4, '')::double precision, drl_decision_written_wall_s), "
-        "drl_result_timeout_discard_wall_s=COALESCE(NULLIF($5, '')::double precision, drl_result_timeout_discard_wall_s), "
-        "drl_result_timeout_s=COALESCE(NULLIF($6, '')::double precision, drl_result_timeout_s), "
-        "payload=COALESCE(payload, '{}'::jsonb) || jsonb_build_object('last_trace_event_time', $7::double precision) "
-        "WHERE task_id=$1";
-    PGresult* traceRes = PQexecParams(conn, traceQuery, 7, nullptr, traceValues, nullptr, nullptr, 0);
-    if (!traceRes || PQresultStatus(traceRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ task_static_metadata trace update failed for " << task_id
-                << " event=" << event_type << ": " << PQerrorMessage(conn) << endl;
-    }
-    if (traceRes) PQclear(traceRes);
-
-    if (event_type == "OFFLOADING_REQUEST_RECEIVED") {
-        const char* values[2] = {task_id.c_str(), event_time_s.c_str()};
-        const char* query =
-            "UPDATE task_static_metadata SET "
-            "request_received_time=COALESCE(request_received_time, $2::double precision) "
-            "WHERE task_id=$1";
-        PGresult* res = PQexecParams(conn, query, 2, nullptr, values, nullptr, nullptr, 0);
-        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ request_received_time update failed for " << task_id
-                    << ": " << PQerrorMessage(conn) << endl;
-        }
-        if (res) PQclear(res);
-        return;
-    }
-
-    if (event_type == "DECISION_POLL_MISS") {
-        const char* values[3] = {task_id.c_str(), event_time_s.c_str(), miss_count.c_str()};
-        const char* query =
-            "UPDATE task_static_metadata SET "
-            "decision_poll_miss_count=GREATEST(COALESCE(decision_poll_miss_count, 0), COALESCE(NULLIF($3, '')::integer, 0)), "
-            "payload=COALESCE(payload, '{}'::jsonb) || jsonb_build_object('last_poll_miss_event_time', $2::double precision) "
-            "WHERE task_id=$1";
-        PGresult* res = PQexecParams(conn, query, 3, nullptr, values, nullptr, nullptr, 0);
-        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ decision_poll_miss_count update failed for " << task_id
-                    << ": " << PQerrorMessage(conn) << endl;
-        }
-        if (res) PQclear(res);
-        return;
-    }
-
-    if (event_type == "OFFLOADING_DECISION_IN_PROCESS") {
-        const char* values[3] = {task_id.c_str(), event_time_s.c_str(), rsu_wait_s.c_str()};
-        const char* query =
-            "UPDATE task_static_metadata SET "
-            "decision_in_process_time=COALESCE(decision_in_process_time, $2::double precision), "
-            "rsu_wait_s=COALESCE(NULLIF($3, '')::double precision, GREATEST(0.0, $2::double precision - COALESCE(request_received_time, created_time)), rsu_wait_s) "
-            "WHERE task_id=$1";
-        PGresult* res = PQexecParams(conn, query, 3, nullptr, values, nullptr, nullptr, 0);
-        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ decision_in_process_time/rsu_wait_s update failed for " << task_id
-                    << ": " << PQerrorMessage(conn) << endl;
-        }
-        if (res) PQclear(res);
-        return;
-    }
-
-    if (event_type == "OFFLOADING_DECISION_SENDING") {
-        const char* values[2] = {task_id.c_str(), event_time_s.c_str()};
-        const char* query =
-            "UPDATE task_static_metadata SET "
-            "decision_sent_time=COALESCE(decision_sent_time, $2::double precision) "
-            "WHERE task_id=$1";
-        PGresult* res = PQexecParams(conn, query, 2, nullptr, values, nullptr, nullptr, 0);
-        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ decision_sent_time update failed for " << task_id
-                    << ": " << PQerrorMessage(conn) << endl;
-        }
-        if (res) PQclear(res);
-        return;
-    }
-
-    if (event_type == "DECISION_RECEIVED") {
-        const char* values[4] = {
-            task_id.c_str(),
-            event_time_s.c_str(),
-            decision_wait_s.c_str(),
-            decision_delivery_s.c_str()
-        };
-        const char* query =
-            "UPDATE task_static_metadata SET "
-            "decision_received_time=COALESCE(decision_received_time, $2::double precision), "
-            "decision_wait_s=COALESCE(NULLIF($3, '')::double precision, GREATEST(0.0, $2::double precision - COALESCE(request_received_time, created_time)), decision_wait_s), "
-            "decision_delivery_s=COALESCE(NULLIF($4, '')::double precision, CASE WHEN decision_sent_time IS NOT NULL THEN GREATEST(0.0, $2::double precision - decision_sent_time) ELSE decision_delivery_s END, decision_delivery_s) "
-            "WHERE task_id=$1";
-        PGresult* res = PQexecParams(conn, query, 4, nullptr, values, nullptr, nullptr, 0);
-        if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
-            EV_WARN << "⚠ decision_received_time/wait update failed for " << task_id
-                    << ": " << PQerrorMessage(conn) << endl;
-        }
-        if (res) PQclear(res);
-        return;
-    }
-
-    if (event_type == "OFFLOAD_TIMEOUT_FAIL" || event_type == "OFFLOAD_TIMEOUT_LOCAL_FALLBACK") {
-        if (timeout_stage == "DECISION_WAIT") {
-            const char* values[6] = {
-                task_id.c_str(),
-                timeout_stage.c_str(),
-                reason_code.c_str(),
-                timeout_budget_s.c_str(),
-                waited_s.c_str(),
-                event_time_s.c_str()
-            };
-            const char* query =
-                "UPDATE task_static_metadata SET "
-                "decision_timeout_stage=NULLIF($2, ''), "
-                "decision_timeout_reason=COALESCE(NULLIF($3, ''), decision_timeout_reason), "
-                "decision_timeout_budget_s=COALESCE(NULLIF($4, '')::double precision, decision_timeout_budget_s), "
-                "decision_timeout_waited_s=COALESCE(NULLIF($5, '')::double precision, decision_timeout_waited_s), "
-                "failure_reason=COALESCE(NULLIF($3, ''), failure_reason), "
-                "completion_time=COALESCE(completion_time, $6::double precision), "
-                "success=COALESCE(success, false), "
-                "completed_on_time=COALESCE(completed_on_time, false) "
-                "WHERE task_id=$1";
-            PGresult* res = PQexecParams(conn, query, 6, nullptr, values, nullptr, nullptr, 0);
-            if (!res || PQresultStatus(res) != PGRES_COMMAND_OK) {
-                EV_WARN << "⚠ decision timeout trace update failed for " << task_id
-                        << ": " << PQerrorMessage(conn) << endl;
-            }
-            if (res) PQclear(res);
-        }
-        return;
-    }
+    (void)task_id;
+    (void)event_type;
+    (void)event_time;
+    (void)details;
 }
 
 void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const std::string& vehicle_id,
@@ -4607,174 +2892,22 @@ void MyRSUApp::insertOffloadedTaskCompletion(const std::string& task_id, const s
                                              double completion_time, bool success, bool completed_on_time,
                                              double deadline_seconds, uint64_t mem_footprint_bytes, uint64_t cpu_cycles,
                                              double qos_value, const std::string& result_data, const std::string& failure_reason) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        EV_WARN << "⚠ Cannot insert task completion: No database connection" << endl;
-        std::cout << "WARN: ⚠ Cannot insert task completion: No database connection" << std::endl;
-        return;
-    }
-    
-    EV_INFO << "📊 Inserting offloaded task completion for task " << task_id << endl;
-    std::cout << "INFO: 📊 Inserting offloaded task completion for task " << task_id << std::endl;
-    
-    // Calculate latencies
-    double decision_latency = decision_time - request_time;
-    double processing_latency = completion_time - start_time;
-    double total_latency = completion_time - request_time;
-    
-    std::cout << "INFO: 📈 Task Metrics - Decision: " << decision_latency << "s, Processing: " 
-              << processing_latency << "s, Total: " << total_latency << "s" << std::endl;
-    
-    const char* paramValues[19];
-    std::string tid = task_id;
-    std::string vid = vehicle_id;
-    std::string rsu_id_str = std::to_string(rsu_id);
-    std::string dec_type = decision_type;
-    std::string proc_id = processor_id;
-    std::string req_time = std::to_string(request_time);
-    std::string dec_time = std::to_string(decision_time);
-    std::string strt_time = std::to_string(start_time);
-    std::string comp_time = std::to_string(completion_time);
-    std::string dec_lat = std::to_string(decision_latency);
-    std::string proc_lat = std::to_string(processing_latency);
-    std::string tot_lat = std::to_string(total_latency);
-    std::string succ = success ? "true" : "false";
-    std::string comp_on_time = completed_on_time ? "true" : "false";
-    std::string deadline = std::to_string(deadline_seconds);
-    std::string tsize = std::to_string(mem_footprint_bytes);
-    std::string cycles = std::to_string(cpu_cycles);
-    std::string qos = std::to_string(qos_value);
-    std::string result = result_data;
-    
-    paramValues[0] = tid.c_str();
-    paramValues[1] = vid.c_str();
-    paramValues[2] = rsu_id_str.c_str();
-    paramValues[3] = dec_type.c_str();
-    paramValues[4] = proc_id.c_str();
-    paramValues[5] = req_time.c_str();
-    paramValues[6] = dec_time.c_str();
-    paramValues[7] = strt_time.c_str();
-    paramValues[8] = comp_time.c_str();
-    paramValues[9] = dec_lat.c_str();
-    paramValues[10] = proc_lat.c_str();
-    paramValues[11] = tot_lat.c_str();
-    paramValues[12] = succ.c_str();
-    paramValues[13] = comp_on_time.c_str();
-    paramValues[14] = deadline.c_str();
-    paramValues[15] = tsize.c_str();
-    paramValues[16] = cycles.c_str();
-    paramValues[17] = qos.c_str();
-    paramValues[18] = result.c_str();
-    
-    const char* query = "INSERT INTO offloaded_task_completions (task_id, vehicle_id, rsu_id, "
-                        "decision_type, processor_id, request_time, decision_time, start_time, completion_time, "
-                        "decision_latency, processing_latency, total_latency, success, completed_on_time, "
-                        "deadline_seconds, mem_footprint_bytes, cpu_cycles, qos_value, result_data) "
-                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::boolean, $14::boolean, "
-                        "$15, $16, $17, $18, $19)";
-    
-    PGresult* res = PQexecParams(conn, query, 19, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_WARN << "✗ Failed to insert task completion: " << PQerrorMessage(conn) << endl;
-        std::cout << "WARN: ✗ Failed to insert task completion: " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_WARN << "✗ Failed to insert task completion: " << PQerrorMessage(conn) << endl;
-        std::cout << "WARN: ✗ Failed to insert task completion: " << PQerrorMessage(conn) << std::endl;
-    } else {
-        EV_INFO << "✓ Task completion inserted successfully" << endl;
-        std::cout << "INFO: ✓ Task completion inserted - Total Latency: " << total_latency 
-                  << "s, Success: " << success << ", On-time: " << completed_on_time << std::endl;
-    }
-    
-    if (res) PQclear(res);
-
-    const char* rtValues[16];
-    std::string stage = "RESULT";
-    std::string event_type = success ? "OFFLOADED_COMPLETED" : "OFFLOADED_FAILED";
-    std::string source = processor_id;
-    std::string target = "VEHICLE_" + vehicle_id;
-    std::string status = success ? "SUCCESS" : "FAILED";
-    std::string reason_code = success ? "NONE" : failure_reason;
-    std::string rt_payload = "{}";
-    rtValues[0] = tid.c_str();
-    rtValues[1] = comp_time.c_str();
-    rtValues[2] = stage.c_str();
-    rtValues[3] = event_type.c_str();
-    rtValues[4] = source.c_str();
-    rtValues[5] = target.c_str();
-    rtValues[6] = rsu_id_str.c_str();
-    rtValues[7] = dec_type.c_str();
-    rtValues[8] = proc_id.c_str();
-    rtValues[9] = status.c_str();
-    rtValues[10] = reason_code.c_str();
-    rtValues[11] = proc_lat.c_str();
-    rtValues[12] = tot_lat.c_str();
-    rtValues[13] = comp_on_time.c_str();
-    rtValues[14] = result.c_str();
-    rtValues[15] = rt_payload.c_str();
-
-    const char* rtQuery =
-        "INSERT INTO task_runtime_events ("
-        "task_id, event_time, stage, event_type, source_entity_id, target_entity_id, rsu_id, "
-        "decision_type, processor_id, status, reason_code, processing_time_s, total_latency_s, "
-        "completed_on_time, reason_detail, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::boolean, $15, $16::jsonb)";
-
-    PGresult* rtRes = PQexecParams(conn, rtQuery, 16, nullptr, rtValues, nullptr, nullptr, 0);
-    if (!rtRes || PQresultStatus(rtRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to insert task_runtime_events offloaded result row: " << PQerrorMessage(conn) << endl;
-    }
-    if (rtRes) PQclear(rtRes);
-
-    const char* summaryValues[12];
-    std::string target_rsu = (dec_type == "RSU") ? rsu_id_str : "";
-    std::string target_sv = (dec_type == "SERVICE_VEHICLE") ? proc_id : "";
-    std::string decision_node = rsu_id_str;
-    std::string completion_s = comp_time;
-    std::string start_s = strt_time;
-    std::string processing_s = proc_lat;
-    std::string success_s = success ? "t" : "f";
-    std::string completed_on_time_s = comp_on_time;
-    std::string failure_reason_s = failure_reason;
-
-    summaryValues[0] = tid.c_str();
-    summaryValues[1] = dec_type.c_str();
-    summaryValues[2] = target_rsu.c_str();
-    summaryValues[3] = target_sv.c_str();
-    summaryValues[4] = decision_node.c_str();
-    summaryValues[5] = completion_s.c_str();
-    summaryValues[6] = start_s.c_str();
-    summaryValues[7] = processing_s.c_str();
-    summaryValues[8] = success_s.c_str();
-    summaryValues[9] = failure_reason_s.c_str();
-    summaryValues[10] = proc_id.c_str();
-    summaryValues[11] = completed_on_time_s.c_str();
-
-    const char* summaryQuery =
-        "UPDATE task_static_metadata SET "
-        "decision_type=$2, "
-        "target_rsu_id=NULLIF($3, '')::integer, "
-        "target_sv_id=NULLIF($4, ''), "
-        "decision_node_rsu_id=$5::integer, "
-        "completion_time=$6::double precision, "
-        "processing_start_time=$7::double precision, "
-        "processing_time_s=$8::double precision, "
-        "success=$9::boolean, "
-        "failure_reason=NULLIF($10, ''), "
-        "processor_id=$11, "
-        "completed_on_time=$12::boolean "
-        "WHERE task_id=$1";
-
-    PGresult* summaryRes = PQexecParams(conn, summaryQuery, 12, nullptr, summaryValues, nullptr, nullptr, 0);
-    if (!summaryRes || PQresultStatus(summaryRes) != PGRES_COMMAND_OK) {
-        EV_WARN << "⚠ Failed to update task_static_metadata offloaded summary: " << PQerrorMessage(conn) << endl;
-    }
-    if (summaryRes) PQclear(summaryRes);
+    (void)task_id;
+    (void)vehicle_id;
+    (void)decision_type;
+    (void)processor_id;
+    (void)request_time;
+    (void)decision_time;
+    (void)start_time;
+    (void)completion_time;
+    (void)success;
+    (void)completed_on_time;
+    (void)deadline_seconds;
+    (void)mem_footprint_bytes;
+    (void)cpu_cycles;
+    (void)qos_value;
+    (void)result_data;
+    (void)failure_reason;
 }
 
 // ============================================================================
@@ -5897,43 +4030,11 @@ void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress:
 void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
                                      const std::string& source, const std::string& target,
                                      const std::string& details) {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-
-    const std::string status = classifyLifecycleStatus(event_type);
-    const std::string reason_code = extractJsonStringValue(details, "reason_code");
-    const std::string reason_detail = extractJsonStringValue(details, "reason_detail");
-
-    std::string rsu_id_str   = std::to_string(rsu_id);
-    const double event_time = simTime().dbl();
-    std::string event_time_s = std::to_string(event_time);
-
-    const char* paramValues[11] = {
-        task_id.c_str(), event_time_s.c_str(), "OFFLOADING", event_type.c_str(),
-        source.c_str(),  target.c_str(), rsu_id_str.c_str(), status.c_str(),
-        reason_code.c_str(), reason_detail.c_str(), details.c_str()
-    };
-    const char* query =
-        "INSERT INTO task_runtime_events "
-        "(task_id, event_time, stage, event_type, source_entity_id, target_entity_id, rsu_id, status, reason_code, reason_detail, payload) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''), $11::jsonb)";
-
-    PGresult* res = PQexecParams(conn, query, 11, nullptr, paramValues, nullptr, nullptr, 0);
-    if (!res) {
-        std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        if (!isUndefinedTable(res)) {
-            std::cerr << "LIFECYCLE_ERR: " << event_type << " insert failed: " << PQerrorMessage(conn) << std::endl;
-        }
-    } else {
-        if (terminalVerboseLogs || shouldAlwaysPrintLifecycleEvent(event_type)) {
-            std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
-                      << " (" << source << "->" << target << ")" << std::endl;
-        }
+    (void)details;
+    if (terminalVerboseLogs || shouldAlwaysPrintLifecycleEvent(event_type)) {
+        std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
+                  << " (" << source << "->" << target << ")" << std::endl;
     }
-    if (res) PQclear(res);
-
-    updateTaskStaticTraceFromEvent(task_id, event_type, event_time, details);
 }
 
 void MyRSUApp::handleTaskOffloadingEvent(veins::TaskOffloadingEvent* msg) {
@@ -6255,217 +4356,15 @@ void MyRSUApp::sendRSUStatusUpdate() {
 }
 
 void MyRSUApp::insertRSUStatus() {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-    
-    // Calculate metrics
-    updateRSUBackgroundLoad();
-    double cpu_util = getEffectiveRSUCpuUtilization();
-    double mem_util = getEffectiveRSUMemoryUtilization();
-    double effective_cpu_available = rsu_cpu_total * (1.0 - cpu_util);
-    double effective_memory_available = getEffectiveRSUMemoryAvailable();
-    rsu_cpu_available = effective_cpu_available;
-    double avg_proc_time = (rsu_tasks_processed > 0) ? (rsu_total_processing_time / rsu_tasks_processed) : 0.0;
-    double avg_queue_time = (rsu_tasks_processed > 0) ? (rsu_total_queue_time / rsu_tasks_processed) : 0.0;
-    double success_rate = (rsu_tasks_admitted > 0) ? ((double)rsu_tasks_processed / rsu_tasks_admitted) : 0.0;
-    int connected_vehicles = vehicle_twins.size();
-    
-    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
-    double update_time = simTime().dbl();
-    
-    // Build INSERT query
-    const char* paramValues[20];
-    std::string params[20];
-    
-    params[0] = rsu_id_str;
-    params[1] = std::to_string(update_time);
-    params[2] = std::to_string(rsu_cpu_total);
-    params[3] = std::to_string(rsu_cpu_total);  // cpu_allocable = total for RSU
-    params[4] = std::to_string(effective_cpu_available);
-    params[5] = std::to_string(cpu_util);
-    params[6] = std::to_string(rsu_memory_total);
-    params[7] = std::to_string(effective_memory_available);
-    params[8] = std::to_string(mem_util);
-    params[9] = std::to_string(rsu_queue_length);
-    params[10] = std::to_string(rsu_processing_count);
-    params[11] = std::to_string(rsu_max_concurrent);
-    // Keep DB column name tasks_received, but store true arrival count.
-    params[12] = std::to_string(rsu_tasks_arrived);
-    params[13] = std::to_string(rsu_tasks_processed);
-    params[14] = std::to_string(rsu_tasks_failed);
-    params[15] = std::to_string(rsu_tasks_rejected);
-    params[16] = std::to_string(avg_proc_time);
-    params[17] = std::to_string(avg_queue_time);
-    params[18] = std::to_string(success_rate);
-    params[19] = std::to_string(connected_vehicles);
-    
-    for (int i = 0; i < 20; i++) {
-        paramValues[i] = params[i].c_str();
-    }
-    
-    const char* query = 
-        "INSERT INTO rsu_status ("
-        "rsu_id, update_time, cpu_total, cpu_allocable, cpu_available, cpu_utilization, "
-        "memory_total, memory_available, memory_utilization, queue_length, processing_count, "
-        "max_concurrent_tasks, tasks_received, tasks_processed, tasks_failed, tasks_rejected, "
-        "avg_processing_time, avg_queue_time, success_rate, connected_vehicles_count"
-        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)";
-    
-    PGresult* res = PQexecParams(conn, query, 20, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_ERROR << "RSU status insert failed: " << PQerrorMessage(conn) << endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_ERROR << "RSU status insert failed: " << PQerrorMessage(conn) << endl;
-    } else {
-        EV_DEBUG << "RSU status inserted - CPU: " << (cpu_util*100) << "%, Mem: " << (mem_util*100)
-             << "%, Tasks: " << rsu_processing_count << "/" << rsu_max_concurrent << endl;
-    }
-
-    if (res) PQclear(res);
+    // Persistence disabled in this build.
 }
 
 void MyRSUApp::insertRSUMetadata() {
-    PGconn* conn = getDBConnection();
-    if (!conn) return;
-    
-    std::string rsu_id_str = "RSU_" + std::to_string(rsu_id);
-    
-    // Get RSU position from mobility module
-    double pos_x = 0.0, pos_y = 0.0, pos_z = 0.0;
-    cModule* mobilityModule = getParentModule()->getSubmodule("mobility");
-    if (mobilityModule) {
-        pos_x = mobilityModule->par("x").doubleValue();
-        pos_y = mobilityModule->par("y").doubleValue();
-        pos_z = mobilityModule->par("z").doubleValue();
-    }
-    
-    // Build INSERT query with UPSERT (ON CONFLICT UPDATE)
-    const char* paramValues[11];
-    std::string params[11];
-    
-    params[0] = rsu_id_str;
-    params[1] = std::to_string(pos_x);
-    params[2] = std::to_string(pos_y);
-    params[3] = std::to_string(pos_z);
-    params[4] = "300.0";  // Default coverage radius 300m
-    params[5] = std::to_string(edgeCPU_GHz);
-    params[6] = std::to_string(edgeMemory_GB);
-    params[7] = "100.0";  // Default storage 100GB
-    params[8] = "100.0";  // Default bandwidth 100Mbps
-    params[9] = std::to_string(maxVehicles);
-    params[10] = std::to_string(processingDelay_ms);
-    
-    for (int i = 0; i < 11; i++) {
-        paramValues[i] = params[i].c_str();
-    }
-    
-    const char* query = 
-        "INSERT INTO rsu_metadata ("
-        "rsu_id, pos_x, pos_y, pos_z, coverage_radius, cpu_capacity_ghz, memory_capacity_gb, "
-        "storage_capacity_gb, bandwidth_mbps, max_vehicles, base_processing_delay_ms, deployment_time"
-        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP) "
-        "ON CONFLICT (rsu_id) DO UPDATE SET "
-        "pos_x = EXCLUDED.pos_x, pos_y = EXCLUDED.pos_y, pos_z = EXCLUDED.pos_z, "
-        "updated_at = CURRENT_TIMESTAMP";
-    
-    PGresult* res = PQexecParams(conn, query, 11, nullptr, paramValues, nullptr, nullptr, 0);
-    if (!res) {
-        std::cerr << "DB_ERROR: Failed to insert RSU metadata: " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        std::cerr << "DB_ERROR: Failed to insert RSU metadata: " << PQerrorMessage(conn) << std::endl;
-    } else {
-        EV_INFO << "✓ RSU metadata inserted/updated for " << rsu_id_str << endl;
-        std::cout << "RSU_METADATA: " << rsu_id_str << " @ (" << pos_x << "," << pos_y << ") - " 
-                  << edgeCPU_GHz << " GHz, " << edgeMemory_GB << " GB" << std::endl;
-    }
-
-    if (res) PQclear(res);
+    // Persistence disabled in this build.
 }
 
 void MyRSUApp::insertVehicleMetadata(const std::string& vehicle_id) {
-    if (!use_postgres) {
-        return;
-    }
-
-    PGconn* conn = getDBConnection();
-    if (!conn) {
-        std::cout << "DB_WARN: No database connection, skipping vehicle_metadata insert for " 
-                  << vehicle_id << std::endl;
-        return;
-    }
-    
-    // Get vehicle twin data if available
-    auto it = vehicle_twins.find(vehicle_id);
-    if (it == vehicle_twins.end()) {
-        std::cout << "DB_WARN: No twin data available for " << vehicle_id << std::endl;
-        return;
-    }
-    
-    const VehicleDigitalTwin& twin = it->second;
-    
-    const std::string effective_vehicle_type = twin.vehicle_type.empty() ? "Toyota" : twin.vehicle_type;
-    const double battery_capacity_kwh = (twin.battery_capacity_mAh > 0.0)
-        ? (twin.battery_capacity_mAh * 12.0 / 1.0e6) : 0.0;
-
-    // Build INSERT query with UPSERT
-    const char* paramValues[13];
-    std::string params[13];
-
-    params[0] = vehicle_id;
-    params[1] = std::to_string(twin.cpu_total / 1e9);       // Hz -> GHz
-    params[2] = std::to_string(twin.mem_total / 1e6);       // bytes -> MB
-    params[3] = std::to_string(twin.storage_capacity_gb);
-    params[4] = std::to_string(battery_capacity_kwh);
-    params[5] = std::to_string(twin.tx_power_mw);
-    params[6] = effective_vehicle_type;
-    params[7] = "false";  // Default: not a service vehicle
-    params[8] = std::to_string(twin.max_concurrent_tasks);
-    params[9] = std::to_string(twin.max_queue_size);
-    params[10] = std::to_string(twin.speed);               // Average velocity (m/s)
-    params[11] = std::to_string(twin.first_seen_time);
-    params[12] = std::to_string(twin.last_update_time);
-
-    for (int i = 0; i < 13; i++) {
-        paramValues[i] = params[i].c_str();
-    }
-
-    const char* query = 
-        "INSERT INTO vehicle_metadata ("
-        "vehicle_id, cpu_capacity_ghz, memory_capacity_mb, storage_capacity_gb, "
-        "battery_capacity_kwh, transmission_power_mw, vehicle_type, service_vehicle, "
-        "max_concurrent_tasks, max_queue_size, average_velocity, first_seen_time, last_seen_time"
-        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8::boolean, $9, $10, $11, $12, $13) "
-        "ON CONFLICT (vehicle_id) DO UPDATE SET "
-        "cpu_capacity_ghz = EXCLUDED.cpu_capacity_ghz, "
-        "memory_capacity_mb = EXCLUDED.memory_capacity_mb, "
-        "storage_capacity_gb = EXCLUDED.storage_capacity_gb, "
-        "battery_capacity_kwh = EXCLUDED.battery_capacity_kwh, "
-        "transmission_power_mw = EXCLUDED.transmission_power_mw, "
-        "vehicle_type = EXCLUDED.vehicle_type, "
-        "service_vehicle = EXCLUDED.service_vehicle, "
-        "max_concurrent_tasks = EXCLUDED.max_concurrent_tasks, "
-        "max_queue_size = EXCLUDED.max_queue_size, "
-        "average_velocity = EXCLUDED.average_velocity, "
-        "last_seen_time = EXCLUDED.last_seen_time, "
-        "updated_at = CURRENT_TIMESTAMP";
-
-    PGresult* res = PQexecParams(conn, query, 13, nullptr, paramValues, nullptr, nullptr, 0);
-
-    if (!res) {
-        EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_metadata for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
-    } else if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        EV_ERROR << "Vehicle metadata insert failed: " << PQerrorMessage(conn) << endl;
-        std::cout << "DB_ERROR: Failed to insert vehicle_metadata for " << vehicle_id 
-                  << ": " << PQerrorMessage(conn) << std::endl;
-    } else {
-        EV_DEBUG << "✓ Vehicle metadata inserted/updated for " << vehicle_id << endl;
-        std::cout << "DB_INSERT: vehicle_metadata for " << vehicle_id << std::endl;
-    }
-
-    if (res) PQclear(res);
+    (void)vehicle_id;
 }
 
 

@@ -147,15 +147,15 @@ private:
 // LOCAL_OBJECT_DETECTION kept non-offloadable but slowed to 2s to reduce log noise.
 namespace TaskPeriods {
     constexpr double LOCAL_OBJECT_DETECTION = 2.000;      // 100ms (10 Hz) — on-board sensing, NOT offloaded
-    constexpr double COOPERATIVE_PERCEPTION = 1.000;      // 200ms (0.2 Hz) — V2V fusion, offloaded
-    constexpr double ROUTE_OPTIMIZATION     = 3.000;     // 5s (~0.08 Hz) — path planning, offloaded
-    constexpr double SENSOR_HEALTH_CHECK    = 8.0;       // 10s — background, offloaded
-    constexpr double FLEET_TRAFFIC_BATCH    = 10.0;       // 60s — batch ML, offloaded
+    constexpr double COOPERATIVE_PERCEPTION = 0.200;      // 200ms (0.2 Hz) — V2V fusion, offloaded
+    constexpr double ROUTE_OPTIMIZATION     = 5.000;     // 5s (~0.08 Hz) — path planning, offloaded
+    constexpr double SENSOR_HEALTH_CHECK    = 10.0;       // 10s — background, offloaded
+    constexpr double FLEET_TRAFFIC_BATCH    = 60.0;       // 60s — batch ML, offloaded
 }
 
 // Poisson task rates (tasks/second, lambda parameter)
 namespace TaskRates {
-    constexpr double VOICE_COMMAND_PROCESSING = 0.333;      // 1 task per 5 seconds   0.2
+    constexpr double VOICE_COMMAND_PROCESSING = 0.2;      // 1 task per 5 seconds
 }
 
 // Task priorities (mapped to QoS values)

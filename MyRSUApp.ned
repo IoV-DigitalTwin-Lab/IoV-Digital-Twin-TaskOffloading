@@ -33,7 +33,6 @@ simple MyRSUApp like IBaseApplLayer
         string redisHost = default("127.0.0.1");  // Redis server host
         int redisPort = default(6379);       // Redis server port
         int redisDb = default(-1);           // Redis logical DB (default: RSU index)
-        bool enablePostgres = default(true); // Enable PostgreSQL persistence for this RSU app instance
 
         // Edge server resource parameters
         double edgeCPU_GHz;              // CPU capacity in GHz

@@ -3,7 +3,6 @@
 
 #include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include "veins/modules/messages/DemoSafetyMessage_m.h"
-// #include "rsu_http_poster.h"  // Disabled - using direct PostgreSQL
 #include "TaskMetadataMessage_m.h"
 #include "RedisDigitalTwin.h"
 #include "FuturePositionPredictor.h"
@@ -16,7 +15,6 @@
 #include <unordered_set>
 #include <cstdint>
 #include <memory>
-#include <libpq-fe.h>
 
 using namespace veins;
 
@@ -219,7 +217,6 @@ protected:
     void handleMessage(cMessage* msg) override;
 
 private:
-    // RSUHttpPoster poster{"http://127.0.0.1:8000/ingest"};  // Disabled - using direct PostgreSQL
     // self-message used for periodic beacons; keep as member so we can cancel/delete safely
     omnetpp::cMessage* beaconMsg{nullptr};
     
@@ -486,14 +483,7 @@ private:
     double offload_rate_cap_bps = -1.0;
     double offload_response_ratio = 0.2;
     
-    // ============================================================================
-    // POSTGRESQL DATABASE INTEGRATION
-    // ============================================================================
-    
-    PGconn* db_conn = nullptr;
-    std::string db_conninfo;
     int rsu_id = 0;
-    bool use_postgres = true;
     
     // ============================================================================
     // REDIS DIGITAL TWIN INTEGRATION
@@ -551,10 +541,6 @@ private:
         std::vector<std::pair<double, double>> vertices;
     };
     std::vector<ObstaclePolygon> secondary_obstacle_polygons;
-    
-    void initDatabase();
-    void closeDatabase();
-    PGconn* getDBConnection();
     
     void insertTaskMetadata(const TaskMetadataMessage* msg);
     void insertTaskCompletion(const TaskCompletionMessage* msg);
