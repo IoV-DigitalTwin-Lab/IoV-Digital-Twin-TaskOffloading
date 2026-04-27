@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- Each vehicle starts from a unique edge for maximum distribution -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
     
-    <!-- 30 vehicles, each starting from a DIFFERENT edge with random departure times -->
     <vehicle id="v_0" depart="1.23" departLane="random" departSpeed="random" departPos="random" color="255,0,0">
         <route edges="E0 E1 E2 E3 E4 E5"/>
     </vehicle>
