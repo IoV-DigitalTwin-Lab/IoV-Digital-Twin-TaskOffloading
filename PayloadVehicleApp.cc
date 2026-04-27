@@ -2705,7 +2705,7 @@ void PayloadVehicleApp::exportRouteProgressToRedis() {
         return;
     }
 
-    const std::string vehicle_id = canonicalVehicleId();
+    const std::string vehicle_id = std::to_string(getParentModule()->getIndex());
     routeProgressRedisClient->updateVehicleRouteProgress(vehicle_id, simTime().dbl(), edge_id, lane_pos_m);
 }
 
@@ -2733,7 +2733,7 @@ void PayloadVehicleApp::sendObjectDetectionData(const Task* task) {
 
 void PayloadVehicleApp::handleObjectDetectionDataMessage(veins::ObjectDetectionDataMessage* msg) {
     std::string sender_id = msg->getVehicle_id();
-    std::string self_id = canonicalVehicleId();
+    std::string self_id = std::to_string(getParentModule()->getIndex());
 
     if (sender_id == self_id) {
         delete msg;
