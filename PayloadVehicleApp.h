@@ -17,6 +17,7 @@
 #include <vector>
 #include <deque>
 #include <map>
+#include <unordered_map>
 
 namespace complex_network {
 class PayloadVehicleApp : public veins::DemoBaseApplLayer {
@@ -164,6 +165,9 @@ private:
     size_t countCpuAvailableConcurrency() const; // Count processing tasks below completion threshold
     double calculateReportedCpuAvailable() const; // F_allocable / (concurrent + 1)
     double calculateTaskCpuUtilization() const; // Fraction of allocable CPU currently assigned to tasks
+    int findClosestRSUIndex();                  // Closest RSU index by Euclidean distance
+    void initializeDirectVehicleRedisWriters(); // Build RSU-index -> Redis DB map + clients
+    void publishVehicleStateDirectToRedis();    // Write vehicle:{id}:state directly each heartbeat
     veins::LAddress::L2Type findRSUMacAddress();
     std::string createVehicleDataPayload();  // Create payload with actual vehicle data
     void updateVehicleData();                // Update current vehicle parameters
@@ -176,6 +180,10 @@ private:
     int routeProgressRedisPort = 6379;
     int routeProgressRedisDb = 0;
     RedisDigitalTwin* routeProgressRedisClient = nullptr;
+    // Direct vehicle-state Redis publish (vehicle writes to nearest-RSU DB each heartbeat).
+    std::unordered_map<int, int> rsuRedisDbByIndex;
+    std::unordered_map<int, RedisDigitalTwin*> directVehicleStateRedisClients;
+    bool directVehicleRedisEnabled = false;
     
     // ============================================================================
     // MODERN RSU SELECTION SYSTEM

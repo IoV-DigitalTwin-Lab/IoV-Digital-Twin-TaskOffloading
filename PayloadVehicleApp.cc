@@ -202,6 +202,7 @@ void PayloadVehicleApp::initialize(int stage) {
                 routeProgressRedisEnabled = false;
             }
         }
+        initializeDirectVehicleRedisWriters();
         
         // Schedule first periodic vehicle status update
         // Allow configuration; default is t=0 so Redis sees vehicles immediately
@@ -499,6 +500,7 @@ void PayloadVehicleApp::handleSelfMsg(cMessage* msg) {
 
         // Update vehicle data before sending
         updateVehicleData();
+        publishVehicleStateDirectToRedis();
 
         // Send VehicleResourceStatusMessage to RSU for Digital Twin tracking
         // This includes position, speed, CPU, memory, and task statistics
@@ -1582,6 +1584,12 @@ void PayloadVehicleApp::finish() {
         delete routeProgressRedisClient;
         routeProgressRedisClient = nullptr;
     }
+    for (auto& kv : directVehicleStateRedisClients) {
+        delete kv.second;
+        kv.second = nullptr;
+    }
+    directVehicleStateRedisClients.clear();
+    rsuRedisDbByIndex.clear();
 
     DemoBaseApplLayer::finish();
     if (motionChannelOnly) {
@@ -2753,6 +2761,133 @@ void PayloadVehicleApp::exportRouteProgressToRedis() {
 
     const std::string vehicle_id = std::to_string(getParentModule()->getIndex());
     routeProgressRedisClient->updateVehicleRouteProgress(vehicle_id, simTime().dbl(), edge_id, lane_pos_m);
+}
+
+void PayloadVehicleApp::initializeDirectVehicleRedisWriters() {
+    directVehicleRedisEnabled = false;
+    rsuRedisDbByIndex.clear();
+    for (auto& kv : directVehicleStateRedisClients) {
+        delete kv.second;
+    }
+    directVehicleStateRedisClients.clear();
+
+    // Secondary DT must not publish primary vehicle:{id}:state snapshots.
+    // Allow script-level override to keep secondary prediction channels active
+    // while suppressing direct vehicle DT writes.
+    const char* disableDirectVehicleRedis = std::getenv("DISABLE_DIRECT_VEHICLE_REDIS");
+    if (disableDirectVehicleRedis && std::string(disableDirectVehicleRedis) == "1") {
+        EV_INFO << "Direct vehicle Redis publish disabled by DISABLE_DIRECT_VEHICLE_REDIS=1" << endl;
+        return;
+    }
+
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        return;
+    }
+
+    for (int i = 0;; ++i) {
+        cModule* rsuModule = networkModule->getSubmodule("rsu", i);
+        if (!rsuModule) {
+            break;
+        }
+        cModule* appl = rsuModule->getSubmodule("appl");
+        if (!appl || !appl->hasPar("useRedis") || !appl->par("useRedis").boolValue()) {
+            continue;
+        }
+
+        const std::string host = appl->hasPar("redisHost") ? appl->par("redisHost").stdstringValue() : "127.0.0.1";
+        const int port = appl->hasPar("redisPort") ? appl->par("redisPort").intValue() : 6379;
+        int db = appl->hasPar("redisDb") ? appl->par("redisDb").intValue() : -1;
+        if (db < 0) {
+            db = i;
+        }
+
+        rsuRedisDbByIndex[i] = db;
+        if (directVehicleStateRedisClients.find(db) == directVehicleStateRedisClients.end()) {
+            RedisDigitalTwin* client = new RedisDigitalTwin(host, port, db);
+            if (client->isConnected()) {
+                directVehicleStateRedisClients[db] = client;
+                directVehicleRedisEnabled = true;
+            } else {
+                delete client;
+            }
+        }
+    }
+}
+
+int PayloadVehicleApp::findClosestRSUIndex() {
+    cModule* networkModule = getModuleByPath("^.^");
+    if (!networkModule) {
+        return -1;
+    }
+
+    Coord vehiclePos = mobility ? mobility->getPositionAt(simTime()) : Coord(0, 0, 0);
+    double minDistance = std::numeric_limits<double>::max();
+    int closest = -1;
+
+    for (int i = 0;; ++i) {
+        cModule* rsuModule = networkModule->getSubmodule("rsu", i);
+        if (!rsuModule) {
+            break;
+        }
+        cModule* rsuMobility = rsuModule->getSubmodule("mobility");
+        if (!rsuMobility) {
+            continue;
+        }
+        const double rsuX = rsuMobility->par("x").doubleValue();
+        const double rsuY = rsuMobility->par("y").doubleValue();
+        const double dx = vehiclePos.x - rsuX;
+        const double dy = vehiclePos.y - rsuY;
+        const double distance = std::sqrt(dx * dx + dy * dy);
+        if (distance < minDistance) {
+            minDistance = distance;
+            closest = i;
+        }
+    }
+    return closest;
+}
+
+void PayloadVehicleApp::publishVehicleStateDirectToRedis() {
+    if (!directVehicleRedisEnabled) {
+        return;
+    }
+
+    const int closestRsuIndex = findClosestRSUIndex();
+    auto dbIt = rsuRedisDbByIndex.find(closestRsuIndex);
+    if (dbIt == rsuRedisDbByIndex.end()) {
+        return;
+    }
+
+    auto clientIt = directVehicleStateRedisClients.find(dbIt->second);
+    if (clientIt == directVehicleStateRedisClients.end() || !clientIt->second || !clientIt->second->isConnected()) {
+        return;
+    }
+
+    const double reported_cpu_available = calculateReportedCpuAvailable();
+    cpu_available = reported_cpu_available;
+    const double task_util = calculateTaskCpuUtilization();
+    const double cpu_util = std::max(task_util, cpuLoadFactor);
+    double task_mem_util = (memory_total > 0) ? ((memory_total - memory_available) / memory_total) : 0.0;
+    double mem_util = std::max(task_mem_util, memoryUsageFactor);
+    mem_util = std::max(0.0, std::min(1.0, mem_util));
+    const double reported_mem_available = memory_total * (1.0 - mem_util);
+    const double battery_pct = (battery_mAh_max > 0.0) ? (battery_mAh_current / battery_mAh_max) * 100.0 : 0.0;
+    const std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+    const double now = simTime().dbl();
+
+    clientIt->second->updateVehicleState(
+        vehicle_id,
+        pos.x, pos.y, speed, (mobility ? mobility->getHeading().getRad() * 180.0 / M_PI : 0.0),
+        reported_cpu_available, cpu_util,
+        reported_mem_available, mem_util,
+        battery_pct, battery_mAh_current,
+        battery_mAh_max,
+        task_energy_j_total, task_energy_j_last,
+        static_cast<int>(pending_tasks.size()), static_cast<int>(processing_tasks.size()),
+        now,
+        acceleration,
+        now
+    );
 }
 
 // ============================================================================

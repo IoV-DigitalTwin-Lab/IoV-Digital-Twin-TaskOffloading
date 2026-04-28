@@ -6,6 +6,8 @@ cd "$SCRIPT_DIR"
 
 # Keep launcher display and controller runtime default aligned (100 ms).
 export DT2_POLL_INTERVAL_S="${DT2_POLL_INTERVAL_S:-0.1}"
+# Secondary run should not write primary vehicle DT heartbeat snapshots.
+export DISABLE_DIRECT_VEHICLE_REDIS="${DISABLE_DIRECT_VEHICLE_REDIS:-1}"
 
 CTRL_PID=""
 SIM_PID=""
