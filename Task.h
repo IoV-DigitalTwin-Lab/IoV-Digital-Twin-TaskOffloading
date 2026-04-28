@@ -117,18 +117,15 @@ struct TaskComparator {
     static constexpr double MAX_AGING_BOOST = 1.0;
 
     bool operator()(Task* a, Task* b) const {
-        const simtime_t now = simTime();
-
         double qos_a = std::max(0.0, std::min(a->qos_value / QOS_MAX, 1.0));
         double qos_b = std::max(0.0, std::min(b->qos_value / QOS_MAX, 1.0));
 
-        // Use remaining time-to-deadline, not original task deadline duration.
-        double remaining_deadline_a = std::max((a->deadline - now).dbl(), 1e-6);
-        double remaining_deadline_b = std::max((b->deadline - now).dbl(), 1e-6);
+        double deadline_a = std::max((a->deadline - a->created_time).dbl(), 1e-6);
+        double deadline_b = std::max((b->deadline - b->created_time).dbl(), 1e-6);
 
         // Normalized deadline urgency in [0, 1]: tighter deadline => higher urgency.
-        double urgency_a = std::min(1.0, DEADLINE_MIN_REF_SEC / remaining_deadline_a);
-        double urgency_b = std::min(1.0, DEADLINE_MIN_REF_SEC / remaining_deadline_b);
+        double urgency_a = std::min(1.0, DEADLINE_MIN_REF_SEC / deadline_a);
+        double urgency_b = std::min(1.0, DEADLINE_MIN_REF_SEC / deadline_b);
 
         double base_score_a = ALPHA_QOS * qos_a + BETA_DEADLINE * urgency_a;
         double base_score_b = ALPHA_QOS * qos_b + BETA_DEADLINE * urgency_b;
@@ -137,8 +134,8 @@ struct TaskComparator {
         // based on time spent in the pending_tasks queue.
         // Uses queue_entry_time (not created_time) to measure queue wait time only,
         // ensuring stable comparisons for tasks already in the queue.
-        double wait_a = std::max(0.0, (now - a->queue_entry_time).dbl());
-        double wait_b = std::max(0.0, (now - b->queue_entry_time).dbl());
+        double wait_a = std::max(0.0, (simTime() - a->queue_entry_time).dbl());
+        double wait_b = std::max(0.0, (simTime() - b->queue_entry_time).dbl());
         double aging_a = std::min(MAX_AGING_BOOST, AGING_FACTOR_PER_SEC * wait_a);
         double aging_b = std::min(MAX_AGING_BOOST, AGING_FACTOR_PER_SEC * wait_b);
 
@@ -151,8 +148,8 @@ struct TaskComparator {
         }
 
         // Deterministic tie-breakers.
-        if (std::abs(remaining_deadline_a - remaining_deadline_b) > 1e-12) {
-            return remaining_deadline_a > remaining_deadline_b; // tighter remaining deadline first
+        if (std::abs(deadline_a - deadline_b) > 1e-12) {
+            return deadline_a > deadline_b; // tighter deadline first
         }
         if (std::abs(qos_a - qos_b) > 1e-12) {
             return qos_a < qos_b; // higher QoS first

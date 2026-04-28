@@ -820,9 +820,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 std::string orig_id    = task_id.substr(0, sep);
                 std::string agent_name = task_id.substr(sep + 2);
 
-                // Energy: CMOS model — E = κ_rsu * f * cycles (κ_rsu=2e-27, f in Hz)
+                // Energy: CMOS model — κ_rsu * f² * cycles (κ_rsu=2e-27, f in Hz)
                 double f_hz    = pending.cpu_allocated_hz;
-                double energy_j = 2e-27 * f_hz * static_cast<double>(pending.cpu_cycles);
+                double energy_j = 2e-27 * f_hz * f_hz * static_cast<double>(pending.cpu_cycles);
 
                 double total_latency = pending.exec_time_s;
                 if (task_records.count(orig_id)) {
@@ -863,7 +863,7 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                 }
                 std::string ddqn_reason = (ddqn_status == "FAILED") ? "DEADLINE_MISSED" : "NONE";
                 double f_hz = pending.cpu_allocated_hz;
-                double energy_j = 2e-27 * f_hz * static_cast<double>(pending.cpu_cycles);
+                double energy_j = 2e-27 * f_hz * f_hz * static_cast<double>(pending.cpu_cycles);
                 redis_twin->writeSingleResult(task_id, ddqn_status, total_latency, energy_j, ddqn_reason);
                 std::cout << "RSU_RESULT: task=" << task_id
                           << " status=" << ddqn_status << " reason=" << ddqn_reason
@@ -3912,17 +3912,9 @@ void MyRSUApp::handleRSUTaskResultRelay(TaskResultMessage* msg) {
         // Approximate one-hop V2I transmission time (10ms)
         double total_latency  = proc_time + 0.01;
 
-        // Approximate RSU energy with CMOS model E = κ_rsu * f * cycles.
-        // Use original task cpu_cycles when available; otherwise estimate from proc time.
+        // Approximate RSU energy (κ_rsu=2e-27, f=4GHz nominal for neighbor)
         constexpr double kRsuNominalHz = 4e9;
-        uint64_t cpu_cycles = 0;
-        auto recIt = task_records.find(orig_id);
-        if (recIt != task_records.end()) {
-            cpu_cycles = recIt->second.cpu_cycles;
-        } else if (proc_time > 0.0) {
-            cpu_cycles = static_cast<uint64_t>(kRsuNominalHz * proc_time);
-        }
-        double energy_j = 2e-27 * kRsuNominalHz * static_cast<double>(cpu_cycles);
+        double energy_j = 2e-27 * kRsuNominalHz * kRsuNominalHz;  // placeholder per-cycle, scale later
 
         std::string status = "FAILED";
         if (success) {

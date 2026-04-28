@@ -128,7 +128,7 @@ void PayloadVehicleApp::initialize(int stage) {
     if (stage == 0) {
         messageSent = false;
 
-        // Initialize vehicle parameters
+        // Initialize vehicle parameters (similar to VehicleApp)
         flocHz_max = par("initFlocHz").doubleValue();
         flocHz_available = flocHz_max;  // Start with full capacity
         txPower_mW = par("initTxPower_mW").doubleValue();
