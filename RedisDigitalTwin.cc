@@ -545,6 +545,18 @@ void RedisDigitalTwin::writeSingleResult(const std::string& task_id,
 {
     if (!redis_ctx || !is_connected) return;
 
+    // Skip when the Python Metrics Engine is active — it writes task:{id}:result first.
+    {
+        redisReply* flagReply = (redisReply*)redisCommand(redis_ctx, "GET engine_active");
+        bool engineActive = false;
+        if (flagReply && flagReply->type == REDIS_REPLY_STRING) {
+            std::string flagVal(flagReply->str, flagReply->len);
+            engineActive = (flagVal == "1" || flagVal == "true" || flagVal == "yes");
+        }
+        if (flagReply) freeReplyObject(flagReply);
+        if (engineActive) return;
+    }
+
     const std::string effective_reason = (!fail_reason.empty()) ? fail_reason
         : (status != "COMPLETED_ON_TIME" ? "UNKNOWN" : "NONE");
 
