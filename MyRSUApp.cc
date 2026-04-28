@@ -12,6 +12,7 @@
 #include <random>
 #include <cstdint>
 #include <cctype>
+#include <unordered_set>
 
 using namespace veins;
 
@@ -1410,10 +1411,17 @@ void MyRSUApp::runSecondaryCycle() {
         double hgt_m = 1.5;
     };
     std::map<std::string, VehicleDims> vehicle_dims_cache;
+    static std::unordered_set<std::string> missing_vehicle_dims_cache;
 
     auto getVehicleDims = [&](const std::string& vehicle_id) {
         auto it = vehicle_dims_cache.find(vehicle_id);
         if (it != vehicle_dims_cache.end()) return it->second;
+
+        if (missing_vehicle_dims_cache.count(vehicle_id) != 0) {
+            VehicleDims dims;
+            vehicle_dims_cache[vehicle_id] = dims;
+            return dims;
+        }
 
         VehicleDims dims;
         try {
@@ -1429,9 +1437,11 @@ void MyRSUApp::runSecondaryCycle() {
             }
         }
         catch (const cRuntimeError&) {
+            missing_vehicle_dims_cache.insert(vehicle_id);
             // Fallback to defaults when a vehicle disappears between snapshots.
         }
         catch (...) {
+            missing_vehicle_dims_cache.insert(vehicle_id);
             // Keep defaults on any TraCI lookup error.
         }
 

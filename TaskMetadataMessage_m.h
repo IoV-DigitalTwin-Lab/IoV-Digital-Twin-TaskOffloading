@@ -407,6 +407,7 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskFailureMessage& obj) 
  *     double energy_task_j_total;  // Cumulative task-related energy (J)
  *     double energy_task_j_last;   // Last task-related energy charge (J)
  * 
+ *     // Static/Semi-static metadata for RSU->Postgres sync
  *     string vehicle_type;         // Manufacturer/model family label
  *     double tx_power_mw;          // Current TX power (mW)
  *     double storage_capacity_gb;  // Storage capacity (GB)
