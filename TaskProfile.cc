@@ -61,8 +61,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     coopPercep.computation.input_size_bytes     = static_cast<uint64_t>(0.2e6); // 200 KB min
     coopPercep.computation.input_size_bytes_max = static_cast<uint64_t>(0.5e6); // 500 KB max
     coopPercep.computation.output_size_bytes    = static_cast<uint64_t>(0.15e6);// 150 KB
-    coopPercep.computation.cpu_cycles           = static_cast<uint64_t>(1.2e9); // 1.2G min
-    coopPercep.computation.cpu_cycles_max       = static_cast<uint64_t>(1.8e9); // 1.8G max
+    coopPercep.computation.cpu_cycles           = static_cast<uint64_t>(0.8e6);
+    coopPercep.computation.cpu_cycles_max       = static_cast<uint64_t>(0.9e6); 
     coopPercep.computation.memory_peak_bytes    = 20e6;                          // 20 MB
 
     coopPercep.timing.deadline_seconds     = 0.700; // 700ms min deadline
@@ -101,8 +101,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     routeOpt.computation.input_size_bytes     = static_cast<uint64_t>(0.8e6); // 800 KB min
     routeOpt.computation.input_size_bytes_max = static_cast<uint64_t>(1.5e6); // 1.5 MB max
     routeOpt.computation.output_size_bytes    = static_cast<uint64_t>(0.2e6); // 200 KB
-    routeOpt.computation.cpu_cycles           = static_cast<uint64_t>(2.5e9); // 2.5G min
-    routeOpt.computation.cpu_cycles_max       = static_cast<uint64_t>(3.5e9); // 3.5G max
+    routeOpt.computation.cpu_cycles           = static_cast<uint64_t>(20e6);
+    routeOpt.computation.cpu_cycles_max       = static_cast<uint64_t>(80e6);
     routeOpt.computation.memory_peak_bytes    = 30e6;                          // 30 MB
 
     routeOpt.timing.deadline_seconds     = 1.500; // 1.5s min deadline
@@ -140,8 +140,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     fleetTraffic.computation.input_size_bytes     = static_cast<uint64_t>(8e6);  // 8 MB min
     fleetTraffic.computation.input_size_bytes_max = static_cast<uint64_t>(15e6); // 15 MB max
     fleetTraffic.computation.output_size_bytes    = static_cast<uint64_t>(1e6);  // 1 MB
-    fleetTraffic.computation.cpu_cycles           = static_cast<uint64_t>(15e9); // 15G min
-    fleetTraffic.computation.cpu_cycles_max       = static_cast<uint64_t>(25e9); // 25G max
+    fleetTraffic.computation.cpu_cycles           = static_cast<uint64_t>(300e6);
+    fleetTraffic.computation.cpu_cycles_max       = static_cast<uint64_t>(600e6);
     fleetTraffic.computation.memory_peak_bytes    = 100e6;                        // 100 MB
 
     fleetTraffic.timing.deadline_seconds     = 240.0; // 4 min min deadline
@@ -179,8 +179,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     voiceCmd.computation.input_size_bytes     = static_cast<uint64_t>(0.15e6); // 150 KB min
     voiceCmd.computation.input_size_bytes_max = static_cast<uint64_t>(0.30e6); // 300 KB max
     voiceCmd.computation.output_size_bytes    = static_cast<uint64_t>(0.05e6); // 50 KB
-    voiceCmd.computation.cpu_cycles           = static_cast<uint64_t>(350e6);  // 350M min
-    voiceCmd.computation.cpu_cycles_max       = static_cast<uint64_t>(650e6);  // 650M max
+    voiceCmd.computation.cpu_cycles           = static_cast<uint64_t>(10e6);  
+    voiceCmd.computation.cpu_cycles_max       = static_cast<uint64_t>(60e6); 
     voiceCmd.computation.memory_peak_bytes    = 10e6;                           // 10 MB
 
     voiceCmd.timing.deadline_seconds     = 0.800; // 800ms min deadline
@@ -217,8 +217,8 @@ TaskProfileDatabase::TaskProfileDatabase() {
     sensorHealth.computation.input_size_bytes     = static_cast<uint64_t>(0.08e6); // 80 KB min
     sensorHealth.computation.input_size_bytes_max = static_cast<uint64_t>(0.15e6); // 150 KB max
     sensorHealth.computation.output_size_bytes    = static_cast<uint64_t>(0.05e6); // 50 KB
-    sensorHealth.computation.cpu_cycles           = static_cast<uint64_t>(80e6);   // 80M min
-    sensorHealth.computation.cpu_cycles_max       = static_cast<uint64_t>(150e6);  // 150M max
+    sensorHealth.computation.cpu_cycles           = static_cast<uint64_t>(2e6);   // 80M min
+    sensorHealth.computation.cpu_cycles_max       = static_cast<uint64_t>(20e6);  // 150M max
     sensorHealth.computation.memory_peak_bytes    = 5e6;                            // 5 MB
 
     sensorHealth.timing.deadline_seconds     = 8.0;  // 8s min deadline
