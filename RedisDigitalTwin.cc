@@ -1157,6 +1157,11 @@ void RedisDigitalTwin::pushSecondaryPredictedPoint(const std::string& run_id,
         }
         freeReplyObject(reply);
     }
+    // Ensure prediction stream does not accumulate forever: set a short TTL so
+    // old cycle streams are removed once they are no longer needed by the
+    // dashboard/bridge. TTL is small because bridge polls frequently.
+    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", stream_key.c_str(), 5);
+    if (reply) freeReplyObject(reply);
 }
 
 int64_t RedisDigitalTwin::getLatestSecondaryPredictionCycle(const std::string& run_id) {

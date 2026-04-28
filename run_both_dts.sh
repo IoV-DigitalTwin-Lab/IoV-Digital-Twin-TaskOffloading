@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Run both primary and secondary Digital Twins:
-# - Secondary DT starts first in terminal (Cmdenv)
-# - After 10 seconds, primary DT starts in UI (Qtenv)
+# - Secondary DT starts first and keeps the terminal focused on live logs
+# - After 10 seconds, primary DT starts detached with its output logged to file
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+RESULTS_DIR="$SCRIPT_DIR/results"
+PRIMARY_LOG="$RESULTS_DIR/primary_dt.log"
+SECONDARY_LOG="$RESULTS_DIR/secondary_dt.log"
+mkdir -p "$RESULTS_DIR"
 
 # Set OMNeT++ home directory explicitly
 # The installation is at /opt/omnet/omnetpp-6.1 (note: "omnet" not "omnetpp")
@@ -37,6 +42,29 @@ echo "INET Path:   $INET_PATH"
 echo "DISPLAY:     ${DISPLAY:-NOT SET}"
 echo ""
 
+PRIMARY_PID=""
+SECONDARY_PID=""
+
+cleanup() {
+  if [ -n "$PRIMARY_PID" ] && kill -0 "$PRIMARY_PID" 2>/dev/null; then
+    kill -TERM "$PRIMARY_PID" 2>/dev/null || true
+    wait "$PRIMARY_PID" 2>/dev/null || true
+  fi
+
+  if [ -n "$SECONDARY_PID" ] && kill -0 "$SECONDARY_PID" 2>/dev/null; then
+    kill -TERM "$SECONDARY_PID" 2>/dev/null || true
+    wait "$SECONDARY_PID" 2>/dev/null || true
+  fi
+}
+
+on_signal() {
+  cleanup
+  exit 130
+}
+
+trap cleanup EXIT
+trap on_signal INT TERM
+
 # Source OMNeT++ environment (temporarily disable -u for setenv compatibility)
 set +u
 source "$OMNETPP_HOME/setenv"
@@ -55,7 +83,7 @@ echo "      Config: DT-Secondary-MotionChannel"
 echo "      Output: results/DT-Secondary-MotionChannel-*.sca/.vec"
 echo ""
 
-./run_secondary_dt.sh "$@" &
+./run_secondary_dt.sh "$@" > "$SECONDARY_LOG" 2>&1 &
 SECONDARY_PID=$!
 echo "      PID: $SECONDARY_PID (running in background)"
 echo ""
@@ -65,18 +93,22 @@ echo "[*] Waiting 10 seconds before launching Primary DT UI..."
 sleep 10
 
 echo ""
-echo "[2/2] Starting Primary DT (Full Task Offloading) with UI..."
+echo "[2/2] Starting Primary DT (Full Task Offloading) in background..."
 echo "      Config: DT-PreSync"
 echo "      Output: results/DT-PreSync-*.sca/.vec"
 echo ""
 
-# Start primary DT in UI mode (Qtenv)
-# The UI will display both vehicle and RSU activity, channel state, task queue, etc.
-./run_sim_portable.sh -u Qtenv -c DT-PreSync -r 0 --qtenv-default-run=1 --*.manager.port=9999 "$@"
+echo "      Primary DT log: $PRIMARY_LOG"
 
-# Note: When you close the UI, the primary DT process will exit.
-# The secondary DT will continue running in the background.
-# To stop the secondary DT, use: kill $SECONDARY_PID or pkill -f 'DT-Secondary-MotionChannel'
+# Start primary DT detached so this terminal stays focused on secondary logs.
+# The launcher runs headless-safe because run_sim_portable.sh will select Cmdenv.
+CMDENV_MODE=1 DT2_AUTO_CONTROLLER=1 ./run_sim_portable.sh -c DT-PreSync -r 0 --*.manager.port=9999 "$@" > "$PRIMARY_LOG" 2>&1 &
+PRIMARY_PID=$!
+echo "      PID: $PRIMARY_PID (running in background)"
+echo ""
+
+# The secondary DT will continue running in the foreground of this terminal.
+# To stop either simulation, press Ctrl+C here.
 
 wait $SECONDARY_PID 2>/dev/null || true
 echo ""

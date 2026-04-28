@@ -9,10 +9,16 @@ export DT2_POLL_INTERVAL_S="${DT2_POLL_INTERVAL_S:-0.1}"
 
 CTRL_PID=""
 SIM_PID=""
+SHUTTING_DOWN=0
 cleanup() {
+    if [[ "$SHUTTING_DOWN" -eq 1 ]]; then
+        return 0
+    fi
+    SHUTTING_DOWN=1
+
     if [[ -n "$SIM_PID" ]] && kill -0 "$SIM_PID" 2>/dev/null; then
         echo "[run_secondary_dt] Stopping secondary simulation (PID $SIM_PID)..."
-        kill -INT "$SIM_PID" 2>/dev/null || true
+        kill -TERM "$SIM_PID" 2>/dev/null || true
 
         local elapsed=0
         local timeout="${DT2_SHUTDOWN_TIMEOUT_S:-15}"
@@ -38,11 +44,20 @@ cleanup() {
 
     if [[ -n "$CTRL_PID" ]] && kill -0 "$CTRL_PID" 2>/dev/null; then
         echo "[run_secondary_dt] Stopping external controller (PID $CTRL_PID)..."
-        kill "$CTRL_PID" 2>/dev/null || true
+        kill -TERM "$CTRL_PID" 2>/dev/null || true
         wait "$CTRL_PID" 2>/dev/null || true
+        CTRL_PID=""
     fi
 }
-trap cleanup EXIT INT TERM
+
+on_signal() {
+    cleanup
+    trap - EXIT INT TERM
+    exit 130
+}
+
+trap cleanup EXIT
+trap on_signal INT TERM
 
 ensure_sim_binary_fresh() {
     local bin="$SCRIPT_DIR/IoV-Digital-Twin-TaskOffloading"

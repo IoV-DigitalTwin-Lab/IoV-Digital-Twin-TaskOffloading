@@ -661,6 +661,10 @@ private:
             auto pred = predict_vehicle(v);
             if (pred.empty()) continue;
             trajectory_count += 1;
+            std::cout << "[external_controller_cpp] vehicle=" << v.vehicle_id
+                      << " predicted_points=" << pred.size()
+                      << " horizon_s=" << prediction_horizon_s_
+                      << " step_s=" << prediction_step_s_ << "\n";
             for (const auto& p : pred) {
                 redis_.xadd_prediction(stream_key, pred_stream_maxlen_, cycle_id, p);
             }
