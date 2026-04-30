@@ -139,7 +139,7 @@ HeuristicDecisionMaker::HeuristicDecisionMaker()
       gate_beta(0.4),
       gate_safety_margin_sec(0.05),
       k1(4.0 / 3.0),
-      k2(200.0),
+      k2(4.0 / 3.0),
       p_compute_w(25.0),
       p_tx_w(2.0),
       p_rx_w(0.5) {
@@ -230,7 +230,7 @@ GateBDecisionResult HeuristicDecisionMaker::makeDecisionDetailed(const DecisionC
     const double task_size_bytes = std::max(1.0, context.task_size_kb * 1024.0);
     const double available_cycles_in_budget = local_cpu_hz * remaining_deadline;
     const bool local_capacity_ok = available_cycles_in_budget >= (k1 * context.cpu_cycles_required);
-    const bool compute_data_ok = context.cpu_cycles_required < (k2 * task_size_bytes);
+    const bool compute_data_ok = (context.local_mem_available * 1e6) < (k2 * task_size_bytes);
     const bool must_local_by_threshold = local_capacity_ok && compute_data_ok;
 
     const double queue_wait_sec = std::max(0.0, context.local_queue_wait_seconds);

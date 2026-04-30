@@ -355,6 +355,10 @@ private:
     std::vector<veins::LAddress::L2Type> buildRankedRSUCandidates();  // Build ordered candidate list
     std::map<std::string, int> task_redirect_counts;  // Track redirects per task (task_id -> count)
     std::map<std::string, std::vector<veins::LAddress::L2Type>> taskCandidates;  // Store candidate list per task (task_id -> [MAC addresses])
+
+    // Parameter change handler for manual task generation from Qtenv inspector
+    virtual void handleParameterChange(const char *parname) override;
+    void generateManualTask(const std::string &taskType);  // Helper to generate manual task
 };
 
 } // namespace complex_network

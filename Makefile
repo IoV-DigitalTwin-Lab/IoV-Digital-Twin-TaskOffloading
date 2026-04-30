@@ -50,6 +50,7 @@ OBJS = \
     $O/SingleMessageRSUApp.o \
     $O/SingleMessageVehicleApp.o \
     $O/Task.o \
+    $O/TaskGenerationControl.o \
     $O/TaskOffloadingDecision.o \
     $O/TaskProfile.o \
     $O/UnicastVisualizer.o \

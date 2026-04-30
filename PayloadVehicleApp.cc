@@ -4977,4 +4977,53 @@ void PayloadVehicleApp::sendTaskCompletionToRSU(const std::string& taskId, doubl
     task_redirect_counts.erase(taskId);
 }
 
+void PayloadVehicleApp::handleParameterChange(const char *parname) {
+    if (parname == nullptr) return;
+    if (strcmp(parname, "manualTask") == 0) {
+        std::string taskType = par("manualTask").stdstringValue();
+        if (!taskType.empty()) {
+            EV_WARN << "Manual task request received: '" << taskType << "' on V["
+                    << getParentModule()->getIndex() << "]\n";
+            generateManualTask(taskType);
+            // clear parameter so it can be reused
+            par("manualTask").setStringValue("");
+        }
+    }
+}
+
+void PayloadVehicleApp::generateManualTask(const std::string &taskType) {
+    // Map task names to TaskType enums and preset parameters
+    TaskType type = TaskType::LOCAL_OBJECT_DETECTION;  // default
+    double sizeB = uniform(task_size_min, task_size_max);
+    double cpuPerByte = uniform(cpu_per_byte_min, cpu_per_byte_max);
+    double deadlineS = uniform(deadline_min, deadline_max);
+
+    if (taskType == "Nav" || taskType == "ROUTE_OPTIMIZATION") {
+        type = TaskType::ROUTE_OPTIMIZATION;
+        sizeB = 80000; cpuPerByte = 2e6; deadlineS = 0.2;
+    } else if (taskType == "Perception" || taskType == "COOPERATIVE_PERCEPTION") {
+        type = TaskType::COOPERATIVE_PERCEPTION;
+        sizeB = 200000; cpuPerByte = 4e6; deadlineS = 0.1;
+    } else if (taskType == "Local" || taskType == "LOCAL_OBJECT_DETECTION") {
+        type = TaskType::LOCAL_OBJECT_DETECTION;
+        sizeB = 150000; cpuPerByte = 3e6; deadlineS = 0.15;
+    } else if (taskType == "Voice" || taskType == "VOICE_COMMAND_PROCESSING") {
+        type = TaskType::VOICE_COMMAND_PROCESSING;
+        sizeB = 50000; cpuPerByte = 1e6; deadlineS = 0.3;
+    }
+
+    // Update mobility snapshot for task context
+    if (mobility) {
+        pos = mobility->getPositionAt(simTime());
+        speed = mobility->getSpeed();
+    }
+
+    EV_WARN << "GENERATE_MANUAL_TASK V[" << getParentModule()->getIndex() << "] type='"
+            << taskType << "' size=" << sizeB << " cpu/B=" << cpuPerByte
+            << " ddl=" << deadlineS << " @t=" << simTime() << "\n";
+
+    // Generate the actual task and process it (reuse existing task generation logic)
+    generateTask(type);  // This will use the system parameters, but we could override them here if desired
+}
+
 } // namespace complex_network

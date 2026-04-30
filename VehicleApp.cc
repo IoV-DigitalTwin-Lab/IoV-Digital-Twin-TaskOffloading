@@ -35,6 +35,30 @@ void VehicleApp::initialize(int stage) {
     hbMsg = new cMessage("vehHeartbeat");
     taskMsg = new cMessage("taskArrival");
 
+    // --- Qtenv canvas button (optional; visible only in Qtenv) ---
+    cCanvas *canvas = getParentModule()->getCanvas();
+    if (canvas) {
+        cGroupFigure *btnGroup = new cGroupFigure("GenerateTaskBtn");
+
+        cRectangleFigure *rect = new cRectangleFigure("bg");
+        rect->setBounds(cFigure::Rectangle(50, 50, 120, 30));
+        rect->setFillColor(cFigure::Color("lightblue"));
+        rect->setFilled(true);
+        rect->setCornerRx(5);
+        rect->setCornerRy(5);
+
+        cTextFigure *text = new cTextFigure("label");
+        text->setText("Generate Task");
+        text->setPosition(cFigure::Point(110, 65));
+        text->setAnchor(cFigure::ANCHOR_CENTER);
+
+        btnGroup->addFigure(rect);
+        btnGroup->addFigure(text);
+        // associate the button with the parent module so inspector opens on double-click
+        btnGroup->setAssociatedObject(getParentModule());
+        canvas->addFigure(btnGroup);
+    }
+
     // stagger start
     scheduleAt(simTime() + uniform(0, heartbeatInterval), hbMsg);
     scheduleNextTask();
@@ -132,6 +156,48 @@ void VehicleApp::recordTaskScalars(double sizeB, double cpuPerByte, double ddl) 
     recordScalar("task.sizeB", sizeB);
     recordScalar("task.cpuPerByte", cpuPerByte);
     recordScalar("task.deadlineS", ddl);
+}
+
+void VehicleApp::handleParameterChange(const char *parname) {
+    if (parname == nullptr) return;
+    if (strcmp(parname, "manualTask") == 0) {
+        std::string taskType = par("manualTask").stdstringValue();
+        if (!taskType.empty()) {
+            EV_WARN << "Manual task request received: '" << taskType << "' on V["
+                    << getParentModule()->getIndex() << "]\n";
+            generateManualTask(taskType);
+            // clear parameter so it can be reused
+            par("manualTask").setStringValue("");
+        }
+    }
+}
+
+void VehicleApp::generateManualTask(const std::string &taskType) {
+    // simple mapping: allow a few named task presets; otherwise use defaults
+    double sizeB = uniform(taskSizeB_min, taskSizeB_max);
+    double cpuPerByte = uniform(cpuPB_min, cpuPB_max);
+    double deadlineS = uniform(ddl_min, ddl_max);
+
+    if (taskType == "Nav") {
+        sizeB = 80000; cpuPerByte = 2e6; deadlineS = 0.2; // example
+    } else if (taskType == "Perception") {
+        sizeB = 200000; cpuPerByte = 4e6; deadlineS = 0.1;
+    }
+
+    // read mobility snapshot for tagging
+    if (mobility) {
+        pos = mobility->getPositionAt(simTime());
+        speed = mobility->getSpeed();
+    }
+
+    EV_WARN << "GENERATE_MANUAL_TASK V[" << getParentModule()->getIndex() << "] type='"
+            << taskType << "' size=" << sizeB << " cpu/B=" << cpuPerByte
+            << " ddl=" << deadlineS << " @t=" << simTime() << "\n";
+
+    emit(sigTaskArrive, 1);
+    recordTaskScalars(sizeB, cpuPerByte, deadlineS);
+
+    // (Optional) TODO: forward telemetry or task metadata to RSU here
 }
 
 } // namespace complex_network

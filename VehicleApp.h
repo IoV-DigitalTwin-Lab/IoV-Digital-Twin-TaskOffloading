@@ -45,12 +45,17 @@ class VehicleApp : public DemoBaseApplLayer {
     virtual void initialize(int stage) override;
     virtual void handleSelfMsg(cMessage* msg) override;
     virtual void receiveSignal(cComponent* src, simsignal_t id, cObject* obj, cObject* details) override;
+    // parameter change handler to capture manual task requests from Qtenv inspector
+    virtual void handleParameterChange(const char *parname) override;
 
     // helpers
     void scheduleNextTask();
     void maybeDriftVehicleKnobs(); // optional slow drift of floc/tx
     void recordHeartbeatScalars();
     void recordTaskScalars(double sizeB, double cpuPerByte, double deadlineS);
+
+    // helper to generate a manual task triggered from GUI
+    void generateManualTask(const std::string &taskType);
 };
 
 } // namespace complex_network

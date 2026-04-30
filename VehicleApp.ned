@@ -25,6 +25,8 @@ simple VehicleApp extends DemoBaseApplLayer
         double deadlineS_max @unit(s) = default(0.35s);
         int    divs_min = default(1);
         int    divs_max = default(4);
+        // manual task trigger (used by Qtenv canvas button)
+        string manualTask @mutable = default("");
 
         @display("i=device/car;is=s;t=Vehicle App");
 }

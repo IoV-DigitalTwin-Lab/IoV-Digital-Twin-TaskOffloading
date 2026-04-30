@@ -14,6 +14,7 @@ import inet.physicallayer.wireless.ieee80211.packetlevel.Ieee80211ScalarRadioMed
 import inet.environment.common.PhysicalEnvironment;
 import inet.physicallayer.wireless.common.obstacleloss.DielectricObstacleLoss;
 import inet.visualizer.canvas.integrated.IntegratedCanvasVisualizer;
+import TaskGenerationControl;
 
 network ComplexNetwork
 {
@@ -69,6 +70,10 @@ network ComplexNetwork
         
         visualizer: IntegratedCanvasVisualizer {
             @display("p=50,350;i=block/app2;is=l");
+        }
+        
+        taskControl: TaskGenerationControl {
+            @display("p=600,300");
         }
         
         rsu[3]: RSU {
