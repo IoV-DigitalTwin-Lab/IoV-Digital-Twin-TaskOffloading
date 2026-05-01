@@ -184,6 +184,8 @@ private:
     std::unordered_map<int, int> rsuRedisDbByIndex;
     std::unordered_map<int, RedisDigitalTwin*> directVehicleStateRedisClients;
     bool directVehicleRedisEnabled = false;
+    // Used to mark the next generated task as manual (set by parameter change handler)
+    bool next_task_manual_flag = false;
     
     // ============================================================================
     // MODERN RSU SELECTION SYSTEM

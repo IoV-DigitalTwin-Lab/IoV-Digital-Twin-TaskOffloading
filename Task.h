@@ -36,6 +36,7 @@ public:
     std::string vehicle_id;           // Originating vehicle identifier
     TaskType type = TaskType::LOCAL_OBJECT_DETECTION; // Task type (from TaskProfile)
     bool is_profile_task = false;     // True if created from TaskProfile
+    bool manual_origin = false;       // True if task was manually generated via UI
     
     // Task Characteristics
     // mem_footprint_bytes: working-set memory reserved on the processing entity during execution.

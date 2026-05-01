@@ -1152,6 +1152,43 @@ void PayloadVehicleApp::generateTask(TaskType type) {
             << " Cycles=" << (task->cpu_cycles/1e9) << "G"
             << " QoS=" << task->qos_value
             << " Deadline=" << task->relative_deadline << "s" << endl;
+    // If this task was manually requested via UI, tag and force reliable processing
+    if (next_task_manual_flag) {
+        task->manual_origin = true;
+        int rsuIndex = findClosestRSUIndex();
+        if (directVehicleRedisEnabled && rsuIndex >= 0 && rsuRedisDbByIndex.find(rsuIndex) != rsuRedisDbByIndex.end()) {
+            int db = rsuRedisDbByIndex[rsuIndex];
+            auto it = directVehicleStateRedisClients.find(db);
+            if (it != directVehicleStateRedisClients.end() && it->second && it->second->isConnected()) {
+                RedisDigitalTwin* client = it->second;
+                std::string vehicle_id = std::to_string(getParentModule()->getIndex());
+                std::string task_type_name = TaskProfileDatabase::getTaskTypeName(type);
+                // Create task state in Redis (guaranteed path)
+                client->createTask(task->task_id, vehicle_id, task->created_time.dbl(), task->relative_deadline,
+                                   task_type_name, task->is_offloadable, task->is_safety_critical, (int)task->priority);
+                // Push offloading request for ML processing
+                client->pushOffloadingRequest(task->task_id, vehicle_id, "RSU_" + std::to_string(rsuIndex),
+                                              static_cast<double>(task->mem_footprint_bytes),
+                                              static_cast<double>(task->cpu_cycles),
+                                              task->relative_deadline,
+                                              task->qos_value,
+                                              simTime().dbl(),
+                                              task_type_name,
+                                              static_cast<uint64_t>(task->input_size_bytes),
+                                              static_cast<uint64_t>(task->output_size_bytes),
+                                              task->is_offloadable,
+                                              task->is_safety_critical,
+                                              (int)task->priority);
+                // Append lifecycle event marking manual metadata sent
+                client->appendTaskLifecycleEvent(task->task_id, "METADATA_SENT_MANUAL", simTime().dbl(),
+                                                 "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
+                                                 "RSU_" + std::to_string(rsuIndex),
+                                                 "{\"manual\":true}");
+                EV_INFO << "PayloadVehicleApp: Manual task forced to Redis for guaranteed processing: " << task->task_id << endl;
+            }
+        }
+        next_task_manual_flag = false;
+    }
     
     // ============================================================================
     // OFFLOADING DECISION INTEGRATION
@@ -4984,6 +5021,8 @@ void PayloadVehicleApp::handleParameterChange(const char *parname) {
         if (!taskType.empty()) {
             EV_WARN << "Manual task request received: '" << taskType << "' on V["
                     << getParentModule()->getIndex() << "]\n";
+            // mark next generated task as manual so it can be tagged and handled
+            next_task_manual_flag = true;
             generateManualTask(taskType);
             // clear parameter so it can be reused
             par("manualTask").setStringValue("");
@@ -5018,12 +5057,15 @@ void PayloadVehicleApp::generateManualTask(const std::string &taskType) {
         speed = mobility->getSpeed();
     }
 
-    EV_WARN << "GENERATE_MANUAL_TASK V[" << getParentModule()->getIndex() << "] type='"
+        EV_WARN << "GENERATE_MANUAL_TASK V[" << getParentModule()->getIndex() << "] type='"
             << taskType << "' size=" << sizeB << " cpu/B=" << cpuPerByte
             << " ddl=" << deadlineS << " @t=" << simTime() << "\n";
 
-    // Generate the actual task and process it (reuse existing task generation logic)
-    generateTask(type);  // This will use the system parameters, but we could override them here if desired
+        // mark next generated task as manual (will be consumed inside generateTask)
+        next_task_manual_flag = true;
+
+        // Generate the actual task and process it (reuse existing task generation logic)
+        generateTask(type);  // This will use the system parameters, but we could override them here if desired
 }
 
 } // namespace complex_network
