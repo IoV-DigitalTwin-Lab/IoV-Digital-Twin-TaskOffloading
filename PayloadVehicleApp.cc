@@ -1138,12 +1138,16 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     tasks_generated++;
     {
         std::string _vid = "VEHICLE_" + std::to_string(getParentModule()->getIndex());
-        sendTaskOffloadingEvent(task->task_id, "TASK_CREATED", _vid, _vid,
-            std::string("{\"task_type\":\"") + TaskProfileDatabase::getTaskTypeName(type) + "\","
-            "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + ","
-            "\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + ","
-            "\"deadline_s\":" + std::to_string(task->relative_deadline) + ","
-            "\"offloadable\":" + (task->is_offloadable ? "true" : "false") + "}");
+        if (!next_task_manual_flag) {
+            std::string payload = std::string("{\"task_type\":\"")
+                + TaskProfileDatabase::getTaskTypeName(type)
+                + "\",\"cpu_cycles\":" + std::to_string(task->cpu_cycles)
+                + ",\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes)
+                + ",\"deadline_s\":" + std::to_string(task->relative_deadline)
+                + ",\"offloadable\":" + (task->is_offloadable ? "true" : "false")
+                + "}";
+            sendTaskOffloadingEvent(task->task_id, "TASK_CREATED", _vid, _vid, payload);
+        }
     }
 
     EV_INFO << "Task generated: ID=" << task->task_id
@@ -1238,9 +1242,11 @@ void PayloadVehicleApp::generateTask(TaskType type) {
     if (offloadMode == "allOffload" && task->is_offloadable) {
         sendTaskMetadataToRSU(task);
         task->state = METADATA_SENT;
-        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
-            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
-            "{\"reason\":\"ALL_OFFLOAD_MODE\"}");
+        if (!task->manual_origin) {
+            sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+                "{\"reason\":\"ALL_OFFLOAD_MODE\"}");
+        }
         GateBDecisionResult gateResult;
         gateResult.decision = OffloadingDecision::OFFLOAD_TO_RSU;
         gateResult.classification = GateBClassification::MUST_OFFLOAD;
@@ -1432,10 +1438,12 @@ void PayloadVehicleApp::generateTask(TaskType type) {
         // Commit point reached: this task will be offloaded, so publish metadata now.
         sendTaskMetadataToRSU(task);
         task->state = METADATA_SENT;
-        sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
-            "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
-            "{\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + ","
-            "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + "}");
+        if (!task->manual_origin) {
+            sendTaskOffloadingEvent(task->task_id, "METADATA_SENT",
+                "VEHICLE_" + std::to_string(getParentModule()->getIndex()), "RSU",
+                "{\"mem_bytes\":" + std::to_string(task->mem_footprint_bytes) + ","
+                "\"cpu_cycles\":" + std::to_string(task->cpu_cycles) + "}");
+        }
         
         // Send offloading request to RSU (includes local recommendation)
         sendOffloadingRequestToRSU(task, localDecision, gateResult);
