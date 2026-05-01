@@ -1,43 +1,48 @@
 #include "TaskGenerationControl.h"
 
+#include <stdexcept>
+
 namespace complex_network {
 
 Define_Module(TaskGenerationControl);
 
 void TaskGenerationControl::initialize() {
-    // Create a global button on the network canvas
-    cCanvas *canvas = getSystemModule()->getCanvas();
-    if (canvas) {
-        cGroupFigure *btnGroup = new cGroupFigure("GlobalGenerateTaskBtn");
-
-        cRectangleFigure *rect = new cRectangleFigure("bg");
-        rect->setBounds(cFigure::Rectangle(50, 50, 150, 40));
-        rect->setFillColor(cFigure::Color("lightgreen"));
-        rect->setFilled(true);
-        rect->setCornerRx(5);
-        rect->setCornerRy(5);
-        rect->setLineWidth(2);
-        rect->setLineColor(cFigure::Color("darkgreen"));
-
-        cTextFigure *text = new cTextFigure("label");
-        text->setText("Generate Task (All)");
-        text->setPosition(cFigure::Point(125, 70));
-        text->setAnchor(cFigure::ANCHOR_CENTER);
-
-        btnGroup->addFigure(rect);
-        btnGroup->addFigure(text);
-        btnGroup->setAssociatedObject(this);  // Associate with this control module
-        canvas->addFigure(btnGroup);
-        
-        EV_WARN << "TaskGenerationControl: Global button created on network canvas\n";
-    } else {
-        EV_WARN << "TaskGenerationControl: No canvas available; button not displayed\n";
-    }
+    createControlPanel();
 
     // Allow command-line / ini smoke tests by triggering shortly after startup
     // when all vehicle submodules are already initialized.
     if (!par("generateTask").stdstringValue().empty()) {
         scheduleAt(simTime() + SimTime(0.001), new cMessage("deferredStartupGenerateTask"));
+    }
+}
+
+void TaskGenerationControl::createControlPanel() {
+    cCanvas *canvas = getSystemModule()->getCanvas();
+    if (canvas) {
+        cGroupFigure *panel = new cGroupFigure("TaskControlPanel");
+
+        cRectangleFigure *rect = new cRectangleFigure("bg");
+        rect->setBounds(cFigure::Rectangle(50, 50, 170, 44));
+        rect->setFillColor(cFigure::Color("#43a047"));
+        rect->setFilled(true);
+        rect->setCornerRx(6);
+        rect->setCornerRy(6);
+        rect->setLineWidth(2);
+        rect->setLineColor(cFigure::Color("#1b5e20"));
+
+        cTextFigure *buttonText = new cTextFigure("label");
+        buttonText->setText("Task Generator");
+        buttonText->setPosition(cFigure::Point(135, 72));
+        buttonText->setAnchor(cFigure::ANCHOR_CENTER);
+
+        panel->addFigure(rect);
+        panel->addFigure(buttonText);
+        panel->setAssociatedObject(this);
+        canvas->addFigure(panel);
+
+        EV_WARN << "TaskGenerationControl: Qtenv task generator button created on network canvas\n";
+    } else {
+        EV_WARN << "TaskGenerationControl: No canvas available; task generator button not displayed\n";
     }
 }
 
@@ -61,6 +66,18 @@ void TaskGenerationControl::handleMessage(cMessage *msg) {
 
 void TaskGenerationControl::handleParameterChange(const char *parname) {
     if (parname == nullptr) return;
+
+    if (strcmp(parname, "selectedVehicleId") == 0 || strcmp(parname, "selectedTaskType") == 0) {
+        return;
+    }
+
+    if (strcmp(parname, "triggerSelectedTask") == 0) {
+        if (par("triggerSelectedTask").boolValue()) {
+            generateSelectedTask();
+            par("triggerSelectedTask").setBoolValue(false);
+        }
+        return;
+    }
     
     // Handle quick task generation: format "vehicleId:TaskType" (e.g., "4:Perception")
     if (strcmp(parname, "generateTask") == 0) {
@@ -114,6 +131,34 @@ void TaskGenerationControl::handleParameterChange(const char *parname) {
             par("targetTaskType").setStringValue("");
         }
     }
+}
+
+int TaskGenerationControl::getSelectedVehicleId() const {
+    std::string value = par("selectedVehicleId").stdstringValue();
+    try {
+        size_t parsed = 0;
+        int vehicleId = std::stoi(value, &parsed);
+        if (parsed != value.size() || vehicleId < 0) {
+            throw std::invalid_argument("vehicle id must be a non-negative integer");
+        }
+        return vehicleId;
+    } catch (const std::exception& e) {
+        throw cRuntimeError("Invalid selectedVehicleId='%s'. Enter a non-negative vehicle index, e.g. 4.", value.c_str());
+    }
+}
+
+std::string TaskGenerationControl::getSelectedTaskType() const {
+    return par("selectedTaskType").stdstringValue();
+}
+
+void TaskGenerationControl::generateSelectedTask() {
+    int vehicleId = getSelectedVehicleId();
+    std::string taskType = getSelectedTaskType();
+
+    EV_WARN << "TaskGenerationControl: Qtenv selected task request: vehicle "
+            << vehicleId << " task '" << taskType << "'\n";
+
+    generateTaskForVehicle(vehicleId, taskType);
 }
 
 void TaskGenerationControl::broadcastManualTaskToVehicles(const std::string &taskType) {

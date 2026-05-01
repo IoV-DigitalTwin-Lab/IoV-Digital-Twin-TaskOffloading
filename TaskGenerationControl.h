@@ -2,6 +2,7 @@
 #define TASKGENERATIONCONTROL_H
 
 #include <omnetpp.h>
+#include <string>
 
 namespace complex_network {
 
@@ -14,8 +15,12 @@ protected:
     virtual void handleParameterChange(const char *parname) override;
     
 private:
+    void createControlPanel();
     void broadcastManualTaskToVehicles(const std::string &taskType);
+    void generateSelectedTask();
     void generateTaskForVehicle(int vehicleId, const std::string &taskType);
+    int getSelectedVehicleId() const;
+    std::string getSelectedTaskType() const;
 
     int pendingVehicleId = -1;
     std::string pendingTaskType;

@@ -518,6 +518,12 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                         found_decision = true;
                         decision_from_redis = true;
                         decision_source = "REDIS_SINGLE";
+                            if (redis_twin && use_redis) {
+                                // Persist the chosen decision into task state so the dashboard
+                                // can render the actual offload target instead of falling back
+                                // to the request RSU/local path.
+                                redis_twin->updateTaskStatus(record.task_id, "ASSIGNED", decision_type, target_id);
+                            }
                         drl_dequeued_wall_s = dec.count("drl_dequeued_wall_s") ? dec.at("drl_dequeued_wall_s") : "";
                         drl_state_ready_wall_s = dec.count("drl_state_ready_wall_s") ? dec.at("drl_state_ready_wall_s") : "";
                         drl_decision_written_wall_s = dec.count("drl_decision_written_wall_s") ? dec.at("drl_decision_written_wall_s") : "";
@@ -539,6 +545,9 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
                             found_decision = true;
                             decision_from_redis = true;
                             decision_source = "REDIS_MULTI";
+                            if (redis_twin && use_redis) {
+                                redis_twin->updateTaskStatus(record.task_id, "ASSIGNED", decision_type, target_id);
+                            }
                             record.decision_poll_miss_count = 0;
                             record.decision_poll_miss_logged = false;
                             agentDecisionsPayload = multi.count("agents") ? multi.at("agents") : "";
@@ -638,11 +647,29 @@ void MyRSUApp::handleSelfMsg(cMessage* msg) {
 
                     // Set target service vehicle MAC if applicable
                     if (decision_type == "SERVICE_VEHICLE" && !target_id.empty()) {
-                        if (vehicle_macs.count(target_id)) {
-                            dMsg->setTarget_service_vehicle_mac(vehicle_macs[target_id]);
-                            EV_INFO << "  → Target SV: " << target_id << endl;
+                        std::string sv_lookup_id = target_id;
+                        
+                        // Normalize service vehicle ID for MAC lookup
+                        // Redis decision may have numeric ID "3", but vehicle_macs may have "SV_3" or vice versa
+                        if (sv_lookup_id.rfind("SV_", 0) != 0 && !sv_lookup_id.empty()) {
+                            // Not prefixed with "SV_", try to look up as-is first
+                            if (vehicle_macs.find(sv_lookup_id) == vehicle_macs.end()) {
+                                // Not found as numeric, try with "SV_" prefix
+                                sv_lookup_id = "SV_" + sv_lookup_id;
+                            }
+                        } else if (sv_lookup_id.rfind("SV_", 0) == 0) {
+                            // Already has "SV_" prefix, try without it as fallback
+                            std::string numeric_id = sv_lookup_id.substr(3);
+                            if (vehicle_macs.find(numeric_id) != vehicle_macs.end()) {
+                                sv_lookup_id = numeric_id;
+                            }
+                        }
+                        
+                        if (vehicle_macs.count(sv_lookup_id)) {
+                            dMsg->setTarget_service_vehicle_mac(vehicle_macs[sv_lookup_id]);
+                            EV_INFO << "  → Target SV: " << target_id << " (MAC lookup: " << sv_lookup_id << ")" << endl;
                         } else {
-                            EV_WARN << "  ⚠ Service vehicle " << target_id << " MAC not found" << endl;
+                            EV_WARN << "  ⚠ Service vehicle " << target_id << " MAC not found (tried: " << sv_lookup_id << ")" << endl;
                         }
                     }
                     

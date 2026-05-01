@@ -5049,6 +5049,12 @@ void PayloadVehicleApp::generateManualTask(const std::string &taskType) {
     } else if (taskType == "Voice" || taskType == "VOICE_COMMAND_PROCESSING") {
         type = TaskType::VOICE_COMMAND_PROCESSING;
         sizeB = 50000; cpuPerByte = 1e6; deadlineS = 0.3;
+    } else if (taskType == "Fleet" || taskType == "FLEET_TRAFFIC_FORECAST") {
+        type = TaskType::FLEET_TRAFFIC_FORECAST;
+        sizeB = 8000000; cpuPerByte = 40e6; deadlineS = 240.0;
+    } else if (taskType == "Sensor" || taskType == "SENSOR_HEALTH_CHECK") {
+        type = TaskType::SENSOR_HEALTH_CHECK;
+        sizeB = 80000; cpuPerByte = 2e6; deadlineS = 8.0;
     }
 
     // Update mobility snapshot for task context
