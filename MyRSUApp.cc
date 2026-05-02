@@ -4149,10 +4149,15 @@ void MyRSUApp::handleServiceVehicleResultRelay(TaskResultMessage* msg, LAddress:
 void MyRSUApp::insertLifecycleEvent(const std::string& task_id, const std::string& event_type,
                                      const std::string& source, const std::string& target,
                                      const std::string& details) {
-    (void)details;
     if (terminalVerboseLogs || shouldAlwaysPrintLifecycleEvent(event_type)) {
         std::cout << "LIFECYCLE: " << event_type << " task=" << task_id
                   << " (" << source << "->" << target << ")" << std::endl;
+    }
+    // Write RSU-side events to the Redis stream so the dashboard can visualize
+    // them (e.g. PROCESSING_STARTED for RSU offloading).
+    if (redis_twin && use_redis) {
+        redis_twin->appendTaskLifecycleEvent(task_id, event_type, simTime().dbl(),
+                                              source, target, details);
     }
 }
 

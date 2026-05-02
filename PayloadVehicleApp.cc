@@ -4408,31 +4408,6 @@ void PayloadVehicleApp::handleTaskResult(veins::TaskResultMessage* msg) {
                 << endl;
         }
 
-        double decision_latency = 0.0;
-        double total_offload_latency = 0.0;
-        if (taskTimings.find(task_id) != taskTimings.end()) {
-            const TaskTimingInfo& timing = taskTimings[task_id];
-            decision_latency = std::max(0.0, timing.decision_time - timing.request_time);
-            total_offload_latency = std::max(0.0, receive_time - timing.request_time);
-        }
-        double downlink_latency = std::max(0.0, receive_time - completion_time);
-        double estimated_uplink_and_queue = std::max(0.0,
-            total_offload_latency - msg->getProcessing_time() - downlink_latency);
-
-        sendTaskOffloadingEvent(task_id, "OFFLOAD_TIMING_MEASURED",
-            msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
-            "{\"decision_latency_s\":" + std::to_string(decision_latency) +
-            ",\"uplink_plus_queue_s\":" + std::to_string(estimated_uplink_and_queue) +
-            ",\"processing_s\":" + std::to_string(msg->getProcessing_time()) +
-            ",\"downlink_s\":" + std::to_string(downlink_latency) +
-            ",\"total_offload_s\":" + std::to_string(total_offload_latency) + "}");
-
-        std::cout << "OFFLOAD_TIMING: task=" << task_id
-                  << " decision=" << decision_latency
-                  << " uplink+queue=" << estimated_uplink_and_queue
-                  << " processing=" << msg->getProcessing_time()
-                  << " downlink=" << downlink_latency
-                  << " total=" << total_offload_latency << std::endl;
         sendTaskOffloadingEvent(task_id, "TASK_RESULTS_RECEIVED",
             msg->getProcessor_id(), "VEHICLE_" + std::to_string(getParentModule()->getIndex()),
             "{\"success\":" + std::string(success ? "true" : "false") + ","
