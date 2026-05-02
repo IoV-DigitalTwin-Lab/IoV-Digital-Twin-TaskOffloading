@@ -890,6 +890,51 @@ void RedisDigitalTwin::pushSecondaryVehicleSample(const std::string& run_id,
     }
 }
 
+void RedisDigitalTwin::pushSecondaryVehicleFutureSample(const std::string& run_id,
+                                                        const std::string& vehicle_id,
+                                                        uint64_t cycle_index,
+                                                        int step_index,
+                                                        double predicted_time,
+                                                        double pos_x,
+                                                        double pos_y,
+                                                        double speed,
+                                                        double heading,
+                                                        double acceleration,
+                                                        double sinr_db,
+                                                        const std::string& link_type,
+                                                        const std::string& peer_id,
+                                                        double distance_m,
+                                                        int max_series_len) {
+    if (!redis_ctx || !is_connected) return;
+
+    std::string stream_key = "dt2:vehicle:" + run_id + ":" + vehicle_id + ":samples";
+    redisReply* reply = (redisReply*)redisCommand(
+        redis_ctx,
+        "XADD %s MAXLEN ~ %d * sample_type %s cycle_index %llu step_index %d predicted_time %f pos_x %f pos_y %f speed %f heading %f acceleration %f sinr_db %f link_type %s peer_id %s distance_m %f",
+        stream_key.c_str(),
+        std::max(1, max_series_len),
+        "future_prediction",
+        static_cast<unsigned long long>(cycle_index),
+        step_index,
+        predicted_time,
+        pos_x,
+        pos_y,
+        speed,
+        heading,
+        acceleration,
+        sinr_db,
+        link_type.c_str(),
+        peer_id.c_str(),
+        distance_m
+    );
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ERROR) {
+            EV_ERROR << "Redis dt2 vehicle future XADD error: " << reply->str << std::endl;
+        }
+        freeReplyObject(reply);
+    }
+}
+
 void RedisDigitalTwin::pushSecondaryV2RsuLinkSample(const std::string& run_id,
                                                     const std::string& tx_vehicle_id,
                                                     const std::string& rsu_id,
@@ -1021,10 +1066,7 @@ void RedisDigitalTwin::updateSecondaryQCycle(const std::string& run_id,
         freeReplyObject(reply);
     }
 
-    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", key.c_str(), std::max(1, ttl_seconds));
-    if (reply) {
-        freeReplyObject(reply);
-    }
+    (void)ttl_seconds;
 
     const std::string latest_key = "dt2:q:" + run_id + ":latest";
     reply = (redisReply*)redisCommand(
@@ -1040,10 +1082,6 @@ void RedisDigitalTwin::updateSecondaryQCycle(const std::string& run_id,
         if (reply->type == REDIS_REPLY_ERROR) {
             EV_ERROR << "Redis dt2 q latest HMSET error: " << reply->str << std::endl;
         }
-        freeReplyObject(reply);
-    }
-    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", latest_key.c_str(), std::max(1, ttl_seconds));
-    if (reply) {
         freeReplyObject(reply);
     }
 }
@@ -1118,8 +1156,7 @@ void RedisDigitalTwin::updateSecondaryPredictionCycle(const std::string& run_id,
         freeReplyObject(reply);
     }
 
-    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", latest_key.c_str(), std::max(1, ttl_seconds));
-    if (reply) freeReplyObject(reply);
+    (void)ttl_seconds;
 }
 
 void RedisDigitalTwin::pushSecondaryPredictedPoint(const std::string& run_id,
@@ -1157,11 +1194,6 @@ void RedisDigitalTwin::pushSecondaryPredictedPoint(const std::string& run_id,
         }
         freeReplyObject(reply);
     }
-    // Ensure prediction stream does not accumulate forever: set a short TTL so
-    // old cycle streams are removed once they are no longer needed by the
-    // dashboard/bridge. TTL is small because bridge polls frequently.
-    reply = (redisReply*)redisCommand(redis_ctx, "EXPIRE %s %d", stream_key.c_str(), 5);
-    if (reply) freeReplyObject(reply);
 }
 
 int64_t RedisDigitalTwin::getLatestSecondaryPredictionCycle(const std::string& run_id) {

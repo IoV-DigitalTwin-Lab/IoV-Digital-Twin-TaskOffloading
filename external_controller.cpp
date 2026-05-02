@@ -188,8 +188,7 @@ public:
             fmt6(step_s).c_str(),
             trajectory_count));
         if (r) freeReplyObject(r);
-        r = static_cast<redisReply*>(redisCommand(ctx_, "EXPIRE %s %d", key.c_str(), std::max(1, ttl_s)));
-        if (r) freeReplyObject(r);
+        (void)ttl_s;
     }
 
     void xadd_prediction(const std::string& stream_key,

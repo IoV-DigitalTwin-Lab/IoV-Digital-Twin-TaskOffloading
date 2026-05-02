@@ -1828,6 +1828,40 @@ void MyRSUApp::runSecondaryCycle() {
         q_entry_count++;
     };
 
+    auto emitFutureVehicleSample = [&](const std::string& vehicle_id,
+                                       int step_index,
+                                       double predicted_time,
+                                       double pos_x,
+                                       double pos_y,
+                                       double speed,
+                                       double heading,
+                                       double acceleration,
+                                       double sinr_db,
+                                       const std::string& link_type,
+                                       const std::string& peer_id,
+                                       double distance_m) {
+        if (!(secondary_q_publish_enabled && redis_twin && use_redis)) {
+            return;
+        }
+        redis_twin->pushSecondaryVehicleFutureSample(
+            secondary_run_id,
+            vehicle_id,
+            cycle_id,
+            step_index,
+            predicted_time,
+            pos_x,
+            pos_y,
+            speed,
+            heading,
+            acceleration,
+            sinr_db,
+            link_type,
+            peer_id,
+            distance_m,
+            secondary_q_stream_maxlen
+        );
+    };
+
     for (const auto& kv : secondary_cycle_candidates) {
         const std::string& src_id = kv.first;
         const auto pred_it = secondary_cycle_predictions.find(src_id);
@@ -1903,6 +1937,20 @@ void MyRSUApp::runSecondaryCycle() {
                     dist,
                     sinr_db
                 );
+                emitFutureVehicleSample(
+                    src_id,
+                    step.step_index,
+                    step.sim_time,
+                    step.pos_x,
+                    step.pos_y,
+                    step.speed,
+                    step.heading_deg,
+                    step.acceleration,
+                    sinr_db,
+                    "V2RSU",
+                    rsu_id,
+                    dist
+                );
             }
         }
 
@@ -1973,6 +2021,34 @@ void MyRSUApp::runSecondaryCycle() {
                     src_step.pos_y,
                     dist,
                     sinr_db
+                );
+                emitFutureVehicleSample(
+                    src_id,
+                    src_step.step_index,
+                    src_step.sim_time,
+                    src_step.pos_x,
+                    src_step.pos_y,
+                    src_step.speed,
+                    src_step.heading_deg,
+                    src_step.acceleration,
+                    sinr_db,
+                    "V2V",
+                    peer_id,
+                    dist
+                );
+                emitFutureVehicleSample(
+                    peer_id,
+                    peer_step.step_index,
+                    peer_step.sim_time,
+                    peer_step.pos_x,
+                    peer_step.pos_y,
+                    peer_step.speed,
+                    peer_step.heading_deg,
+                    peer_step.acceleration,
+                    sinr_db,
+                    "V2V",
+                    src_id,
+                    dist
                 );
             }
         }

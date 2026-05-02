@@ -100,6 +100,8 @@ build_cpp_controller() {
 echo "[run_secondary_dt] Starting external controller (poll interval: ${DT2_POLL_INTERVAL_S}s)..."
 ensure_sim_binary_fresh
 build_cpp_controller
+# Set LD_LIBRARY_PATH for hiredis library at runtime
+export LD_LIBRARY_PATH="/home/mihiraja/.local/lib:${LD_LIBRARY_PATH:-}"
 "$CTRL_BIN" "$SCRIPT_DIR" &
 CTRL_PID=$!
 echo "[run_secondary_dt] External controller C++ PID=$CTRL_PID"
